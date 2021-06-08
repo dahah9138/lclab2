@@ -24,15 +24,26 @@ set (frankoseenlib 	frankoseen/liquidcrystal.h)
 
 set (mathlib math/vec3.h math/vec3.cpp)
 
-set (graphics graphics/ArcBall.h graphics/ArcBall.cpp)
+set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
+			  graphics/SphereArray.h graphics/SphereArray.cpp
+			  graphics/Sheet.h graphics/Sheet.cpp)
 			
+set (lclab2_src_list 	${baselib}
+						${frankoseenlib}
+						${mathlib}
+						${graphics})
+						
 #include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-add_library(lclab2		SHARED
-				${baselib}
-				${frankoseenlib}
-				${mathlib}
-				${graphics})
+add_library(lclab2 SHARED ${lclab2_src_list})
+
+if (MSVC)
+	foreach(source IN LISTS lclab2_src_list)
+		get_filename_component(source_path "${source}" PATH)
+		string(REPLACE "/" "\\" source_path_msvc "${source_path}")
+		source_group("${source_path_msvc}" FILES "${source}")
+	endforeach()
+endif()
 				
 #set_target_properties(lclab2 PROPERTIES LINKER_LANGUAGE CXX)
 

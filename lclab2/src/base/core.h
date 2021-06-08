@@ -5,6 +5,9 @@
 // Gives std::size_t
 #include <cstddef>
 
+#define _USE_MATH_DEFINES
+#include <cmath>
+
 #ifdef LC_PLATFORM_WIN32
 	#ifdef LC_BUILD_DLL
 		#define LC_API __declspec(dllexport)

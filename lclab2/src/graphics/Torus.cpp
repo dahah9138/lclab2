@@ -1,20 +1,18 @@
 #include "Torus.h"
-
-
 namespace LC {
 
 void Torus::Init() {
 
     using namespace Magnum;
-    NX = 4;
-    NY = 4;
+    NX = 60;
+    NY = 60;
     Float CX = 64.0f;
     Float CY = 64.0f;
 
-    Float r = 1.0f;
-    Float R = 2.0f;
+    Float r = 0.3f;
+    Float R = 1.0f;
 
-    // Map [0,1]x[0,1] to [0,2Pi]x[0,2Pi]
+    // Map [0,1]x[0,1] -> [0,2Pi]x[0,2Pi]
 
     Float dTheta = 2.0f * M_PI / NX;
     Float dPhi = 2.0f * M_PI / NY;
@@ -34,15 +32,19 @@ void Torus::Init() {
 
         UnsignedInt ii = i / NY;
         UnsignedInt jj = i - ii * NY;
-        Float theta = ii * dTheta;
+        Float theta = ii * dTheta + M_PI / 4.0f;
         Float phi = jj * dPhi;
 
         // Replace with torus parametrization
         data[i].position = Vector3{ (r * cos(theta) + R) * cos(phi), (r * cos(theta) + R) * sin(phi), r * sin(theta) };
 
-        Float r = data[i].position.length();
+        Float dist_norm = data[i].position.length() / (r + R);
 
-        data[i].color = Color3{ cos(CX * r) * cos(CX * r), sin(CY * r) * sin(CY * r), 0.0f };
+        // Color wheel
+        Deg d(phi * 180.0f / M_PI);
+        data[i].color = Color3::fromHsv({ d, 1.0f, 1.0f });
+
+        
 
         // i = ii * NY + jj
 
@@ -53,8 +55,6 @@ void Torus::Init() {
         UnsignedInt ind_right = right * NY + jj;
         UnsignedInt ind_down_right = right * NY + down;
 
-
-
         indVec.emplace_back(i);
         indVec.emplace_back(ind_down);
         indVec.emplace_back(ind_right);
@@ -62,9 +62,6 @@ void Torus::Init() {
         indVec.emplace_back(ind_down);
         indVec.emplace_back(ind_down_right);
         indVec.emplace_back(ind_right);
-        
-
-        
     }
 
     MeshIndexType indType;

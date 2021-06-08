@@ -2,6 +2,7 @@
 #define SHEET_H
 
 #include "core.h"
+#include "logger.h"
 
 #include <Magnum/GL/Buffer.h>
 #include <Magnum/GL/DefaultFramebuffer.h>
@@ -28,8 +29,8 @@ struct LC_API Sheet {
 		Magnum::Color3 color;
 	};
 
-	void Init();
-	void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection);
+	virtual void Init();
+	virtual void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection);
 
 	// numpoints in x and y for sheet
 	Magnum::UnsignedInt NX;

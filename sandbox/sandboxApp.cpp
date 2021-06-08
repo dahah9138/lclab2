@@ -3,16 +3,6 @@
 using namespace Magnum;
 
 /*
-    Currently just Magnum tutorial 2.
-    TODO:
-    1. Create a surface primitive
-    2. Make a struct called Vertex with position and color
-    3. Feed this container of vertices to the surface primitive
-    4. Use the shader settings to color blend the plane
-    5. Port plane primitive (with Vertex declared inside class) to lclab2 library
-    6. Call from lclab2
-    7. Repeat until all desired primitives have been created (e.g. cylinder, arrow, ...)
-    
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
 */
 
@@ -36,14 +26,14 @@ private:
     Containers::Optional<ArcBall> _arcballCamera;
 
     LC::SphereArray _grid;
-    LC::Sheet _sheet;
+    LC::Torus _sheet;
 
 
-	Matrix4 _projectionMatrix;
+    Matrix4 _projectionMatrix;
 
 };
 
-sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Configuration{}.setTitle("Cube test") } {
+sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
 	
     using namespace Math::Literals;
 

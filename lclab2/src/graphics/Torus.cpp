@@ -1,16 +1,30 @@
-#include "Sheet.h"
+#include "Torus.h"
+
 
 namespace LC {
 
-void Sheet::Init() {
+void Torus::Init() {
+
     using namespace Magnum;
-    NX = 400;
-    NY = 400;
+    NX = 4;
+    NY = 4;
     Float CX = 64.0f;
     Float CY = 64.0f;
 
+    Float r = 1.0f;
+    Float R = 2.0f;
+
+    // Map [0,1]x[0,1] to [0,2Pi]x[0,2Pi]
+
+    Float dTheta = 2.0f * M_PI / NX;
+    Float dPhi = 2.0f * M_PI / NY;
+
+
+    UnsignedInt iModx = NX - 1;
+    UnsignedInt iMody = NY - 1;
+
     UnsignedInt numVerts = NX * NY;
-    UnsignedInt numInds = 6 * (NX - 1) * (NY - 1);
+    UnsignedInt numInds = 6 * NX * NY;
 
     data = Containers::Array<Vertex>{ NoInit, numVerts };
     std::vector<UnsignedInt> indVec;
@@ -20,27 +34,37 @@ void Sheet::Init() {
 
         UnsignedInt ii = i / NY;
         UnsignedInt jj = i - ii * NY;
-        Float x = (Float)ii / (NX - 1);
-        Float y = (Float)jj / (NY - 1);
+        Float theta = ii * dTheta;
+        Float phi = jj * dPhi;
 
-        data[i].position = Vector3(-0.5f + x, CY / CX * (-0.5f + y), 0.0f);
+        // Replace with torus parametrization
+        data[i].position = Vector3{ (r * cos(theta) + R) * cos(phi), (r * cos(theta) + R) * sin(phi), r * sin(theta) };
 
         Float r = data[i].position.length();
 
         data[i].color = Color3{ cos(CX * r) * cos(CX * r), sin(CY * r) * sin(CY * r), 0.0f };
 
-        if (ii < NX - 1 && jj < NY - 1)
-        {
-            // i = ii * NY + jj
+        // i = ii * NY + jj
 
-            indVec.emplace_back(i);
-            indVec.emplace_back(i + 1);
-            indVec.emplace_back(NY + i);
+        UnsignedInt right = (ii < iModx) ? ii + 1 : 0;
+        UnsignedInt down = (jj < iMody) ? jj + 1 : 0;
 
-            indVec.emplace_back(i + 1);
-            indVec.emplace_back(NY + i + 1);
-            indVec.emplace_back(NY + i);
-        }
+        UnsignedInt ind_down = ii * NY + down;
+        UnsignedInt ind_right = right * NY + jj;
+        UnsignedInt ind_down_right = right * NY + down;
+
+
+
+        indVec.emplace_back(i);
+        indVec.emplace_back(ind_down);
+        indVec.emplace_back(ind_right);
+        
+        indVec.emplace_back(ind_down);
+        indVec.emplace_back(ind_down_right);
+        indVec.emplace_back(ind_right);
+        
+
+        
     }
 
     MeshIndexType indType;
@@ -61,14 +85,10 @@ void Sheet::Init() {
         .setIndexBuffer(sheetIndexBuffer, 0, indType, indStart, indEnd);
 }
 
-void Sheet::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
-    
-    Magnum::GL::Renderer::disable(Magnum::GL::Renderer::Feature::FaceCulling);
+void Torus::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
 
     sheetShader.setTransformationProjectionMatrix(projection * arcball->viewMatrix())
                .draw(sheetMesh);
-
-    Magnum::GL::Renderer::enable(Magnum::GL::Renderer::Feature::FaceCulling);
 }
 
 }

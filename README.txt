@@ -1,13 +1,18 @@
-Size of empty project after just git cloning corrade and magnum: 27.5 MB.
-After building something that just makes a gray screen: 134 MB.
+Building:
+<Dependencies>
+- magnum <https://github.com/mosra/magnum.git>
+- magnum-plugins <https://github.com/mosra/magnum-plugins.git>
+- corrade <https://github.com/mosra/corrade.git>
 
+<Directions>
+1. git clone the latest versions of magnum and corrade into external
+2. git clone the latest version of magnum-plugins
+3. Create a build folder in the root directory
+4. cd to build
+5. cmake ..
+[Unix]
+6. make
+[Windows]
+6. cmake --build .
 
-TODO:
-1. Work through several example projects.
-2. Learn about instancing through magnum interface.
-3. Create some 3D models and import them using assimp in magnum.
-4. Make a couple toy projects e.g. visualizing 2D/3D graphs.
-5. Use the magnum framework to develop a simulation engine for various purposes (e.g. Finite element, finite difference, rigid body simulations,...).
-
-End goal:
-- Create a project that I can put on github and be proud of.
+Congratulations!

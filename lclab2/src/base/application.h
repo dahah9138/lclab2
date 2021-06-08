@@ -14,7 +14,7 @@
 #include <Magnum/Shaders/VertexColor.h>
 #include <Magnum/Platform/Sdl2Application.h>
 #include <Magnum/Primitives/Cube.h>
-#include <Magnum/Primitives/icoSphere.h>
+#include <Magnum/Primitives/Icosphere.h>
 #include <Magnum/Shaders/PhongGL.h>
 #include <Magnum/Trade/MeshData.h>
 

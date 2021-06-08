@@ -8,6 +8,7 @@ set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules/" ${CMAKE_MODULE_PATH})
 add_subdirectory(external/corrade EXCLUDE_FROM_ALL)
 
 
+# Does not currently support macOS
 if (WIN32)
 	add_definitions(-DLC_PLATFORM_WIN32)
 
@@ -18,6 +19,8 @@ if (WIN32)
 	# 	brew install sdl2               # on macOS (via Homebrew)
 
 	set(CMAKE_PREFIX_PATH ${PROJECT_SOURCE_DIR}/external/SDL2-2.0.10 ${CMAKE_PREFIX_PATH})
+elseif(UNIX)
+	add_definitions(-DLC_PLATFORM_UNIX)
 endif()
 
 # Add Magnum as a subproject, enable Sdl2Application

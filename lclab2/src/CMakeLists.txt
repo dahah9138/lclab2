@@ -28,8 +28,7 @@ set (graphics graphics/ArcBall.h graphics/ArcBall.cpp)
 			
 #include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-add_library(lclab2
-				SHARED
+add_library(lclab2		SHARED
 				${baselib}
 				${frankoseenlib}
 				${mathlib}
@@ -44,8 +43,8 @@ target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/base
 target_link_libraries(lclab2 PUBLIC
  #   Corrade::Main
 	Magnum::Application
-    Magnum::GL
-    Magnum::Magnum
+    	Magnum::GL
+    	Magnum::Magnum
 	Magnum::MeshTools
 	Magnum::Primitives
 	Magnum::SceneGraph

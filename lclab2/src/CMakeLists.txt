@@ -20,7 +20,9 @@ set (baselib		base/entrypoint.h
 					base/logger.h base/logger.cpp
 					base/scalar.h)
 				
-set (frankoseenlib 	frankoseen/liquidcrystal.h)
+set (frankoseenlib 	solver/Solver.h
+					solver/frankoseen/FOAssets.h
+					solver/frankoseen/FOFDSolver.h solver/frankoseen/FOFDSolver.cpp)
 
 set (mathlib math/vec3.h math/vec3.cpp)
 
@@ -36,8 +38,7 @@ set (lclab2_src_list 	${baselib}
 						${frankoseenlib}
 						${mathlib}
 						${graphics})
-						
-#include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+					
 
 add_library(lclab2 SHARED ${lclab2_src_list})
 
@@ -51,7 +52,8 @@ endif()
 				
 #set_target_properties(lclab2 PROPERTIES LINKER_LANGUAGE CXX)
 
-target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/base
+target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+										 ${CMAKE_CURRENT_SOURCE_DIR}/base
 										 ${CMAKE_SOURCE_DIR}/deps/include
 										 ${CMAKE_SOURCE_DIR}/deps/include/spdlog/include)
 

@@ -28,7 +28,7 @@ private:
     // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
-    LC::NormalSheet _sheetNormal;
+    LC::NormalTorus _sheetNormal;
 
     Matrix4 _projectionMatrix;
 
@@ -55,7 +55,7 @@ sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Confi
         const Vector3 up = Vector3::yAxis();
         const Deg fov = 45.0_degf;
         _arcballCamera.emplace(eye, viewCenter, up, fov, windowSize());
-        _arcballCamera->setLagging(0.55f);
+        _arcballCamera->setLagging(0.9f);
 
         _projectionMatrix = Matrix4::perspectiveProjection(fov,
             Vector2{ framebufferSize() }.aspectRatio(), 0.01f, 100.0f);

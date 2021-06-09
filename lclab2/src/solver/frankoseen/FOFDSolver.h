@@ -13,14 +13,29 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
 	struct LC_API FOFDSolver : public Solver {
 		
+		typedef Eigen::TensorMap<Eigen::Tensor<scalar, 4>> Tensor4;
+
+
 		struct dataset : public ElasticConstants {
-			Math::vec3* n;
+			std::size_t numIterations = 0;
+			int voxels[3];
+			bool bc[3];
+			std::size_t size_of_scalar = SIZE_OF_SCALAR;
+			scalar* directors = 0;
 		};
 
+
+		FOFDSolver();
+		~FOFDSolver();
+
 		void Init() override;
-		void Relax() override;
+		void Relax(const std::size_t& iterations) override;
 
 		void Export(const char* filename, const char* filepath) override;
+		void Import(const char* filename, const char* filepath) override;
+
+
+		dataset data;
 
 	};
 	

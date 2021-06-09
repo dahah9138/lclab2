@@ -3,6 +3,7 @@ Building:
 - magnum <https://github.com/mosra/magnum.git>
 - magnum-plugins <https://github.com/mosra/magnum-plugins.git>
 - corrade <https://github.com/mosra/corrade.git>
+- Eigen <https://github.com/libigl/eigen.git>
 - SDL
 
 * For macOS and linux
@@ -13,13 +14,14 @@ Building:
 
 <Directions>
 1. git clone the latest versions of magnum and corrade into external
-2. git clone the latest version of magnum-plugins
-3. Create a build folder in the root directory
-4. cd to build
-5. cmake ..
+2. git clone the latest version of eigen into external
+3. git clone the latest version of magnum-plugins
+4. Create a build folder in the root directory
+5. cd to build
+6. cmake ..
 [Unix]
-6. make
+7. make
 [Windows]
-6. cmake --build .
+7. cmake --build .
 
 Congratulations!

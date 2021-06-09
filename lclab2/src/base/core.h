@@ -14,6 +14,8 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 
+#define BIT(X) (0 << X)
+
 #ifdef LC_PLATFORM_WIN32
 	#ifdef LC_BUILD_DLL
 		#define LC_API __declspec(dllexport)

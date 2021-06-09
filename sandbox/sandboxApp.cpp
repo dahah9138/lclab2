@@ -44,8 +44,8 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Confi
     setupCamera(0.9f);
 
     /* Setup spheres */
-    _grid.Init();
-    _sheet.Init();
+    //_grid.Init();
+    //_sheet.Init();
     _sheetNormal.Init();
 
     LC_INFO("Created sandbox!");

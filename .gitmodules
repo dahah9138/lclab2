@@ -1,15 +1,15 @@
 [submodule "eigen"]
 	path = deps/include/eigen
-	url = https://github.com/libigl/eigen.git
+	url = https://github.com/libigl/eigen
+	
 [submodule "magnum-plugins"]
 	path = magnum-plugins
-	url = https://github.com/mosra/magnum-plugins.git
+	url = https://github.com/mosra/magnum-plugins
 	
 [submodule "magnum"]
 	path = external/magnum
-	url = https://github.com/mosra/magnum.git
+	url = https://github.com/mosra/magnum
 	
 [submodule "corrade"]
 	path = external/corrade
-	url = https://github.com/mosra/corrade.git
-	
+	url = https://github.com/mosra/corrade

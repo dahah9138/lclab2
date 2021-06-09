@@ -1,9 +1,9 @@
 Building:
 <Dependencies>
-- magnum <https://github.com/mosra/magnum.git>
-- magnum-plugins <https://github.com/mosra/magnum-plugins.git>
-- corrade <https://github.com/mosra/corrade.git>
-- Eigen <https://github.com/libigl/eigen.git>
+- magnum <https://github.com/mosra/magnum>
+- magnum-plugins <https://github.com/mosra/magnum-plugins>
+- corrade <https://github.com/mosra/corrade>
+- Eigen <https://github.com/libigl/eigen>
 - SDL
 
 * For macOS and linux
@@ -13,15 +13,15 @@ Building:
 	# 	brew install sdl2               # on macOS (via Homebrew)
 
 <Directions>
-1. git clone the latest versions of magnum and corrade into external
-2. git clone the latest version of eigen into external
-3. git clone the latest version of magnum-plugins
+1. 'git clone' this project into where you want it
+2. 'cd' into the root directory
+3. 'git submodule update --init'
 4. Create a build folder in the root directory
-5. cd to build
-6. cmake ..
+5. 'cd' to build
+6. 'cmake ..'
 [Unix]
-7. make
+7. 'make'
 [Windows]
-7. cmake --build .
+7. 'cmake --build .'
 
 Congratulations!

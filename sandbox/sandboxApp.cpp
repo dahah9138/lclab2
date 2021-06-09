@@ -25,9 +25,10 @@ private:
 
     Containers::Optional<ArcBall> _arcballCamera;
 
+    // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
-    LC::NormalTorus _sheetNormal;
+    LC::NormalSheet _sheetNormal;
 
     Matrix4 _projectionMatrix;
 
@@ -49,7 +50,7 @@ sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Confi
 
     /* Setup camera */
     {
-        const Vector3 eye = Vector3::zAxis(5.0f);
+        const Vector3 eye = Vector3::zAxis(-5.0f);
         const Vector3 viewCenter;
         const Vector3 up = Vector3::yAxis();
         const Deg fov = 45.0_degf;

@@ -1,6 +1,8 @@
-#pragma once
+#ifndef SCALAR_H
+#define SCALAR_H
 
-namespace LC
-{
+namespace LC {
 	typedef double scalar;
 }
+
+#endif

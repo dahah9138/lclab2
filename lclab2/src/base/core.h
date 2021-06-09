@@ -5,6 +5,12 @@
 // Gives std::size_t
 #include <cstddef>
 
+#include <string>
+
+// Gives std::pair
+#include <utility>
+
+// Gives M_PI
 #define _USE_MATH_DEFINES
 #include <cmath>
 

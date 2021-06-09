@@ -4,9 +4,12 @@ using namespace Magnum;
 
 /*
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
+    - Needs Jones Matrix (I have matrices through Magnum)
+    - Needs Lamp specifications
+    - LC Optical properties
 */
 
-class sandbox : public LC::application
+class sandbox : public LC::Application
 {
 public:
 
@@ -20,21 +23,14 @@ private:
     void mousePressEvent(MouseEvent& event) override;
     void mouseReleaseEvent(MouseEvent& event) override;
     void mouseMoveEvent(MouseMoveEvent& event) override;
-    void viewportEvent(ViewportEvent& event) override;
-    void mouseScrollEvent(MouseScrollEvent& event) override;
-
-    Containers::Optional<ArcBall> _arcballCamera;
 
     // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
     LC::NormalTorus _sheetNormal;
-
-    Matrix4 _projectionMatrix;
-
 };
 
-sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
+sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
 	
     using namespace Math::Literals;
 
@@ -49,17 +45,7 @@ sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Confi
     }
 
     /* Setup camera */
-    {
-        const Vector3 eye = Vector3::zAxis(-5.0f);
-        const Vector3 viewCenter;
-        const Vector3 up = Vector3::yAxis();
-        const Deg fov = 45.0_degf;
-        _arcballCamera.emplace(eye, viewCenter, up, fov, windowSize());
-        _arcballCamera->setLagging(0.9f);
-
-        _projectionMatrix = Matrix4::perspectiveProjection(fov,
-            Vector2{ framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
-    }
+    setupCamera(0.9f);
 
     /* Setup spheres */
     _grid.Init();
@@ -125,25 +111,8 @@ void sandbox::mouseMoveEvent(MouseMoveEvent& event) {
     redraw(); /* camera has changed, redraw! */
 }
 
-void sandbox::viewportEvent(ViewportEvent& event) {
-    GL::defaultFramebuffer.setViewport({ {}, event.framebufferSize() });
-    _arcballCamera->reshape(event.windowSize());
 
-    _projectionMatrix = Matrix4::perspectiveProjection(_arcballCamera->fov(),
-        Vector2{ event.framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
-}
-
-void sandbox::mouseScrollEvent(MouseScrollEvent& event) {
-    const Float delta = event.offset().y();
-    if (Math::abs(delta) < 1.0e-2f) return;
-
-    _arcballCamera->zoom(delta);
-
-    event.setAccepted();
-    redraw(); /* camera has changed, redraw! */
-}
-
-LC::application* LC::createApplication(int argc, char **argv)
+LC::Application* LC::createApplication(int argc, char **argv)
 {
 
 	return new sandbox{ Platform::Application::Arguments{argc, argv} };

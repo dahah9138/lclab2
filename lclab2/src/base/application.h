@@ -1,5 +1,5 @@
-#ifndef LCLAB_H
-#define LCLAB_H
+#ifndef APPLICATION_H
+#define APPLICATION_H
 
 
 #include <Magnum/GL/Buffer.h>
@@ -22,17 +22,25 @@
 
 #include "core.h"
 #include "logger.h"
+#include "../graphics/ArcBall.h"
 
 namespace LC
 {
 	using namespace Magnum;
 	
-	class LC_API application: public Platform::Application {
+	class LC_API Application : public Platform::Application {
     public:
-        explicit application(const Arguments& arguments);
-		explicit application(const Arguments& arguments, const Configuration& configuration);
+        explicit Application(const Arguments& arguments);
+		explicit Application(const Arguments& arguments, const Configuration& configuration);
 
-		virtual ~application();
+		virtual void setupCamera(const Float& lag);
+		virtual void mouseScrollEvent(MouseScrollEvent& event) override;
+		virtual void viewportEvent(ViewportEvent& event) override;
+
+		virtual ~Application();
+
+		Containers::Optional<ArcBall> _arcballCamera;
+		Matrix4 _projectionMatrix;
 	};
 	
 }

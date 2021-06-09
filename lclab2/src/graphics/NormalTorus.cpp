@@ -8,11 +8,9 @@ void NormalTorus::Init() {
 	
     NX = 128;
     NY = 128;
-    Float CX = 64.0f;
-    Float CY = 64.0f;
 
-    Float r = 0.3f;
-    Float R = 1.0f;
+    const Float r = 0.3f;
+    const Float R = 1.0f;
 
     // Map [0,1]x[0,1] -> [0,2Pi]x[0,2Pi]
 
@@ -63,6 +61,8 @@ void NormalTorus::Init() {
         indVec.emplace_back(ind_down_right);
         indVec.emplace_back(ind_right);
     }
+
+    // Compress indices
 
     MeshIndexType indType;
     UnsignedInt indStart, indEnd;

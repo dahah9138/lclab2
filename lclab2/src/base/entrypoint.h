@@ -5,7 +5,7 @@
 
 namespace LC
 { 
-    extern application *createApplication(int argc, char** argv);
+    extern Application *createApplication(int argc, char** argv);
 }
 
 int main(int argc, char** argv) {

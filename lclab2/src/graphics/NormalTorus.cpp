@@ -1,9 +1,11 @@
-#include "Torus.h"
+#include "NormalTorus.h"
+
 namespace LC {
 
-void Torus::Init() {
-
-    using namespace Magnum;
+void NormalTorus::Init() {
+    
+	using namespace Magnum;
+	
     NX = 60;
     NY = 60;
     Float CX = 64.0f;
@@ -37,15 +39,14 @@ void Torus::Init() {
 
         data[i].position = Vector3{ (r * cos(theta) + R) * cos(phi), (r * cos(theta) + R) * sin(phi), r * sin(theta) };
 
-        Float dist_norm = data[i].position.length() / (r + R);
-
         // Color wheel
         Deg d(phi * 180.0f / M_PI);
         data[i].color = Color3::fromHsv({ d, 1.0f, 1.0f });
-
-        
-
-        // i = ii * NY + jj
+		
+		Vector3 v1{ R * cos(phi), R * sin(phi), 0.0f };
+		Vector3 direction = data[i].position - v1;
+		
+		data[i].normal = direction / direction.length();
 
         UnsignedInt right = (ii < iModx) ? ii + 1 : 0;
         UnsignedInt down = (jj < iMody) ? jj + 1 : 0;
@@ -68,7 +69,7 @@ void Torus::Init() {
 
     std::tie(ind_data, indType, indStart, indEnd) = MeshTools::compressIndices(indVec);
 
-    sheetShader = Shaders::VertexColorGL3D{};
+    sheetShader = Shaders::PhongGL{ Shaders::PhongGL::Flag::VertexColor };
     sheetBuffer = GL::Buffer{};
     sheetIndexBuffer = GL::Buffer{};
 
@@ -76,15 +77,10 @@ void Torus::Init() {
     sheetIndexBuffer.setData(ind_data, GL::BufferUsage::StaticDraw);
 
     sheetMesh.setCount(numInds).addVertexBuffer(sheetBuffer, 0,
-        Shaders::VertexColorGL3D::Position{},
-        Shaders::VertexColorGL3D::Color3{})
+        Shaders::PhongGL::Position{},
+        Shaders::PhongGL::Normal{},
+		Shaders::PhongGL::Color3{})
         .setIndexBuffer(sheetIndexBuffer, 0, indType, indStart, indEnd);
-}
-
-void Torus::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
-
-    sheetShader.setTransformationProjectionMatrix(projection * arcball->viewMatrix())
-               .draw(sheetMesh);
 }
 
 }

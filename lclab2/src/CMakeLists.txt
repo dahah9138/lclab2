@@ -26,8 +26,11 @@ set (mathlib math/vec3.h math/vec3.cpp)
 
 set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/SphereArray.h graphics/SphereArray.cpp
+			  # Mesh sheets
 			  graphics/Sheet.h graphics/Sheet.cpp
-			  graphics/Torus.h graphics/Torus.cpp)
+			  graphics/NormalSheet.h graphics/NormalSheet.cpp
+			  graphics/Torus.h graphics/Torus.cpp
+			  graphics/NormalTorus.h graphics/NormalTorus.cpp)
 			
 set (lclab2_src_list 	${baselib}
 						${frankoseenlib}

@@ -27,7 +27,7 @@ private:
 
     LC::SphereArray _grid;
     LC::Torus _sheet;
-
+    LC::NormalTorus _sheetNormal;
 
     Matrix4 _projectionMatrix;
 
@@ -63,6 +63,7 @@ sandbox::sandbox(const Arguments& arguments) : LC::application{ arguments, Confi
     /* Setup spheres */
     _grid.Init();
     _sheet.Init();
+    _sheetNormal.Init();
 
     LC_INFO("Created sandbox!");
 
@@ -81,8 +82,8 @@ void sandbox::drawEvent()
     const bool moving = _arcballCamera->updateTransformation();
 
     //_grid.Draw(_arcballCamera, _projectionMatrix);
-    _sheet.Draw(_arcballCamera, _projectionMatrix);
-
+    //_sheet.Draw(_arcballCamera, _projectionMatrix);
+    _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
     swapBuffers();
 

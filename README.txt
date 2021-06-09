@@ -15,7 +15,7 @@ Building:
 <Directions>
 1. 'git clone' this project into where you want it
 2. 'cd' into the root directory
-3. 'git submodule update --init'
+3. 'git submodule update --init --recursive'
 4. Create a build folder in the root directory
 5. 'cd' to build
 6. 'cmake ..'

@@ -36,6 +36,14 @@ namespace LC
 		virtual void setupCamera(const Float& lag);
 		virtual void mouseScrollEvent(MouseScrollEvent& event) override;
 		virtual void viewportEvent(ViewportEvent& event) override;
+		virtual void mouseMoveEvent(MouseMoveEvent& event) override;
+		virtual void mousePressEvent(MouseEvent& event) override;
+
+		inline void enableDepthTest();
+		inline void disableDepthTest();
+
+		inline void enableFaceCulling();
+		inline void disableFaceCulling();
 
 		virtual ~Application();
 

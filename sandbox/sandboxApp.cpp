@@ -22,7 +22,6 @@ private:
 
     void mousePressEvent(MouseEvent& event) override;
     void mouseReleaseEvent(MouseEvent& event) override;
-    void mouseMoveEvent(MouseMoveEvent& event) override;
 
     // Tested geometries
     LC::SphereArray _grid;
@@ -31,18 +30,15 @@ private:
 };
 
 sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
-	
-    using namespace Math::Literals;
 
     /* Setup window and parameters */
-    {
-        GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
-        GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
+    enableDepthTest();
+    enableFaceCulling();
 
-        /* Loop at 60 Hz max */
-        setSwapInterval(1);
-        setMinimalLoopPeriod(16);
-    }
+    /* Loop at 60 Hz max */
+    setSwapInterval(1);
+    setMinimalLoopPeriod(16);
+    
 
     /* Setup camera */
     setupCamera(0.9f);
@@ -82,12 +78,11 @@ void sandbox::mousePressEvent(MouseEvent& event) {
     // Configure the mouse press event
     SDL_CaptureMouse(SDL_TRUE);
 
-    for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
-        const Vector3 tmpCol = Vector3(std::rand(), std::rand(), std::rand()) /
-            Float(RAND_MAX);
-        _grid.sphereInstanceData[i].color = tmpCol;
-    }
-
+    //for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
+    //    const Vector3 tmpCol = Vector3(std::rand(), std::rand(), std::rand()) /
+    //        Float(RAND_MAX);
+    //    _grid.sphereInstanceData[i].color = tmpCol;
+    //}
 
     _arcballCamera->initTransformation(event.position());
     event.setAccepted();
@@ -99,21 +94,8 @@ void sandbox::mouseReleaseEvent(MouseEvent& event) {
     SDL_CaptureMouse(SDL_FALSE);
 }
 
-void sandbox::mouseMoveEvent(MouseMoveEvent& event) {
 
-    if (!event.buttons()) return;
-
-    if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
-        _arcballCamera->translate(event.position());
-    else _arcballCamera->rotate(event.position());
-
-    event.setAccepted();
-    redraw(); /* camera has changed, redraw! */
-}
-
-
-LC::Application* LC::createApplication(int argc, char **argv)
-{
+LC::Application* LC::createApplication(int argc, char **argv) {
 
 	return new sandbox{ Platform::Application::Arguments{argc, argv} };
 }

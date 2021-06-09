@@ -48,6 +48,45 @@ namespace LC
 			Vector2{ event.framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
 	}
 
+	void Application::mouseMoveEvent(MouseMoveEvent& event) {
+
+		if (!event.buttons()) return;
+
+		if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
+			_arcballCamera->translate(event.position());
+		else _arcballCamera->rotate(event.position());
+
+		event.setAccepted();
+		redraw(); /* camera has changed, redraw! */
+	}
+
+	void Application::mousePressEvent(MouseEvent& event) {
+
+		// Configure the mouse press event
+		SDL_CaptureMouse(SDL_TRUE);
+
+
+		_arcballCamera->initTransformation(event.position());
+		event.setAccepted();
+		redraw(); /* camera has changed, redraw! */
+	}
+
+	void Application::enableDepthTest() {
+		GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
+	}
+
+	void Application::disableDepthTest() {
+		GL::Renderer::disable(GL::Renderer::Feature::DepthTest);
+	}
+
+	void Application::enableFaceCulling() {
+		GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
+	}
+
+	void Application::disableFaceCulling() {
+		GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
+	}
+
 	Application::~Application() {
 		Debug{} << "Terminating application.\n";
 	}

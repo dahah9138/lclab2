@@ -22,7 +22,7 @@
 	#else
 		#define LC_API __declspec(dllimport)
 	#endif
-#elif LC_PLATFORM_UNIX
+#elif LC_PLATFORM_UNIX || LC_PLATFORM_MACOS
 	#ifdef LC_BUILD_DLL
 		#define LC_API __attribute__((visibility("default")))
 	#else

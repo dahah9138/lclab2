@@ -23,9 +23,9 @@ namespace LC { namespace FrankOseen {
 
 
 	struct LC_API ElasticConstants {
-		SIscalar k11;
-		SIscalar k22;
-		SIscalar k33;
+		SIscalar k11{0.0, "NOINIT"};
+		SIscalar k22{0.0, "NOINIT"};
+		SIscalar k33{0.0, "NOINIT"};
 
 		// Returns the specified elastic constant of 5CB in pN
 		// Allowed arguments: k11, k22, k33

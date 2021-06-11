@@ -28,7 +28,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				None = 0,
 				Directors = BIT(1),
 				Voxels = BIT(2),
-				CellDims = BIT(3)
+				CellDims = BIT(3),
+				Elastic = BIT(4)
 			};
 
 			DataError errors = DataError::None;

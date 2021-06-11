@@ -9,14 +9,30 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		scalar vol = cell_dims[0] * cell_dims[1] * cell_dims[2];
 
 		// Failed voxel check
-		if (!numDirectors)
+		if (!numDirectors) {
 			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
 
-		if (!vol)
-			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels)|static_cast<int>(errors));
+			return 1;
+		}
 
+		// Failed cell dim check
+		if (vol == 0.0) {
 
-		return (errors != Dataset::DataError::None);
+			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
+			return 1;
+		}
+
+		// Failed elastic constant check
+		if (!k11.second.compare("ERROR") || !k22.second.compare("ERROR") || !k33.second.compare("ERROR") ||
+		    !k11.second.compare("NOINIT") || !k22.second.compare("NOINIT") || !k33.second.compare("NOINIT")) {
+
+			errors = static_cast<DataError>(static_cast<int>(DataError::Elastic) | static_cast<int>(errors));
+
+			return 1;
+		}
+
+		// No errors
+		return 0;
 
 	}
 

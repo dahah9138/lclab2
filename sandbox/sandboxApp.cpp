@@ -64,8 +64,8 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Confi
     data->voxels[2] = 10;
 
     data->cell_dims[0] = 1.0;
+    data->cell_dims[1] = 1.0;
     data->cell_dims[2] = 1.0;
-    data->cell_dims[3] = 1.0;
 
     data->k11 = LC::FrankOseen::ElasticConstants::_5CB("k11");
     data->k22 = LC::FrankOseen::ElasticConstants::_5CB("k22");

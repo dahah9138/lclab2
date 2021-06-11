@@ -16,7 +16,7 @@ set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 add_definitions(-DLC_BUILD_DLL)
 
 set (baselib		base/entrypoint.h
-					base/application.h base/application.cpp
+					base/Application.h base/Application.cpp
 					base/logger.h base/logger.cpp
 					base/scalar.h)
 				

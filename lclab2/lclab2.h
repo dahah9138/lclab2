@@ -1,7 +1,7 @@
 #pragma once
 
 // Base
-#include "src/base/application.h"
+#include "src/base/Application.h"
 #include "src/base/logger.h"
 // LC
 #include "src/solver/Solver.h"

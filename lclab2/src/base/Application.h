@@ -39,11 +39,11 @@ namespace LC
 		virtual void mouseMoveEvent(MouseMoveEvent& event) override;
 		virtual void mousePressEvent(MouseEvent& event) override;
 
-		inline void enableDepthTest();
-		inline void disableDepthTest();
+		void enableDepthTest();
+		void disableDepthTest();
 
-		inline void enableFaceCulling();
-		inline void disableFaceCulling();
+		void enableFaceCulling();
+		void disableFaceCulling();
 
 		virtual ~Application();
 

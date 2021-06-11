@@ -1,7 +1,7 @@
 #pragma once
 
 
-#ifdef LC_PLATFORM_WIN32 || LC_PLATFORM_UNIX || LC_PLATFORM_MACOS
+#if defined(LC_PLATFORM_WIN32) || defined(LC_PLATFORM_UNIX) || defined(LC_PLATFORM_MACOS)
 
 namespace LC { 
     extern Application *createApplication(int argc, char** argv);

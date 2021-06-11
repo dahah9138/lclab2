@@ -27,6 +27,9 @@ private:
     LC::SphereArray _grid;
     LC::Torus _sheet;
     LC::NormalTorus _sheetNormal;
+
+    // Solver
+    LC::Solver* _solver;
 };
 
 sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
@@ -48,12 +51,36 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Confi
     //_sheet.Init();
     _sheetNormal.Init();
 
-    LC_INFO("Created sandbox!");
 
+    _solver = new LC::FrankOseen::ElasticOnly::FOFDSolver;
+
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::dataset;
+
+    /* Setup data */
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
+    data->voxels[0] = 10;
+    data->voxels[1] = 10;
+    data->voxels[2] = 10;
+
+    data->cell_dims[0] = 1.0;
+    data->cell_dims[2] = 1.0;
+    data->cell_dims[3] = 1.0;
+
+    data->k11 = LC::FrankOseen::ElasticConstants::_5CB("k11");
+    data->k22 = LC::FrankOseen::ElasticConstants::_5CB("k22");
+    data->k33 = LC::FrankOseen::ElasticConstants::_5CB("k33");
+
+    _solver->Init();
+
+
+    LC_INFO("Created sandbox!");
 }
 
 sandbox::~sandbox() {
 	LC_INFO("Destroying sandbox.");
+
+    delete _solver;
 }
 
 void sandbox::drawEvent()
@@ -70,7 +97,12 @@ void sandbox::drawEvent()
 
     swapBuffers();
 
-    if (moving) redraw();
+
+    // TODO: Add a button with imgui to start the relax
+    bool pressedRelaxAndRelaxFinished = false;
+
+    if (moving || pressedRelaxAndRelaxFinished) redraw();
+
 }
 
 void sandbox::mousePressEvent(MouseEvent& event) {

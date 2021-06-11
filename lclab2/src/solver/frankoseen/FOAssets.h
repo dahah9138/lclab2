@@ -26,6 +26,32 @@ namespace LC { namespace FrankOseen {
 		SIscalar k11;
 		SIscalar k22;
 		SIscalar k33;
+
+		// Returns the specified elastic constant of 5CB in pN
+		// Allowed arguments: k11, k22, k33
+		static SIscalar _5CB(const std::string &K) {
+
+			SIscalar k;
+			k.second = "pN";
+
+			if (!K.compare("k11")) {
+				k.first = 6.4;
+			}
+			else if (!K.compare("k22")) {
+				k.first = 3.0;
+			}
+			else if (!K.compare("k33")) {
+				k.first = 10.0;
+			}
+			else {
+				k.first = 0.0;
+				k.second = "ERROR";
+			}
+
+			return k;
+
+		}
+
 	};
 
 	struct LC_API ElectricConstants {

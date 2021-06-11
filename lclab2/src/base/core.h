@@ -6,6 +6,7 @@
 #include <cstddef>
 
 #include <string>
+#include <algorithm>
 
 // Gives std::pair
 #include <utility>

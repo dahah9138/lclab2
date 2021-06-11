@@ -17,10 +17,11 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 
 		struct dataset : public ElasticConstants {
-			std::size_t numIterations = 0;
-			int voxels[3];
-			bool bc[3];
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
+			std::size_t numIterations = 0;
+			int voxels[3] = { 0, 0, 0 };
+			scalar cell_dims[3] = { 0.0, 0.0, 0.0 };
+			bool bc[3] = { 0, 0, 0 };
 			scalar* directors = 0;
 		};
 
@@ -34,9 +35,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Export(const char* filename, const char* filepath) override;
 		void Import(const char* filename, const char* filepath) override;
 
-
+		dataset* GetData();
 		dataset data;
 
+		void* GetDataPtr() override;
 	};
 	
 }}}

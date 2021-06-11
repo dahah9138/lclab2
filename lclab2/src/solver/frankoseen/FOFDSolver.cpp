@@ -16,18 +16,23 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	void FOFDSolver::Init() {
 
+		// This will become more complicated when GPU operations are added!
+
+
 		/* Allocate directors */
 		if (data.directors) {
 			delete[] data.directors;
 			data.directors = 0;
 		}
 
-
+		bool invalidData = (static_cast<int>(Solver::Error::DataInit) & static_cast<int>(errors)) != 0;
 		std::size_t numDirectors = data.voxels[0] * data.voxels[1] * data.voxels[2];
 
-		if (!numDirectors) {
+		if (!numDirectors || invalidData) {
 
-			LC_INFO("Invalid number of directors (0)");
+			LC_CRITICAL("Invalid data initialization");
+			// Toggle error
+			errors = static_cast<Solver::Error>(static_cast<int>(Solver::Error::Init) | static_cast<int>(errors));
 			return;
 		}
 
@@ -54,6 +59,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	void FOFDSolver::Import(const char* filename, const char* filepath) {
 
+	}
+
+	void* FOFDSolver::GetDataPtr() {
+		return (void*)&data;
+	}
+
+	FOFDSolver::dataset* FOFDSolver::GetData() {
+		return &data;
 	}
 
 }}}

@@ -16,13 +16,26 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		typedef Eigen::TensorMap<Eigen::Tensor<scalar, 4>> Tensor4;
 
 
-		struct dataset : public ElasticConstants {
+		struct Dataset : public ElasticConstants {
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
 			std::size_t numIterations = 0;
 			int voxels[3] = { 0, 0, 0 };
 			scalar cell_dims[3] = { 0.0, 0.0, 0.0 };
 			bool bc[3] = { 0, 0, 0 };
 			scalar* directors = 0;
+
+			enum class DataError {
+				None = 0,
+				Directors = BIT(1),
+				Voxels = BIT(2),
+				CellDims = BIT(3)
+			};
+
+			DataError errors = DataError::None;
+
+			// Returns 0 for no errors, 1 for errors
+			bool chkErrors();
+
 		};
 
 
@@ -35,8 +48,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Export(const char* filename, const char* filepath) override;
 		void Import(const char* filename, const char* filepath) override;
 
-		dataset* GetData();
-		dataset data;
+		Dataset* GetData();
+		Dataset data;
 
 		void* GetDataPtr() override;
 	};

@@ -2,6 +2,25 @@
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
+
+	bool FOFDSolver::Dataset::chkErrors() {
+
+		std::size_t numDirectors = voxels[0] * voxels[1] * voxels[2];
+		scalar vol = cell_dims[0] * cell_dims[1] * cell_dims[2];
+
+		// Failed voxel check
+		if (!numDirectors)
+			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
+
+		if (!vol)
+			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels)|static_cast<int>(errors));
+
+
+		return (errors != Dataset::DataError::None);
+
+	}
+
+
 	FOFDSolver::FOFDSolver() {
 
 	}
@@ -25,10 +44,11 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			data.directors = 0;
 		}
 
-		bool invalidData = (static_cast<int>(Solver::Error::DataInit) & static_cast<int>(errors)) != 0;
-		std::size_t numDirectors = data.voxels[0] * data.voxels[1] * data.voxels[2];
+		// Valid data check
+		bool invalidData = data.chkErrors();
 
-		if (!numDirectors || invalidData) {
+
+		if (invalidData) {
 
 			LC_CRITICAL("Invalid data initialization");
 			// Toggle error
@@ -36,6 +56,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			return;
 		}
 
+		/* Initialize data */
+		std::size_t numDirectors = data.voxels[0] * data.voxels[1] * data.voxels[2];
 		data.directors = new scalar[3 * numDirectors];
 	}
 
@@ -65,7 +87,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		return (void*)&data;
 	}
 
-	FOFDSolver::dataset* FOFDSolver::GetData() {
+	FOFDSolver::Dataset* FOFDSolver::GetData() {
 		return &data;
 	}
 

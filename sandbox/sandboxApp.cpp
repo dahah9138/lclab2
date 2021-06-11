@@ -54,7 +54,7 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Confi
 
     _solver = new LC::FrankOseen::ElasticOnly::FOFDSolver;
 
-    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::dataset;
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
 
     /* Setup data */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());

@@ -5,8 +5,6 @@ find_package(Magnum REQUIRED
 			SceneGraph
 			Shaders 
 			Sdl2Application)
-			
-find_package(MagnumIntegration REQUIRED ImGui)
 
 set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 
@@ -69,9 +67,7 @@ target_link_libraries(lclab2 PUBLIC
 	Magnum::MeshTools
 	Magnum::Primitives
 	Magnum::SceneGraph
-	Magnum::Shaders
-	MagnumIntegration::ImGui
-	)
+	Magnum::Shaders)
 
 # Make the executable a default target to build & run in Visual Studio
 #set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT lclab2)

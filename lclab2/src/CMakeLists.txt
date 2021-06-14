@@ -54,10 +54,10 @@ endif()
 
 target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 										 ${CMAKE_CURRENT_SOURCE_DIR}/base
-										 ${CMAKE_SOURCE_DIR}/deps/include
-										 ${CMAKE_SOURCE_DIR}/deps/include/spdlog/include
-										 ${CMAKE_SOURCE_DIR}/deps/include/eigen
-										 ${CMAKE_SOURCE_DIR}/deps/include/eigen/unsupported)
+										 ${CMAKE_SOURCE_DIR}/external
+										 ${CMAKE_SOURCE_DIR}/external/spdlog/include
+										 ${CMAKE_SOURCE_DIR}/external/eigen
+										 ${CMAKE_SOURCE_DIR}/external/eigen/unsupported)
 
 target_link_libraries(lclab2 PUBLIC
  #   Corrade::Main

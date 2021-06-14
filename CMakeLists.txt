@@ -32,7 +32,8 @@ set(WITH_ANYIMAGEIMPORTER ON CACHE BOOL "" FORCE)
 set(WITH_STBIMAGEIMPORTER ON CACHE BOOL "" FORCE)
 
 add_subdirectory(external/magnum EXCLUDE_FROM_ALL)
-add_subdirectory(magnum-plugins EXCLUDE_FROM_ALL)
+add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
+add_subdirectory(external/magnum-integration EXCLUDE_FROM_ALL)
 
 #include_directories(${CMAKE_SOURCE_DIR}/deps/include ${CMAKE_SOURCE_DIR}/deps/include/spdlog/include)
 

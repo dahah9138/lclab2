@@ -1,9 +1,6 @@
 [submodule "external/magnum"]
 	path = external/magnum
 	url = https://github.com/mosra/magnum.git
-[submodule "external/magnum-integration"]
-	path = external/magnum-integration
-	url = https://github.com/mosra/magnum-integration.git
 [submodule "external/magnum-plugins"]
 	path = external/magnum-plugins
 	url = https://github.com/mosra/magnum-integration.git
@@ -16,3 +13,6 @@
 [submodule "external/spdlog"]
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git

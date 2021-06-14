@@ -1,6 +1,7 @@
 #include <lclab2.h>
 
 using namespace Magnum;
+using namespace Math::Literals;
 
 /*
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
@@ -22,17 +23,40 @@ private:
 
     void mousePressEvent(MouseEvent& event) override;
     void mouseReleaseEvent(MouseEvent& event) override;
+    void textInputEvent(TextInputEvent& event) override;
+    void keyPressEvent(KeyEvent& event) override;
+    void keyReleaseEvent(KeyEvent& event) override;
 
     // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
     LC::NormalTorus _sheetNormal;
 
+    // GUI
+    bool _showDemoWindow = true;
+    bool _showAnotherWindow = false;
+    Color4 _clearColor = 0x72909aff_rgbaf;
+    Float _floatValue = 0.0f;
+
     // Solver
     LC::Solver* _solver;
 };
 
-sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments, Configuration{}.setTitle("Sandbox Application") } {
+sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments,
+                                                                Configuration{}.setTitle("Sandbox Application")
+                                                                               .setWindowFlags(Configuration::WindowFlag::Resizable) 
+                                                              } {
+    /* Setup imgui */
+    _imgui = ImGuiIntegration::Context(Vector2{ windowSize() } / dpiScaling(),
+        windowSize(), framebufferSize());
+
+    /* Set up proper blending to be used by ImGui. There's a great chance
+       you'll need this exact behavior for the rest of your scene. If not, set
+       this only for the drawFrame() call. */
+    GL::Renderer::setBlendEquation(GL::Renderer::BlendEquation::Add,
+        GL::Renderer::BlendEquation::Add);
+    GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
+        GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
     /* Setup window and parameters */
     enableDepthTest();
@@ -83,6 +107,9 @@ sandbox::~sandbox() {
     delete _solver;
 }
 
+/*
+    Main simulation loop
+*/
 void sandbox::drawEvent()
 {
     GL::defaultFramebuffer.clear(
@@ -91,9 +118,60 @@ void sandbox::drawEvent()
     /* Update camera before drawing instances */
     const bool moving = _arcballCamera->updateTransformation();
 
-    //_grid.Draw(_arcballCamera, _projectionMatrix);
-    //_sheet.Draw(_arcballCamera, _projectionMatrix);
-    _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
+    _imgui.newFrame();
+
+    /* 1. Show a simple window.
+       Tip: if we don't call ImGui::Begin()/ImGui::End() the widgets appear in
+       a window called "Debug" automatically */
+    {
+        ImGui::Text("Hello, world!");
+        ImGui::SliderFloat("Float", &_floatValue, 0.0f, 1.0f);
+        if (ImGui::ColorEdit3("Clear Color", _clearColor.data()))
+            GL::Renderer::setClearColor(_clearColor);
+        if (ImGui::Button("Test Window"))
+            _showDemoWindow ^= true;
+        if (ImGui::Button("Another Window"))
+            _showAnotherWindow ^= true;
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
+            1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
+    }
+    /* 2. Show another simple window, now using an explicit Begin/End pair */
+    if (_showAnotherWindow) {
+        ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Another Window", &_showAnotherWindow);
+        ImGui::Text("Hello");
+        ImGui::End();
+    }
+
+    /* 3. Show the ImGui demo window. Most of the sample code is in
+       ImGui::ShowDemoWindow() */
+    if (_showDemoWindow) {
+        ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver);
+        ImGui::ShowDemoWindow();
+    }
+
+    /* Update application cursor */
+    _imgui.updateApplicationCursor(*this);
+
+    {
+        /* Reset state. Only needed if you want to draw something else with
+           different state after. */
+        polyRenderer();
+
+
+        //_grid.Draw(_arcballCamera, _projectionMatrix);
+        //_sheet.Draw(_arcballCamera, _projectionMatrix);
+        _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
+    }
+
+    {
+        /* Set appropriate states. If you only draw ImGui, it is sufficient to
+           just enable blending and scissor test in the constructor. */
+        guiRenderer();
+
+        _imgui.drawFrame();
+    }
+
 
     swapBuffers();
 
@@ -101,14 +179,11 @@ void sandbox::drawEvent()
     // TODO: Add a button with imgui to start the relax
     bool pressedRelaxAndRelaxFinished = false;
 
-    if (moving || pressedRelaxAndRelaxFinished) redraw();
-
+    //if (moving || pressedRelaxAndRelaxFinished) redraw();
+    redraw();
 }
 
 void sandbox::mousePressEvent(MouseEvent& event) {
-
-    // Configure the mouse press event
-    SDL_CaptureMouse(SDL_TRUE);
 
     //for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
     //    const Vector3 tmpCol = Vector3(std::rand(), std::rand(), std::rand()) /
@@ -117,14 +192,27 @@ void sandbox::mousePressEvent(MouseEvent& event) {
     //}
 
     _arcballCamera->initTransformation(event.position());
-    event.setAccepted();
-    redraw(); /* camera has changed, redraw! */
+
+    _imgui.handleMousePressEvent(event);
+}
+
+void sandbox::textInputEvent(TextInputEvent& event) {
+    if (_imgui.handleTextInputEvent(event)) return;
 }
 
 void sandbox::mouseReleaseEvent(MouseEvent& event) {
 
-    SDL_CaptureMouse(SDL_FALSE);
+    if (_imgui.handleMouseReleaseEvent(event)) return;
 }
+
+void sandbox::keyPressEvent(KeyEvent& event) {
+    if (_imgui.handleKeyPressEvent(event)) return;
+}
+
+void sandbox::keyReleaseEvent(KeyEvent& event) {
+    if (_imgui.handleKeyReleaseEvent(event)) return;
+}
+
 
 
 LC::Application* LC::createApplication(int argc, char **argv) {

@@ -6,6 +6,8 @@ find_package(Magnum REQUIRED
 			Shaders 
 			Sdl2Application)
 
+find_package(MagnumIntegration REQUIRED ImGui)
+
 set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 
 # To get rid of the console specify WIN32 in add_executable as add_executable(... WIN32 ...)
@@ -67,7 +69,8 @@ target_link_libraries(lclab2 PUBLIC
 	Magnum::MeshTools
 	Magnum::Primitives
 	Magnum::SceneGraph
-	Magnum::Shaders)
+	Magnum::Shaders
+	MagnumIntegration::ImGui)
 
 # Make the executable a default target to build & run in Visual Studio
 #set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT lclab2)

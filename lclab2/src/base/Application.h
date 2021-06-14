@@ -18,6 +18,10 @@
 #include <Magnum/Shaders/PhongGL.h>
 #include <Magnum/Trade/MeshData.h>
 
+// ImGui
+#include <Magnum/ImGuiIntegration/Context.hpp>
+
+
 
 
 #include "core.h"
@@ -45,9 +49,13 @@ namespace LC
 		void enableFaceCulling();
 		void disableFaceCulling();
 
+		void guiRenderer();
+		void polyRenderer();
+
 		virtual ~Application();
 
 		Containers::Optional<ArcBall> _arcballCamera;
+		ImGuiIntegration::Context _imgui{ NoCreate };
 		Matrix4 _projectionMatrix;
 	};
 	

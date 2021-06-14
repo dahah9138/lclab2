@@ -34,10 +34,7 @@ namespace LC
 
 		_arcballCamera->zoom(delta);
 
-		event.setAccepted();
-		redraw(); /* camera has changed, redraw! */
-
-		LC_INFO("Overrided once");
+		_imgui.handleMouseScrollEvent(event);
 	}
 
 	void Application::viewportEvent(ViewportEvent& event) {
@@ -46,6 +43,9 @@ namespace LC
 
 		_projectionMatrix = Matrix4::perspectiveProjection(_arcballCamera->fov(),
 			Vector2{ event.framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
+
+		_imgui.relayout(Vector2{ event.windowSize() } / event.dpiScaling(),
+			event.windowSize(), event.framebufferSize());
 	}
 
 	void Application::mouseMoveEvent(MouseMoveEvent& event) {
@@ -85,6 +85,20 @@ namespace LC
 
 	void Application::disableFaceCulling() {
 		GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
+	}
+
+	void Application::guiRenderer() {
+		GL::Renderer::enable(GL::Renderer::Feature::Blending);
+		GL::Renderer::enable(GL::Renderer::Feature::ScissorTest);
+		GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
+		GL::Renderer::disable(GL::Renderer::Feature::DepthTest);
+	}
+
+	void Application::polyRenderer() {
+		GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
+		GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
+		GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
+		GL::Renderer::disable(GL::Renderer::Feature::Blending);
 	}
 
 	Application::~Application() {

@@ -10,9 +10,9 @@
 [submodule "external/corrade"]
 	path = external/corrade
 	url = https://github.com/mosra/corrade.git
-[submodule "eigen"]
+[submodule "external/eigen"]
 	path = external/eigen
 	url = https://github.com/libigl/eigen.git
-[submodule "spdlog"]
+[submodule "external/spdlog"]
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git

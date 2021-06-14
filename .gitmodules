@@ -3,8 +3,12 @@
 	url = https://github.com/libigl/eigen
 	
 [submodule "magnum-plugins"]
-	path = magnum-plugins
+	path = external/magnum-plugins
 	url = https://github.com/mosra/magnum-plugins
+	
+[submodule "magnum-integration"]
+	path = external/magnum-integration
+	url = https://github.com/mosra/magnum-integration
 	
 [submodule "magnum"]
 	path = external/magnum

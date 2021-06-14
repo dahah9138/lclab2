@@ -29,12 +29,19 @@ namespace LC
 	}
 
 	void Application::mouseScrollEvent(MouseScrollEvent& event) {
-		const Float delta = event.offset().y();
-		if (Math::abs(delta) < 1.0e-2f) return;
-
-		_arcballCamera->zoom(delta);
 
 		_imgui.handleMouseScrollEvent(event);
+
+		if (!_io->WantCaptureMouse) {
+
+			const Float delta = event.offset().y();
+
+			if (Math::abs(delta) >= 1.0e-2f)
+				_arcballCamera->zoom(delta);
+		}
+		else _ioUpdate = true;
+
+		event.setAccepted();
 	}
 
 	void Application::viewportEvent(ViewportEvent& event) {
@@ -52,23 +59,25 @@ namespace LC
 
 		if (!event.buttons()) return;
 
-		if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
-			_arcballCamera->translate(event.position());
-		else _arcballCamera->rotate(event.position());
+		_imgui.handleMouseMoveEvent(event);
 
-		event.setAccepted();
-		redraw(); /* camera has changed, redraw! */
+		if (!_io->WantCaptureMouse) {
+			if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
+				_arcballCamera->translate(event.position());
+			else _arcballCamera->rotate(event.position());
+		}
+		else _ioUpdate = true;
+
 	}
 
 	void Application::mousePressEvent(MouseEvent& event) {
 
-		// Configure the mouse press event
-		SDL_CaptureMouse(SDL_TRUE);
+		_imgui.handleMousePressEvent(event);
 
-
-		_arcballCamera->initTransformation(event.position());
-		event.setAccepted();
-		redraw(); /* camera has changed, redraw! */
+		if (!_io->WantCaptureMouse) {
+			_arcballCamera->initTransformation(event.position());
+		}
+		else _ioUpdate = true;
 	}
 
 	void Application::enableDepthTest() {

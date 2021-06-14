@@ -56,6 +56,10 @@ namespace LC
 
 		Containers::Optional<ArcBall> _arcballCamera;
 		ImGuiIntegration::Context _imgui{ NoCreate };
+
+		// Pointer to io context
+		ImGuiIO* _io;
+		bool _ioUpdate;
 		Matrix4 _projectionMatrix;
 	};
 	

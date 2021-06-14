@@ -58,6 +58,8 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments,
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
         GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
+    _io = &ImGui::GetIO();
+
     /* Setup window and parameters */
     enableDepthTest();
     enableFaceCulling();
@@ -115,9 +117,6 @@ void sandbox::drawEvent()
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
-    /* Update camera before drawing instances */
-    const bool moving = _arcballCamera->updateTransformation();
-
     _imgui.newFrame();
 
     /* 1. Show a simple window.
@@ -153,16 +152,20 @@ void sandbox::drawEvent()
     /* Update application cursor */
     _imgui.updateApplicationCursor(*this);
 
-    {
-        /* Reset state. Only needed if you want to draw something else with
-           different state after. */
-        polyRenderer();
+
+    /* Update camera */
+    const bool moving = _arcballCamera->updateTransformation();
 
 
-        //_grid.Draw(_arcballCamera, _projectionMatrix);
-        //_sheet.Draw(_arcballCamera, _projectionMatrix);
-        _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
-    }
+
+    /* Reset state. Only needed if you want to draw something else with
+        different state after. */
+
+    polyRenderer();
+
+    //_grid.Draw(_arcballCamera, _projectionMatrix);
+    //_sheet.Draw(_arcballCamera, _projectionMatrix);
+    _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
     {
         /* Set appropriate states. If you only draw ImGui, it is sufficient to
@@ -179,8 +182,8 @@ void sandbox::drawEvent()
     // TODO: Add a button with imgui to start the relax
     bool pressedRelaxAndRelaxFinished = false;
 
-    //if (moving || pressedRelaxAndRelaxFinished) redraw();
-    redraw();
+    if (moving || _ioUpdate) redraw();
+    //redraw();
 }
 
 void sandbox::mousePressEvent(MouseEvent& event) {
@@ -191,9 +194,13 @@ void sandbox::mousePressEvent(MouseEvent& event) {
     //    _grid.sphereInstanceData[i].color = tmpCol;
     //}
 
-    _arcballCamera->initTransformation(event.position());
-
     _imgui.handleMousePressEvent(event);
+
+    if (!_io->WantCaptureMouse) {
+        _arcballCamera->initTransformation(event.position());
+    }
+    else _ioUpdate = true;
+
 }
 
 void sandbox::textInputEvent(TextInputEvent& event) {

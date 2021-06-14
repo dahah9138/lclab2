@@ -13,3 +13,7 @@
 [submodule "corrade"]
 	path = external/corrade
 	url = https://github.com/mosra/corrade
+	
+[submodule "magnum-integration"]
+	path = external/magnum-integration
+	url = https://github.com/mosra/magnum-integration

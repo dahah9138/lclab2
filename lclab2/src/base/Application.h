@@ -52,6 +52,8 @@ namespace LC
 		void guiRenderer();
 		void polyRenderer();
 
+		void setupGUI();
+
 		virtual ~Application();
 
 		Containers::Optional<ArcBall> _arcballCamera;

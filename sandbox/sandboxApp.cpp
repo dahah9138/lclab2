@@ -1,22 +1,24 @@
 #include <lclab2.h>
 
+#include "Widget.h"
+
 using namespace Magnum;
 using namespace Math::Literals;
 
 /*
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
-    - Needs Jones Matrix (I have matrices through Magnum)
+    - Needs Jones Matrix (I have matrices through Eigen)
     - Needs Lamp specifications
     - LC Optical properties
 */
 
-class sandbox : public LC::Application
+class Sandbox : public LC::Application
 {
 public:
 
-	explicit sandbox(const Arguments& arguments);
+	explicit Sandbox(const Arguments& arguments);
 
-	~sandbox();
+	~Sandbox();
 
 private:
 	virtual void drawEvent() override;
@@ -32,33 +34,22 @@ private:
     LC::Torus _sheet;
     LC::NormalTorus _sheetNormal;
 
-    // GUI
-    bool _showDemoWindow = true;
-    bool _showAnotherWindow = false;
-    Color4 _clearColor = 0x72909aff_rgbaf;
-    Float _floatValue = 0.0f;
+    /*
+        GUI Widget
+        *** Make sure to keep decoupled from actual simulation core functionality
+    */
+    Widget _widget;
 
     // Solver
     LC::Solver* _solver;
 };
 
-sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments,
+Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                 Configuration{}.setTitle("Sandbox Application")
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable) 
                                                               } {
-    /* Setup imgui */
-    _imgui = ImGuiIntegration::Context(Vector2{ windowSize() } / dpiScaling(),
-        windowSize(), framebufferSize());
-
-    /* Set up proper blending to be used by ImGui. There's a great chance
-       you'll need this exact behavior for the rest of your scene. If not, set
-       this only for the drawFrame() call. */
-    GL::Renderer::setBlendEquation(GL::Renderer::BlendEquation::Add,
-        GL::Renderer::BlendEquation::Add);
-    GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
-        GL::Renderer::BlendFunction::OneMinusSourceAlpha);
-
-    _io = &ImGui::GetIO();
+    /* Setup the GUI */
+    setupGUI();
 
     /* Setup window and parameters */
     enableDepthTest();
@@ -100,11 +91,11 @@ sandbox::sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _solver->Init();
 
 
-    LC_INFO("Created sandbox!");
+    LC_INFO("Created Sandbox!");
 }
 
-sandbox::~sandbox() {
-	LC_INFO("Destroying sandbox.");
+Sandbox::~Sandbox() {
+	LC_INFO("Destroying Sandbox.");
 
     delete _solver;
 }
@@ -112,7 +103,7 @@ sandbox::~sandbox() {
 /*
     Main simulation loop
 */
-void sandbox::drawEvent()
+void Sandbox::drawEvent()
 {
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
@@ -124,27 +115,31 @@ void sandbox::drawEvent()
        a window called "Debug" automatically */
     {
         ImGui::Text("Hello, world!");
-        ImGui::SliderFloat("Float", &_floatValue, 0.0f, 1.0f);
-        if (ImGui::ColorEdit3("Clear Color", _clearColor.data()))
-            GL::Renderer::setClearColor(_clearColor);
+        ImGui::SliderFloat("Float", &_widget.floatValue, 0.0f, 1.0f);
+        if (ImGui::ColorEdit3("Clear Color", _widget.clearColor.data()))
+            GL::Renderer::setClearColor(_widget.clearColor);
         if (ImGui::Button("Test Window"))
-            _showDemoWindow ^= true;
+            _widget.showDemoWindow ^= true;
         if (ImGui::Button("Another Window"))
-            _showAnotherWindow ^= true;
+            _widget.showAnotherWindow ^= true;
+
+        // Pressed the relax button
+        _widget.relax = ImGui::Button("Relax");
+        
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
             1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
     }
     /* 2. Show another simple window, now using an explicit Begin/End pair */
-    if (_showAnotherWindow) {
+    if (_widget.showAnotherWindow) {
         ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Another Window", &_showAnotherWindow);
+        ImGui::Begin("Another Window", &_widget.showAnotherWindow);
         ImGui::Text("Hello");
         ImGui::End();
     }
 
     /* 3. Show the ImGui demo window. Most of the sample code is in
        ImGui::ShowDemoWindow() */
-    if (_showDemoWindow) {
+    if (_widget.showDemoWindow) {
         ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver);
         ImGui::ShowDemoWindow();
     }
@@ -179,6 +174,11 @@ void sandbox::drawEvent()
     swapBuffers();
 
 
+    if (_widget.relax) {
+        _solver->Relax(1);
+    }
+
+
     // TODO: Add a button with imgui to start the relax
     bool pressedRelaxAndRelaxFinished = false;
 
@@ -186,7 +186,7 @@ void sandbox::drawEvent()
     //redraw();
 }
 
-void sandbox::mousePressEvent(MouseEvent& event) {
+void Sandbox::mousePressEvent(MouseEvent& event) {
 
     //for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
     //    const Vector3 tmpCol = Vector3(std::rand(), std::rand(), std::rand()) /
@@ -203,20 +203,20 @@ void sandbox::mousePressEvent(MouseEvent& event) {
 
 }
 
-void sandbox::textInputEvent(TextInputEvent& event) {
+void Sandbox::textInputEvent(TextInputEvent& event) {
     if (_imgui.handleTextInputEvent(event)) return;
 }
 
-void sandbox::mouseReleaseEvent(MouseEvent& event) {
+void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }
 
-void sandbox::keyPressEvent(KeyEvent& event) {
+void Sandbox::keyPressEvent(KeyEvent& event) {
     if (_imgui.handleKeyPressEvent(event)) return;
 }
 
-void sandbox::keyReleaseEvent(KeyEvent& event) {
+void Sandbox::keyReleaseEvent(KeyEvent& event) {
     if (_imgui.handleKeyReleaseEvent(event)) return;
 }
 
@@ -224,5 +224,5 @@ void sandbox::keyReleaseEvent(KeyEvent& event) {
 
 LC::Application* LC::createApplication(int argc, char **argv) {
 
-	return new sandbox{ Platform::Application::Arguments{argc, argv} };
+	return new Sandbox{ Platform::Application::Arguments{argc, argv} };
 }

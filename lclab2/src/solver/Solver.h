@@ -12,10 +12,10 @@ namespace LC {
 
 		enum class Error {
 			None = 0,
-			Init = BIT(1),
-			Relax = BIT(2),
-			Import = BIT(3),
-			Export = BIT(4)
+			Init = BIT(0),
+			Relax = BIT(1),
+			Import = BIT(2),
+			Export = BIT(3)
 		};
 
 		Solver() = default;

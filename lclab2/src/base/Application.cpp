@@ -44,6 +44,23 @@ namespace LC
 		event.setAccepted();
 	}
 
+	void Application::setupGUI() {
+
+		/* Setup imgui */
+		_imgui = ImGuiIntegration::Context(Vector2{ windowSize() } / dpiScaling(),
+			windowSize(), framebufferSize());
+
+		/* Set up proper blending to be used by ImGui. There's a great chance
+		   you'll need this exact behavior for the rest of your scene. If not, set
+		   this only for the drawFrame() call. */
+		GL::Renderer::setBlendEquation(GL::Renderer::BlendEquation::Add,
+			GL::Renderer::BlendEquation::Add);
+		GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
+			GL::Renderer::BlendFunction::OneMinusSourceAlpha);
+
+		_io = &ImGui::GetIO();
+	}
+
 	void Application::viewportEvent(ViewportEvent& event) {
 		GL::defaultFramebuffer.setViewport({ {}, event.framebufferSize() });
 		_arcballCamera->reshape(event.windowSize());
@@ -57,11 +74,14 @@ namespace LC
 
 	void Application::mouseMoveEvent(MouseMoveEvent& event) {
 
-		if (!event.buttons()) return;
+		//if (!event.buttons()) return;
 
 		_imgui.handleMouseMoveEvent(event);
 
 		if (!_io->WantCaptureMouse) {
+
+			if (!event.buttons()) return;
+
 			if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
 				_arcballCamera->translate(event.position());
 			else _arcballCamera->rotate(event.position());

@@ -6,7 +6,7 @@ using namespace Magnum;
 using namespace Math::Literals;
 
 /*
-    Make sphere grid draw dynamically
+    TODO: Make sheet color draw dynamically
 
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
     - Needs Jones Matrix (I have matrices through Eigen)
@@ -35,6 +35,7 @@ private:
     // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
+    // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
 
     /*
@@ -218,6 +219,7 @@ void Sandbox::drawEvent()
     //_sheet.Draw(_arcballCamera, _projectionMatrix);
     //_sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
+    // Make sure to draw gui last, otherwise the graphics will write over the GUI
     {
         /* Set appropriate states. If you only draw ImGui, it is sufficient to
            just enable blending and scissor test in the constructor. */
@@ -246,6 +248,7 @@ void Sandbox::drawEvent()
     if (moving || _ioUpdate) redraw();
 }
 
+// Todo: inherit all these events through Application
 void Sandbox::mousePressEvent(MouseEvent& event) {
 
     //for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
@@ -290,6 +293,7 @@ void Sandbox::updateColor() {
     std::size_t cross_slice = data->voxels[1] * slice;
     std::size_t volslice = data->voxels[2] * cross_slice;
 
+    // Convenient indexing lambdas
     auto global_matlab_idx = [volslice, cross_slice, slice](int i, int j, int k, int l) {
 
         return volslice * l + cross_slice * k + slice * j + i;

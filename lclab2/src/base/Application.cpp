@@ -4,10 +4,9 @@ namespace LC
 {
 	Application::Application(const Arguments& arguments): Platform::Application{arguments} {
 	
-
 	}
 	Application::Application(const Arguments& arguments, const Configuration& configuration) : Platform::Application{ arguments, configuration } {
-
+		
 	}
 
 	void Application::setupCamera(const Float &lag) {

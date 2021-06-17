@@ -1,6 +1,7 @@
 find_package(Magnum REQUIRED 
 			GL 
 			MeshTools
+#			DebugTools
 			Primitives
 			SceneGraph
 			Shaders 
@@ -26,7 +27,8 @@ set (frankoseenlib 	solver/Solver.h
 					solver/frankoseen/FOAssets.h
 					solver/frankoseen/FOFDSolver.h solver/frankoseen/FOFDSolver.cpp)
 
-set (mathlib math/vec3.h math/vec3.cpp)
+set (mathlib math/vec3.h math/vec3.cpp
+			 math/RangePair.h math/RangePair.cpp)
 
 set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/SphereArray.h graphics/SphereArray.cpp
@@ -64,9 +66,10 @@ target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(lclab2 PUBLIC
  #   Corrade::Main
 	Magnum::Application
-    	Magnum::GL
-    	Magnum::Magnum
+	Magnum::GL
+	Magnum::Magnum
 	Magnum::MeshTools
+#	Magnum::DebugTools
 	Magnum::Primitives
 	Magnum::SceneGraph
 	Magnum::Shaders

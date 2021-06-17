@@ -17,6 +17,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 
 		struct Dataset : public ElasticConstants {
+			typedef void (*Config)(Tensor4&,int,int,int,int*);
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
 			std::size_t numIterations = 0;
 			int voxels[3] = { 0, 0, 0 };
@@ -24,6 +25,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			bool bc[3] = { 0, 0, 0 };
 			scalar chirality = 1.0;
 			scalar* directors = 0;
+			Config config = 0;
+
+			// Relaxation rate
+			scalar rate = 0.0;
 
 			enum class DataError {
 				None = 0,
@@ -50,9 +55,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Export(const char* filename, const char* filepath) override;
 		void Import(const char* filename, const char* filepath) override;
 
-		void oneConstAlgebraic(Tensor4& nn, int i, int j, int k);
-		void handleBoundaryConditions(Tensor4& nn, int i, int j, int k);
-		void normalize(Tensor4& nn, int i, int j, int k);
+		void OneConstAlgebraic(Tensor4& nn, int i, int j, int k);
+		void HandleBoundaryConditions(Tensor4& nn, int i, int j, int k);
+		void Normalize(Tensor4& nn, int i, int j, int k);
+		void Print() override;
 
 		Dataset* GetData();
 		Dataset data;

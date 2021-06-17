@@ -31,6 +31,7 @@
 namespace LC
 {
 	using namespace Magnum;
+	using std::chrono::high_resolution_clock;
 	
 	class LC_API Application : public Platform::Application {
     public:
@@ -56,13 +57,14 @@ namespace LC
 
 		virtual ~Application();
 
-		Containers::Optional<ArcBall> _arcballCamera;
-		ImGuiIntegration::Context _imgui{ NoCreate };
 
+		Containers::Optional<ArcBall> _arcballCamera;
+		Matrix4 _projectionMatrix;
+		
+		ImGuiIntegration::Context _imgui{ NoCreate };
 		// Pointer to io context
 		ImGuiIO* _io;
-		bool _ioUpdate;
-		Matrix4 _projectionMatrix;
+		bool _ioUpdate = true;
 	};
 	
 }

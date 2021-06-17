@@ -4,10 +4,7 @@
 namespace LC {
 void SphereArray::Init() {
     using namespace Magnum;
-    NX = 8;
-    NY = 8;
-    CX = 2.0f;
-    CY = 2.0f;
+
     sphereRadius = 0.5f/(Float)((std::max)(NX, NY)-1);
     UnsignedInt numSpheres = NX * NY;
     spherePositions = Containers::Array<Vector3>{ NoInit, numSpheres };
@@ -15,8 +12,9 @@ void SphereArray::Init() {
 
     for (std::size_t i = 0; i < numSpheres; ++i) {
 
-        UnsignedInt ii = i / NY;
-        UnsignedInt jj = i - ii * NY;
+        // Use indexing matlab format
+        UnsignedInt jj = i / NY;
+        UnsignedInt ii = i - jj * NY;
         Float x = (Float)ii / (NX-1);
         Float y = (Float)jj / (NY-1);
 

@@ -72,10 +72,44 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			return;
 		}
 
+		// Use default configuration Up
+		if (data.config == 0) {
+
+			data.config = [](Tensor4& n, int i, int j, int k, int* voxels) {
+				n(i, j, k, 0) = 0.0;
+				n(i, j, k, 1) = 0.0;
+				n(i, j, k, 2) = 1.0;
+			};
+		}
 
 		/* Initialize data */
 		std::size_t numDirectors = data.voxels[0] * data.voxels[1] * data.voxels[2];
 		data.directors = new scalar[3 * numDirectors];
+
+		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
+
+		for (int i = 0; i < data.voxels[0]; i++) {
+			for (int j = 0; j < data.voxels[1]; j++) {
+				for (int k = 0; k < data.voxels[1]; k++) {
+					data.config(nn, i, j, k, data.voxels);
+					// Ensure normalization
+					Normalize(nn, i, j, k);
+				}
+			}
+		}
+	}
+
+	void FOFDSolver::Print() {
+
+		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
+
+		for (int i = 0; i < data.voxels[0]; i++) {
+			for (int j = 0; j < data.voxels[1]; j++) {
+				for (int k = 0; k < data.voxels[1]; k++) {
+					LC_INFO("nn({0},{1},{2}) = ({3}, {4}, {5})", i, j, k, nn(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
+				}
+			}
+		}
 	}
 
 
@@ -111,7 +145,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 
 		if (oneConst && algebraic)
-			relaxMethod = &FOFDSolver::oneConstAlgebraic;
+			relaxMethod = &FOFDSolver::OneConstAlgebraic;
 
 
 		for (std::size_t it = 0; it < iterations; it++) {
@@ -122,22 +156,23 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				{
 					for (int k = 0; k < data.voxels[2]; k++)
 					{
-						handleBoundaryConditions(nn, i, j, k);
+						HandleBoundaryConditions(nn, i, j, k);
 
 						(this->*relaxMethod)(nn, i, j, k);
 
-						normalize(nn, i, j, k);
+						Normalize(nn, i, j, k);
 					}
 				}
 			}
 
 		}
 
+		++data.numIterations;
 
 	}
 
 
-	void FOFDSolver::oneConstAlgebraic(Tensor4 &nn, int i, int j, int k) {
+	void FOFDSolver::OneConstAlgebraic(Tensor4 &nn, int i, int j, int k) {
 
 
 		// Make sure within bounds for second order
@@ -148,8 +183,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 
 
-		scalar w = -0.05;
-		scalar c = (1 + w) * 1.0 / 6.0;
+		scalar c = (1 + data.rate) * 1.0 / 6.0;
 
 		// currently assumes dr = dx = dy = dz
 		scalar dr = data.cell_dims[0] / (data.voxels[0] - 1);
@@ -176,13 +210,13 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 			curl = nD[a][b] - nD[b][a];
 
-			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - w * nn(i, j, k, d);
+			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - data.rate * nn(i, j, k, d);
 		}
 
 
 	}
 
-	void FOFDSolver::normalize(Tensor4& nn, int i, int j, int k) {
+	void FOFDSolver::Normalize(Tensor4& nn, int i, int j, int k) {
 
 		scalar len = 0.0;
 
@@ -195,7 +229,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			nn(i, j, k, d) /= len;
 	}
 
-	void FOFDSolver::handleBoundaryConditions(Tensor4& nn, int i, int j, int k) {
+	void FOFDSolver::HandleBoundaryConditions(Tensor4& nn, int i, int j, int k) {
 
 		for (int d = 0; d < 3; d++) {
 

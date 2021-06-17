@@ -24,6 +24,7 @@ namespace LC {
 		virtual void Relax(const std::size_t& iterations) = 0;
 		virtual void Import(const char* filename, const char* filepath) = 0;
 		virtual void Export(const char* filename, const char *filepath) = 0;
+		virtual void Print() {}
 		Error errors = Error::None;
 
 		virtual void* GetDataPtr() = 0;

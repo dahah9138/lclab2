@@ -14,6 +14,8 @@ struct Widget {
 	Float floatValue = 0.0f;
 
 	bool relax = false;
+	bool print = false;
+	int cycle = 10;
 	
 };
 

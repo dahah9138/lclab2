@@ -6,6 +6,8 @@ using namespace Magnum;
 using namespace Math::Literals;
 
 /*
+    Make sphere grid draw dynamically
+
     Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
     - Needs Jones Matrix (I have matrices through Eigen)
     - Needs Lamp specifications
@@ -28,6 +30,7 @@ private:
     void textInputEvent(TextInputEvent& event) override;
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
+    void updateColor();
 
     // Tested geometries
     LC::SphereArray _grid;
@@ -63,32 +66,71 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup camera */
     setupCamera(0.9f);
 
-    /* Setup spheres */
-    //_grid.Init();
+    
     //_sheet.Init();
-    _sheetNormal.Init();
+    //_sheetNormal.Init();
 
 
     _solver = new LC::FrankOseen::ElasticOnly::FOFDSolver;
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+    using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
 
     /* Setup data */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    data->voxels[0] = 10;
-    data->voxels[1] = 10;
-    data->voxels[2] = 10;
+    data->voxels[0] = 32;
+    data->voxels[1] = 32;
+    data->voxels[2] = 32;
 
-    data->cell_dims[0] = 1.0;
-    data->cell_dims[1] = 1.0;
-    data->cell_dims[2] = 1.0;
+    // hard
+    data->bc[0] = 0;
+    data->bc[1] = 0;
+    data->bc[2] = 0;
+
+    // toron stable dimensions
+    data->cell_dims[0] = 0.35;
+    data->cell_dims[1] = 0.35;
+    data->cell_dims[2] = 0.35;
 
     data->k11 = LC::FrankOseen::ElasticConstants::_5CB("k11");
     data->k22 = LC::FrankOseen::ElasticConstants::_5CB("k22");
     data->k33 = LC::FrankOseen::ElasticConstants::_5CB("k33");
 
+    // Generate a toron
+    // Make a director modifying config that takes a function pointer to a lambda that modifies that director
+
+    auto toron = [](T4 &n, int i, int j, int k, int *voxels) {
+    
+        int d[3] = { voxels[0] / 4, voxels[1] / 4, voxels[2] / 4 };
+
+        if (abs(k - voxels[2] / 2) < d[2] && abs(i - voxels[0] / 2) < d[0] && abs(j - voxels[1] / 2) < d[1]) {
+            n(i, j, k, 2) = -1.0;
+        }
+        else {
+            n(i, j, k, 2) = 1.0;
+        }
+
+        n(i, j, k, 0) = 0.0;
+        n(i, j, k, 1) = 0.0;
+        
+    };
+
+    data->config = toron;
+
     _solver->Init();
+
+    /* Setup spheres */
+    _grid.NX = data->voxels[0];
+    _grid.NY = data->voxels[1];
+    _grid.CX = data->cell_dims[0];
+    _grid.CY = data->cell_dims[1];
+
+    _grid.Init();
+
+    // Colors
+    updateColor();
+
 
 
     LC_INFO("Created Sandbox!");
@@ -105,6 +147,7 @@ Sandbox::~Sandbox() {
 */
 void Sandbox::drawEvent()
 {
+
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
@@ -123,8 +166,23 @@ void Sandbox::drawEvent()
         if (ImGui::Button("Another Window"))
             _widget.showAnotherWindow ^= true;
 
+        // Set Cycle
+        ImGui::InputInt("Cycle", &_widget.cycle);
+
+        // Relaxation rate
+        {
+            using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+
+            Dataset* data = (Dataset*)(_solver->GetDataPtr());
+            Float relaxRate = data->rate;
+            ImGui::InputFloat("Relax rate", &relaxRate);
+            data->rate = relaxRate;
+        }
+
         // Pressed the relax button
         _widget.relax = ImGui::Button("Relax");
+        ImGui::SameLine();
+        _widget.print = ImGui::Button("Print");
         
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
             1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
@@ -151,16 +209,14 @@ void Sandbox::drawEvent()
     /* Update camera */
     const bool moving = _arcballCamera->updateTransformation();
 
-
-
     /* Reset state. Only needed if you want to draw something else with
         different state after. */
 
     polyRenderer();
 
-    //_grid.Draw(_arcballCamera, _projectionMatrix);
+    _grid.Draw(_arcballCamera, _projectionMatrix);
     //_sheet.Draw(_arcballCamera, _projectionMatrix);
-    _sheetNormal.Draw(_arcballCamera, _projectionMatrix);
+    //_sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
     {
         /* Set appropriate states. If you only draw ImGui, it is sufficient to
@@ -170,20 +226,24 @@ void Sandbox::drawEvent()
         _imgui.drawFrame();
     }
 
-
     swapBuffers();
 
-
     if (_widget.relax) {
-        _solver->Relax(1);
+
+        _solver->Relax(_widget.cycle);
+
+        // Update sphere colors here
+        // For now just xy cross section
+        updateColor();
+    }
+    
+    
+    if (_widget.print) {
+        _solver->Print();
     }
 
 
-    // TODO: Add a button with imgui to start the relax
-    bool pressedRelaxAndRelaxFinished = false;
-
     if (moving || _ioUpdate) redraw();
-    //redraw();
 }
 
 void Sandbox::mousePressEvent(MouseEvent& event) {
@@ -204,23 +264,69 @@ void Sandbox::mousePressEvent(MouseEvent& event) {
 }
 
 void Sandbox::textInputEvent(TextInputEvent& event) {
-    if (_imgui.handleTextInputEvent(event)) return;
+    if (_imgui.handleTextInputEvent(event)) _ioUpdate = true;
 }
 
 void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 
-    if (_imgui.handleMouseReleaseEvent(event)) return;
+    if (_imgui.handleMouseReleaseEvent(event)) _ioUpdate = true;
 }
 
 void Sandbox::keyPressEvent(KeyEvent& event) {
-    if (_imgui.handleKeyPressEvent(event)) return;
+    if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
 
 void Sandbox::keyReleaseEvent(KeyEvent& event) {
-    if (_imgui.handleKeyReleaseEvent(event)) return;
+    if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
 }
 
+void Sandbox::updateColor() {
 
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    // Colors
+    std::size_t slice = data->voxels[0];
+    std::size_t cross_slice = data->voxels[1] * slice;
+    std::size_t volslice = data->voxels[2] * cross_slice;
+
+    auto global_matlab_idx = [volslice, cross_slice, slice](int i, int j, int k, int l) {
+
+        return volslice * l + cross_slice * k + slice * j + i;
+    };
+
+    auto cross_idx = [slice](int i, int j) {
+        return slice * j + i;
+    };
+
+    LC::scalar theta, phi, nx, ny, nz;
+    for (int i = 0; i < data->voxels[0]; i++) {
+        for (int j = 0; j < data->voxels[1]; j++) {
+
+            nx = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 0)];
+            ny = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 1)];
+            nz = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 2)];
+            // Compute theta and phi
+
+            theta = acos(nz);
+            phi = M_PI + atan2(ny, nx);
+
+            // Compute color
+
+            Color3 hsv;
+            hsv[0] = phi / (2.0f * M_PI);
+            hsv[1] = theta / M_PI * 2.0f;
+            hsv[2] = 2.0f - theta / M_PI * 2.0f;
+
+            if (hsv[0] > 1.0f) hsv[0] = 1.0f;
+            if (hsv[1] > 1.0f) hsv[1] = 1.0f;
+            if (hsv[2] > 1.0f) hsv[2] = 1.0f;
+
+            _grid.sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+
+        }
+    }
+}
 
 LC::Application* LC::createApplication(int argc, char **argv) {
 

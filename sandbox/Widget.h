@@ -19,6 +19,18 @@ struct Widget {
 	bool print = false;
 	// Num cycles before next draw call
 	int cycle = 10;
+
+	bool POM = false;
+	// Default crossed
+	bool crossedPolarizer = 1;
+	LC::scalar polarizerAngle = 90.0;
+
+	// Default pitch in micrometers
+	LC::SIscalar pitch = { 5.0, "um" };
+	// rgb in nm
+	std::array<Float, 3> rgbColors = { 650.0, 550.0, 450.0 };
+	std::array<Float, 3> intensity = { 1.0, 0.6, 0.2 };
+	LC::scalar gamma = 1.0;
 	
 };
 

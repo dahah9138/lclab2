@@ -1,5 +1,5 @@
 #include <lclab2.h>
-
+#include <complex>
 #include "Widget.h"
 
 #define USE_PLANE 1
@@ -34,6 +34,7 @@ private:
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
     void updateColor();
+    void POM();
 
     // Tested geometries
     LC::SphereArray _grid;
@@ -93,7 +94,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     data->bc[1] = 0;
     data->bc[2] = 0;
 
-    // toron stable dimensions
+    // toron stable dimensions for one const algebraic
     data->cell_dims[0] = 0.35;
     data->cell_dims[1] = 0.35;
     data->cell_dims[2] = 0.35;
@@ -178,6 +179,38 @@ void Sandbox::drawEvent()
         if (ImGui::Button("Another Window"))
             _widget.showAnotherWindow ^= true;
 
+        {
+            ImGui::Checkbox("POM", &_widget.POM);
+
+            Float pitch = _widget.pitch.first;
+
+            ImGui::InputFloat("Pitch (um)", &pitch);
+
+            _widget.pitch.first = pitch;
+
+            if (_widget.POM) {
+                // Show additional options in a dropdown (TODO)
+                std::array<Float, 3> lampIntensity = _widget.intensity;
+                ImGui::InputFloat3("Lamp intensity", &lampIntensity[0]);
+                _widget.intensity = lampIntensity;
+
+                std::array<Float, 3> rgbColors = _widget.rgbColors;
+                ImGui::InputFloat3("RGB", &rgbColors[0]);
+                _widget.rgbColors = rgbColors;
+
+                ImGui::Checkbox("Crossed polarizer", &_widget.crossedPolarizer);
+                
+                if (_widget.crossedPolarizer) {
+                    Float polarizerAngle = _widget.polarizerAngle;
+                    ImGui::InputFloat("Polarizer angle", &polarizerAngle);
+                    _widget.polarizerAngle = polarizerAngle;
+                }
+            
+            }
+        }
+
+
+
         // Set Cycle
         ImGui::InputInt("Cycle", &_widget.cycle);
 
@@ -249,9 +282,9 @@ void Sandbox::drawEvent()
 
         _solver->Relax(_widget.cycle);
 
-        // Update sphere colors here
-        // For now just xy cross section
-        updateColor();
+        // For now just xy midplane
+        if(_widget.POM) POM();
+        else updateColor();
     }
     
     
@@ -328,7 +361,7 @@ void Sandbox::updateColor() {
             // Compute theta and phi
 
             theta = acos(nz);
-            phi = M_PI + atan2(ny, nx);
+            phi = M_PI / 2.0f - atan2(ny, nx);
 
             // Compute color
 
@@ -343,6 +376,114 @@ void Sandbox::updateColor() {
 
             _grid.sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
             _dsheet.data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+        }
+    }
+
+    // Update sheet
+    _dsheet.sheetBuffer.setData(_dsheet.data, GL::BufferUsage::DynamicDraw);
+}
+
+// Only for 5CB. Currently does not support waveplates either.
+void Sandbox::POM() {
+
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    // Colors
+    std::size_t slice = data->voxels[0];
+    std::size_t cross_slice = data->voxels[1] * slice;
+    std::size_t volslice = data->voxels[2] * cross_slice;
+
+    LC::SIscalar pitch = _widget.pitch;
+    LC::scalar dop = data->cell_dims[2];
+
+    LC::scalar thickness = pitch.first * dop;
+    LC::scalar dz = thickness * 1e-6 / data->voxels[2]; // meters
+    LC::scalar lambda[3]; // rgb
+    LC::scalar intensity[3]; // lamp intensity
+
+    for (int i = 0; i < 3; i++) {
+        lambda[i] = _widget.rgbColors[i] * 1e-9;
+        intensity[i] = _widget.intensity[i];
+    }
+
+    LC::scalar gamma = _widget.gamma;
+
+    // Jones matrix
+    Eigen::Matrix2cd M = Eigen::Matrix2cd::Zero(2, 2);
+
+    // 5CB
+    LC::scalar n0 = 1.58;
+    LC::scalar ne = 1.77;
+
+    // Crossed polarizer (1), uncrossed (0)
+    LC::scalar crossed = (LC::scalar)_widget.crossedPolarizer;
+    LC::scalar polarizerAngle = _widget.polarizerAngle; // deg
+
+    LC::scalar th = crossed * polarizerAngle * M_PI / 180.0;
+
+    const std::complex<LC::scalar> ii(0, 1);
+    
+    // Convenient indexing lambdas
+    auto global_matlab_idx = [volslice, cross_slice, slice](int i, int j, int k, int l) {
+
+        return volslice * l + cross_slice * k + slice * j + i;
+    };
+
+    auto cross_idx = [slice](int i, int j) {
+        return slice * j + i;
+    };
+
+    LC::scalar theta, phi, nx, ny, nz;
+    for (int i = 0; i < data->voxels[0]; i++) {
+        for (int j = 0; j < data->voxels[1]; j++) {
+
+            Eigen::Vector2cd Eo[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
+
+            for (int k = 0; k < data->voxels[2]; k++) {
+
+                nx = data->directors[global_matlab_idx(i, j, k, 0)];
+                ny = data->directors[global_matlab_idx(i, j, k, 1)];
+                nz = data->directors[global_matlab_idx(i, j, k, 2)];
+
+                // Compute theta and phi
+                theta = M_PI / 2.0 - atan2(nz, sqrt(nx * nx + ny * ny));
+                phi = atan2(ny, nx);
+
+                const LC::scalar ct = cos(theta);
+                const LC::scalar st = sin(theta);
+                const LC::scalar cp = cos(phi);
+                const LC::scalar sp = sin(phi);
+
+
+                for (int rgb = 0; rgb < 3; rgb++) {
+                    const LC::scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
+                    const LC::scalar ne_th = ne * n0 / sqrt(pow(n0 * st, 2.0) + pow(ne * ct, 2.0));
+                    const LC::scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne_th;
+
+                    const std::complex<LC::scalar> eidE = std::exp(ii * deltaE);
+                    const std::complex<LC::scalar> eid0 = std::exp(ii * delta0);
+
+                    M(0, 0) = cp * cp * eidE + sp * sp * eid0;
+                    M(0, 1) = sp * cp * (eidE - eid0);
+                    M(1, 0) = M(0, 1);
+                    M(1, 1) = sp * sp * eidE + cp * cp * eid0;
+
+                    Eo[rgb] = M * Eo[rgb];
+                }
+
+            }
+
+            Color3 color;
+
+            for (int rgb = 0; rgb < 3; rgb++) {
+                LC::scalar I = std::abs(Eo[rgb](0) * cos(th) + Eo[rgb](1) * sin(th));
+                I *= I;
+                color[rgb] = pow(intensity[rgb] * I, gamma);
+            }
+
+            _grid.sphereInstanceData[cross_idx(i, j)].color = color;
+            _dsheet.data[cross_idx(i, j)].color = color;
         }
     }
 

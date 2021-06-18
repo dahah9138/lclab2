@@ -36,7 +36,8 @@ set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/Sheet.h graphics/Sheet.cpp
 			  graphics/NormalSheet.h graphics/NormalSheet.cpp
 			  graphics/Torus.h graphics/Torus.cpp
-			  graphics/NormalTorus.h graphics/NormalTorus.cpp)
+			  graphics/NormalTorus.h graphics/NormalTorus.cpp
+			  graphics/DynamicColorSheet.h graphics/DynamicColorSheet.cpp)
 			
 set (lclab2_src_list 	${baselib}
 						${frankoseenlib}

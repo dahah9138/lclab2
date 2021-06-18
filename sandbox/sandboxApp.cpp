@@ -2,6 +2,9 @@
 
 #include "Widget.h"
 
+#define USE_PLANE 1
+
+
 using namespace Magnum;
 using namespace Math::Literals;
 
@@ -35,6 +38,7 @@ private:
     // Tested geometries
     LC::SphereArray _grid;
     LC::Torus _sheet;
+    LC::DynamicColorSheet _dsheet;
     // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
 
@@ -129,6 +133,13 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _grid.Init();
 
+    _dsheet.NX = data->voxels[0];
+    _dsheet.NY = data->voxels[1];
+    _dsheet.CX = data->cell_dims[0];
+    _dsheet.CY = data->cell_dims[1];
+    _dsheet.Init();
+
+
     // Colors
     updateColor();
 
@@ -215,7 +226,11 @@ void Sandbox::drawEvent()
 
     polyRenderer();
 
+#if USE_PLANE
+    _dsheet.Draw(_arcballCamera, _projectionMatrix);
+#else
     _grid.Draw(_arcballCamera, _projectionMatrix);
+#endif
     //_sheet.Draw(_arcballCamera, _projectionMatrix);
     //_sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
@@ -327,9 +342,12 @@ void Sandbox::updateColor() {
             if (hsv[2] > 1.0f) hsv[2] = 1.0f;
 
             _grid.sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
-
+            _dsheet.data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
         }
     }
+
+    // Update sheet
+    _dsheet.sheetBuffer.setData(_dsheet.data, GL::BufferUsage::DynamicDraw);
 }
 
 LC::Application* LC::createApplication(int argc, char **argv) {

@@ -16,6 +16,7 @@
 #include "src/graphics/NormalSheet.h"
 #include "src/graphics/Torus.h"
 #include "src/graphics/NormalTorus.h"
+#include "src/graphics/DynamicColorSheet.h"
 
 // ENTRY POINT
 #include "src/base/entrypoint.h"

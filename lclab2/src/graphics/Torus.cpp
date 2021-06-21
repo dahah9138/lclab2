@@ -6,8 +6,6 @@ void Torus::Init() {
     using namespace Magnum;
     NX = 60;
     NY = 60;
-    Float CX = 64.0f;
-    Float CY = 64.0f;
 
     Float r = 0.3f;
     Float R = 1.0f;

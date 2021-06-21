@@ -3,10 +3,14 @@
 namespace LC
 {
 	Application::Application(const Arguments& arguments): Platform::Application{arguments} {
-	
+		if (!pfd::settings::available()) {
+			LC_CORE_WARN("Portable File Dialogs are not available on this platform");
+		}
 	}
 	Application::Application(const Arguments& arguments, const Configuration& configuration) : Platform::Application{ arguments, configuration } {
-		
+		if (!pfd::settings::available()) {
+			LC_CORE_WARN("Portable File Dialogs are not available on this platform");
+		}
 	}
 
 	void Application::setupCamera(const Float &lag) {

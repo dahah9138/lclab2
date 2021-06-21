@@ -186,7 +186,23 @@ void Sandbox::drawEvent()
 
                 if (ImGui::MenuItem("New", "Ctrl+N")) {}
                 if (ImGui::MenuItem("Open", "Ctrl+O")) {}
-                if (ImGui::MenuItem("Save", "Ctrl+S")) {}
+                if (ImGui::MenuItem("Save", "Ctrl+S")) {
+                
+                    // Directory selection
+                    auto dir = pfd::select_folder("Select any directory", LCLAB2_ROOT_PATH).result();
+                    std::cout << "Selected dir: " << dir << "\n";
+
+                    // File open
+                    auto f = pfd::open_file("Choose files to read", LCLAB2_ROOT_PATH,
+                        { "Text Files (.txt .text)", "*.txt *.text",
+                          "All Files", "*" },
+                        pfd::opt::multiselect);
+                    std::cout << "Selected files:";
+                    for (auto const& name : f.result())
+                        std::cout << " " + name;
+                    std::cout << "\n";
+
+                }
                 if (ImGui::MenuItem("Save As..")) {}
 
                 ImGui::EndMenu();

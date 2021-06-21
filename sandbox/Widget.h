@@ -16,7 +16,7 @@ struct Widget {
 	
 
 	// From example
-	bool showDemoWindow = true;
+	bool showDemoWindow = false;
     bool showAnotherWindow = false;
     Color4 clearColor = 0x72909aff_rgbaf;
 	Float floatValue = 0.0f;

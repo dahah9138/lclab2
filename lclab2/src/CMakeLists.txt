@@ -16,7 +16,7 @@ set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 
 #find_package(Corrade REQUIRED Main)
 
-add_definitions(-DLC_BUILD_DLL)
+#add_definitions(-DLC_BUILD_DLL)
 
 set (baselib		base/entrypoint.h
 					base/Application.h base/Application.cpp
@@ -61,9 +61,14 @@ endif()
 target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 										 ${CMAKE_CURRENT_SOURCE_DIR}/base
 										 ${CMAKE_SOURCE_DIR}/external
+										 ${CMAKE_SOURCE_DIR}/external/portable-file-dialogs
 										 ${CMAKE_SOURCE_DIR}/external/spdlog/include
 										 ${CMAKE_SOURCE_DIR}/external/eigen
 										 ${CMAKE_SOURCE_DIR}/external/eigen/unsupported)
+										 
+
+target_compile_definitions(lclab2 PRIVATE LC_BUILD_DLL)
+
 
 target_link_libraries(lclab2 PUBLIC
  #   Corrade::Main

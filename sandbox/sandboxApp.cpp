@@ -9,12 +9,21 @@ using namespace Magnum;
 using namespace Math::Literals;
 
 /*
-    TODO: Make sheet color draw dynamically
-
-    Next: Maybe consider making a POM imaging lib for lclab2 (make with CPU first)
-    - Needs Jones Matrix (I have matrices through Eigen)
-    - Needs Lamp specifications
-    - LC Optical properties
+    TODO:
+    -   GPU compatibility
+    -   GPU accelerated relax
+    -   GPU accelerated POM (think computing and
+        combining smaller stacks)
+    -   More relax features
+    -   Save file system
+    -   Load file system
+    -   Isosurfaces
+    -   Interpolation
+    -   RBF features
+    -   Streamlines
+    -   Q-tensor
+    -   Dynamic evolution methods
+    -   Steady state evaluation methods
 */
 
 class Sandbox : public LC::Application
@@ -166,29 +175,92 @@ void Sandbox::drawEvent()
 
     _imgui.newFrame();
 
-    /* 1. Show a simple window.
-       Tip: if we don't call ImGui::Begin()/ImGui::End() the widgets appear in
-       a window called "Debug" automatically */
     {
-        ImGui::Text("Hello, world!");
-        ImGui::SliderFloat("Float", &_widget.floatValue, 0.0f, 1.0f);
-        if (ImGui::ColorEdit3("Clear Color", _widget.clearColor.data()))
-            GL::Renderer::setClearColor(_widget.clearColor);
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar;
+
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::Begin("lclab2", 0, window_flags);
+
+        if (ImGui::BeginMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+
+                if (ImGui::MenuItem("New", "Ctrl+N")) {}
+                if (ImGui::MenuItem("Open", "Ctrl+O")) {}
+                if (ImGui::MenuItem("Save", "Ctrl+S")) {}
+                if (ImGui::MenuItem("Save As..")) {}
+
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+
         if (ImGui::Button("Test Window"))
             _widget.showDemoWindow ^= true;
         if (ImGui::Button("Another Window"))
             _widget.showAnotherWindow ^= true;
 
+        // Dropdown menu for lc types
         {
-            ImGui::Checkbox("POM", &_widget.POM);
+            const char* items[] = { "5CB" };
+            std::string currentItem;
+            if (_widget.lcType == LC::FrankOseen::LC_TYPE::_5CB) currentItem = "5CB";
+            else currentItem = "Error";
 
+            if (ImGui::BeginCombo("LC Type", currentItem.c_str())) {
+
+                for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                    bool selected = (currentItem == items[n]);
+                    if (ImGui::Selectable(items[n], selected)) {
+                        _widget.lcType = static_cast<LC::FrankOseen::LC_TYPE>(n);
+                        currentItem = items[n];
+                    }
+
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+
+                ImGui::EndCombo();
+            }
+
+        }
+
+        {
             Float pitch = _widget.pitch.first;
-
             ImGui::InputFloat("Pitch (um)", &pitch);
-
             _widget.pitch.first = pitch;
 
-            if (_widget.POM) {
+
+
+
+            if (ImGui::CollapsingHeader("POM Settings")) {
+
+                ImGui::Checkbox("Enable POM", &_widget.POM);
+                // Dropdown menu for waveplates
+                {
+                    const char* items[] = { "None", "530 nm Full" };
+                    std::string currentItem;
+                    if (_widget.waveplate == Widget::Waveplate::Full530nm) currentItem = "530 nm Full";
+                    else currentItem = "None";
+
+                    if (ImGui::BeginCombo("Waveplate", currentItem.c_str())) {
+
+                        for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                            bool selected = (currentItem == items[n]);
+                            if (ImGui::Selectable(items[n], selected)) {
+                                _widget.waveplate = static_cast<Widget::Waveplate>(n);
+                                currentItem = items[n];
+                            }
+
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+
+                        ImGui::EndCombo();
+                    }
+
+                }
+
+
                 // Show additional options in a dropdown (TODO)
                 std::array<Float, 3> lampIntensity = _widget.intensity;
                 ImGui::InputFloat3("Lamp intensity", &lampIntensity[0]);
@@ -209,6 +281,7 @@ void Sandbox::drawEvent()
             }
         }
 
+        _widget.updateImage = ImGui::Button("Update Image");
 
 
         // Set Cycle
@@ -231,6 +304,8 @@ void Sandbox::drawEvent()
         
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
             1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
+    
+        ImGui::End();
     }
     /* 2. Show another simple window, now using an explicit Begin/End pair */
     if (_widget.showAnotherWindow) {
@@ -274,6 +349,7 @@ void Sandbox::drawEvent()
         guiRenderer();
 
         _imgui.drawFrame();
+
     }
 
     swapBuffers();
@@ -281,12 +357,14 @@ void Sandbox::drawEvent()
     if (_widget.relax) {
 
         _solver->Relax(_widget.cycle);
-
+        _widget.updateImage = true;
+    }
+    
+    if (_widget.updateImage) {
         // For now just xy midplane
         if(_widget.POM) POM();
         else updateColor();
     }
-    
     
     if (_widget.print) {
         _solver->Print();
@@ -383,7 +461,7 @@ void Sandbox::updateColor() {
     _dsheet.sheetBuffer.setData(_dsheet.data, GL::BufferUsage::DynamicDraw);
 }
 
-// Only for 5CB. Currently does not support waveplates either.
+// Only for 5CB.
 void Sandbox::POM() {
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
@@ -396,6 +474,8 @@ void Sandbox::POM() {
 
     LC::SIscalar pitch = _widget.pitch;
     LC::scalar dop = data->cell_dims[2];
+
+    Widget::Waveplate waveplate = _widget.waveplate;
 
     LC::scalar thickness = pitch.first * dop;
     LC::scalar dz = thickness * 1e-6 / data->voxels[2]; // meters
@@ -410,11 +490,17 @@ void Sandbox::POM() {
     LC::scalar gamma = _widget.gamma;
 
     // Jones matrix
-    Eigen::Matrix2cd M = Eigen::Matrix2cd::Zero(2, 2);
+    Eigen::Matrix2cd M, m;
 
     // 5CB
-    LC::scalar n0 = 1.58;
-    LC::scalar ne = 1.77;
+    LC::scalar n0;
+    LC::scalar ne;
+
+    if (_widget.lcType == LC::FrankOseen::LC_TYPE::_5CB) {
+        n0 = LC::FrankOseen::OpticalConstants::_5CB("n_o").first;
+        ne = LC::FrankOseen::OpticalConstants::_5CB("n_e").first;
+    }
+
 
     // Crossed polarizer (1), uncrossed (0)
     LC::scalar crossed = (LC::scalar)_widget.crossedPolarizer;
@@ -438,6 +524,7 @@ void Sandbox::POM() {
     for (int i = 0; i < data->voxels[0]; i++) {
         for (int j = 0; j < data->voxels[1]; j++) {
 
+            // Polarization states for rgb colors
             Eigen::Vector2cd Eo[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
 
             for (int k = 0; k < data->voxels[2]; k++) {
@@ -470,6 +557,28 @@ void Sandbox::POM() {
                     M(1, 1) = sp * sp * eidE + cp * cp * eid0;
 
                     Eo[rgb] = M * Eo[rgb];
+                }
+
+
+            }
+
+            // Additional waveplate
+            if (waveplate == Widget::Waveplate::Full530nm) {
+
+                const std::array<int, 2> rb = { 0, 2 };
+                const LC::scalar thick = 5.8889e-05 * 7.0;
+
+
+                for (const auto& col : rb) {
+                    const LC::scalar de_wp = 2.0 * M_PI / lambda[col] * thick * 1.55338;
+                    const LC::scalar do_ep = 2.0 * M_PI / lambda[col] * thick * 1.54425;
+
+                    m(0, 0) = 0.5 * (exp(ii * de_wp) + exp(ii * do_ep));
+                    m(0, 1) = 0.5 * (exp(ii * de_wp) - exp(ii * do_ep));
+                    m(1, 0) = m(0, 1);
+                    m(1, 1) = m(0, 0);
+
+                    Eo[col] = m * Eo[col];
                 }
 
             }

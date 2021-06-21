@@ -21,6 +21,11 @@ namespace LC { namespace FrankOseen {
 
 	*/
 
+	// Supported types
+	enum class LC_API LC_TYPE {
+		_5CB = 0
+	};
+
 
 	struct LC_API ElasticConstants {
 		SIscalar k11{0.0, "NOINIT"};
@@ -33,6 +38,15 @@ namespace LC { namespace FrankOseen {
 
 			SIscalar k;
 			k.second = "pN";
+
+			std::string elasticK = K;
+
+			// Convert first character to lower
+			if (!K.empty()) {
+				if (isalpha(K[0])) {
+					elasticK[0] = tolower(K[0]);
+				}
+			}
 
 			if (!K.compare("k11")) {
 				k.first = 6.4;
@@ -66,8 +80,28 @@ namespace LC { namespace FrankOseen {
 
 	// Dimensionless
 	struct LC_API OpticalConstants {
-		scalar n_o;
-		scalar n_e;
+		SIscalar n_o{ 0.0, "NOINIT" };
+		SIscalar n_e{ 0.0, "NOINIT" };
+
+		static SIscalar _5CB(const std::string& opticalProperty) {
+
+			SIscalar ni;
+			ni.second = "DIMENSIONLESS";
+
+			if (!opticalProperty.compare("n_e") || !opticalProperty.compare("ne")) {
+				ni.first = 1.77;
+			}
+			else if (!opticalProperty.compare("n_o") || !opticalProperty.compare("no") ||
+					 !opticalProperty.compare("n_0") || !opticalProperty.compare("n0")) {
+				ni.first = 1.58;
+			}
+			else {
+				ni.second = "ERROR";
+			}
+			
+			return ni;
+		}
+
 	};
 
 

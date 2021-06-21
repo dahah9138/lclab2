@@ -3,6 +3,8 @@
 // Base
 #include "src/base/Application.h"
 #include "src/base/logger.h"
+#include "src/base/Header.h"
+
 // LC
 #include "src/solver/Solver.h"
 #include "src/solver/frankoseen/FOAssets.h"

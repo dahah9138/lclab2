@@ -11,6 +11,11 @@
 // Gives std::pair
 #include <utility>
 
+#include <vector>
+
+// File processes
+#include <fstream>
+
 // Gives M_PI
 #define _USE_MATH_DEFINES
 #include <cmath>

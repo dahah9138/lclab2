@@ -8,6 +8,13 @@ using namespace Math::Literals;
 
 struct Widget {
 	
+	enum class Waveplate {
+		None = 0,
+		Full530nm = 1
+	};
+
+	
+
 	// From example
 	bool showDemoWindow = true;
     bool showAnotherWindow = false;
@@ -20,6 +27,8 @@ struct Widget {
 	// Num cycles before next draw call
 	int cycle = 10;
 
+	bool updateImage = false;
+
 	bool POM = false;
 	// Default crossed
 	bool crossedPolarizer = 1;
@@ -31,6 +40,10 @@ struct Widget {
 	std::array<Float, 3> rgbColors = { 650.0, 550.0, 450.0 };
 	std::array<Float, 3> intensity = { 1.0, 0.6, 0.2 };
 	LC::scalar gamma = 1.0;
+	Waveplate waveplate = Waveplate::None;
+
+	// Default type
+	LC::FrankOseen::LC_TYPE lcType = LC::FrankOseen::LC_TYPE::_5CB;
 	
 };
 

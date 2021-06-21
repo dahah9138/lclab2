@@ -21,7 +21,8 @@ add_definitions(-DLC_BUILD_DLL)
 set (baselib		base/entrypoint.h
 					base/Application.h base/Application.cpp
 					base/logger.h base/logger.cpp
-					base/scalar.h)
+					base/scalar.h
+					base/Header.h base/Header.cpp)
 				
 set (frankoseenlib 	solver/Solver.h
 					solver/frankoseen/FOAssets.h

@@ -66,7 +66,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		if (invalidData) {
 
-			LC_CRITICAL("Invalid data initialization");
+			LC_CORE_CRITICAL("Invalid data initialization");
 			// Toggle error
 			errors = static_cast<Solver::Error>(static_cast<int>(Solver::Error::Init) | static_cast<int>(errors));
 			return;
@@ -106,7 +106,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		for (int i = 0; i < data.voxels[0]; i++) {
 			for (int j = 0; j < data.voxels[1]; j++) {
 				for (int k = 0; k < data.voxels[1]; k++) {
-					LC_INFO("nn({0},{1},{2}) = ({3}, {4}, {5})", i, j, k, nn(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
+					LC_CORE_INFO("nn({0},{1},{2}) = ({3}, {4}, {5})", i, j, k, nn(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
 				}
 			}
 		}
@@ -116,7 +116,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	void FOFDSolver::Relax(const std::size_t& iterations) {
 
 		if (errors != Solver::Error::None) {
-			LC_WARN("Abort: Attempting to relax with errors!");
+			LC_CORE_WARN("Abort: Attempting to relax with errors!");
 			return;
 		}
 

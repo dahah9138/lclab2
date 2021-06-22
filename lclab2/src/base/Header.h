@@ -10,7 +10,7 @@ namespace LC {
 	struct LC_API Header {
 		struct HeaderObject {
 			std::string variable;
-			std::size_t size;
+			std::size_t size_in_bytes;
 			std::size_t location;
 		};
 
@@ -19,8 +19,14 @@ namespace LC {
 		void write(const std::string& file);
 		void read(const std::string& file);
 
+		// Need to store read file in case user specifies 'save'
+		// instead of 'save as'
+		std::string readFile;
+
+		// HeaderObject and pointer to data pair
+		// Initialized to zero from calling write
 		std::vector<HeaderObject> headerObjects;
-		Version version;
+		Version version = Version::V1;
 	};
 
 

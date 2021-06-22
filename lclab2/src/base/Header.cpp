@@ -24,7 +24,7 @@ namespace LC {
 		// Write header information
 
 		for (const auto& obj : headerObjects) {
-			ofile.write((char*)&obj, sizeof(HeaderObject));
+			ofile.write((char*)&obj, sizeof(HeaderObject{}));
 		}
 
 		ofile.close();
@@ -35,6 +35,8 @@ namespace LC {
 	}
 
 	void Header::read(const std::string& file) {
+
+		readFile = file;
 
 		std::ifstream ifile(file.c_str(), std::ios::out | std::ios::binary);
 
@@ -56,8 +58,16 @@ namespace LC {
 		// Read header information
 
 		{
-			std::size_t headerObjectsSize = sizeof(HeaderObject) * headerObjects.size();
-			ifile.read((char*)&headerObjects[0], headerObjectsSize);
+			std::size_t headerObjectsSizeInBytes = sizeof(HeaderObject) * headerObjects.size();
+
+			std::vector<HeaderObject> objectBuffer;
+			objectBuffer.resize(headerObjects.size());
+
+			ifile.read((char*)&objectBuffer[0], headerObjectsSizeInBytes);
+			
+			// copy to headerObjects
+			for (int i = 0; i < headerObjects.size(); i++)
+				headerObjects[i] = objectBuffer[i];
 		}
 		
 		ifile.close();

@@ -60,6 +60,8 @@ private:
 
     // Solver
     LC::Solver* _solver;
+
+    LC::Header _header;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -153,6 +155,14 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     // Colors
     updateColor();
 
+    // Write data header
+    // HeaderObject initializer list is { 'variable', 'size', 'location' }
+    LC::Header::HeaderObject obj[] = { { "char", sizeof(char), 0 }, { "int", sizeof(int), 1 } };
+
+    _header.headerObjects.emplace_back(obj[0]);
+    _header.headerObjects.emplace_back(obj[1]);
+
+
 
 
     LC_INFO("Created Sandbox!");
@@ -185,22 +195,42 @@ void Sandbox::drawEvent()
             if (ImGui::BeginMenu("File")) {
 
                 if (ImGui::MenuItem("New", "Ctrl+N")) {}
-                if (ImGui::MenuItem("Open", "Ctrl+O")) {}
-                if (ImGui::MenuItem("Save", "Ctrl+S")) {
+                if (ImGui::MenuItem("Open", "Ctrl+O")) {
                 
-                    // Directory selection
-                    auto dir = pfd::select_folder("Select any directory", LCLAB2_ROOT_PATH).result();
-                    std::cout << "Selected dir: " << dir << "\n";
-
-                    // File open
-                    auto f = pfd::open_file("Choose files to read", LCLAB2_ROOT_PATH,
+                    auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
                         { "Text Files (.txt .text)", "*.txt *.text",
                           "All Files", "*" },
-                        pfd::opt::multiselect);
-                    std::cout << "Selected files:";
-                    for (auto const& name : f.result())
-                        std::cout << " " + name;
-                    std::cout << "\n";
+                        pfd::opt::none);
+
+                    auto res = of.result();
+
+                    if (!res.empty()) {
+                        _header.read(res[0]);
+                        // See if successful
+
+                        for (const auto &obj : _header.headerObjects)
+                            std::cout << obj.variable << ","
+                                << obj.size_in_bytes << ","
+                                << obj.location << std::endl;
+                            
+
+                    }
+                
+                }
+
+                if (ImGui::MenuItem("Save", "Ctrl+S")) {
+
+                    // File save
+                    auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
+                        { "Text Files (.txt .text)", "*.txt *.text",
+                          "All Files", "*" },
+                        pfd::opt::none);
+
+
+                    // Pass file to header to be written
+                    auto res = sf.result();
+
+                    _header.write(res);
 
                 }
                 if (ImGui::MenuItem("Save As..")) {}

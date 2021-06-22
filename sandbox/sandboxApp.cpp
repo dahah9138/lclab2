@@ -62,6 +62,10 @@ private:
     LC::Solver* _solver;
 
     LC::Header _header;
+
+    // test save data
+    char data1 = 'g';
+    int data2 = 5;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -159,8 +163,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     // HeaderObject initializer list is { 'variable', 'size', 'location' }
     LC::Header::HeaderObject obj[] = { { "char", sizeof(char), 0 }, { "int", sizeof(int), 1 } };
 
-    _header.headerObjects.emplace_back(obj[0]);
-    _header.headerObjects.emplace_back(obj[1]);
+    _header.headerObjects.push_back({ obj[0], 0 });
+    _header.headerObjects.push_back({ obj[1], 0 });
 
 
 
@@ -209,13 +213,30 @@ void Sandbox::drawEvent()
                         // See if successful
 
                         for (const auto &obj : _header.headerObjects)
-                            std::cout << obj.variable << ","
-                                << obj.size_in_bytes << ","
-                                << obj.location << std::endl;
-                            
-
+                            std::cout << obj.first.variable << ","
+                                << obj.first.size_in_bytes << ","
+                                << obj.first.location << std::endl;
                     }
-                
+
+
+                    // Read some test data
+                    _header.readBody();
+
+                    char* d1 = 0;
+                    int* d2 = 0;
+
+                    // After reading data, always keep a handle on it.
+                    // Header only makes the data when it reads.
+                    // It is up to the user to handle after that
+                    d1 = (char*)_header.passData(0);
+                    d2 = (int*)_header.passData(1);
+
+                    std::cout << *d1 << std::endl;
+                    std::cout << *d2 << std::endl;
+
+                    delete d1;
+                    delete d2;
+
                 }
 
                 if (ImGui::MenuItem("Save", "Ctrl+S")) {
@@ -230,7 +251,17 @@ void Sandbox::drawEvent()
                     // Pass file to header to be written
                     auto res = sf.result();
 
-                    _header.write(res);
+                    if (!res.empty()) {
+
+                        // Bind data
+                        _header.headerObjects[0].second = &data1;
+                        _header.headerObjects[1].second = &data2;
+
+
+                        _header.write(res);
+                        _header.writeBody();
+                    }
+
 
                 }
                 if (ImGui::MenuItem("Save As..")) {}

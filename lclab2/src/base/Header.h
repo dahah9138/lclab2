@@ -16,16 +16,24 @@ namespace LC {
 
 		enum class Version { V1 = 1 };
 
-		void write(const std::string& file);
 		void read(const std::string& file);
+		void write(const std::string& file);
+		
+		void readBody();
+		void writeBody();
+
+		void sortHeaderObjects();
+		bool ValidateHeaderObjects();
+
+		void* passData(std::size_t index);
+		void setData(void *ptr, std::size_t index);
 
 		// Need to store read file in case user specifies 'save'
 		// instead of 'save as'
 		std::string readFile;
+		std::string writeFile;
 
-		// HeaderObject and pointer to data pair
-		// Initialized to zero from calling write
-		std::vector<HeaderObject> headerObjects;
+		std::vector<std::pair<HeaderObject, void*>> headerObjects;
 		Version version = Version::V1;
 	};
 

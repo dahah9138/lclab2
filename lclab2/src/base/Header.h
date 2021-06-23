@@ -15,9 +15,17 @@ namespace LC {
 		};
 
 		enum class Version { V1 = 1 };
+		enum class Option { None = 0, Read = BIT(1), Write = BIT(2) };
 
 		void read(const std::string& file);
+
+		// Reads from readFile
+		void read();
+
 		void write(const std::string& file);
+
+		// Writes from writeFile
+		void write();
 		
 		void readBody();
 		void writeBody();
@@ -26,7 +34,7 @@ namespace LC {
 		bool ValidateHeaderObjects();
 
 		void* passData(std::size_t index);
-		void setData(void *ptr, std::size_t index);
+		Header& setData(void *ptr, std::size_t index);
 
 		// Need to store read file in case user specifies 'save'
 		// instead of 'save as'

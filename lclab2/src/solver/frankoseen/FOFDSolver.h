@@ -4,6 +4,7 @@
 #include "../Solver.h"
 #include "FOAssets.h"
 #include "math/vec3.h"
+#include "Header.h"
 
 /*
 	Basic LC elastic FD solver type
@@ -20,9 +21,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			typedef void (*Config)(Tensor4&,int,int,int,int*);
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
 			std::size_t numIterations = 0;
-			int voxels[3] = { 0, 0, 0 };
-			scalar cell_dims[3] = { 0.0, 0.0, 0.0 };
-			bool bc[3] = { 0, 0, 0 };
+			std::array<int, 3> voxels = { 0, 0, 0 };
+			std::array<scalar, 3> cell_dims = { 0.0, 0.0, 0.0 };
+			std::array<bool, 3> bc = { 0, 0, 0 };
 			scalar chirality = 1.0;
 			scalar* directors = 0;
 			Config config = 0;
@@ -43,7 +44,13 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			// Returns 0 for no errors, 1 for errors
 			bool chkErrors();
 
+			// Return a specialized header object for the dataset
+			void configureHeader(Header &header);
+			void readDataFromHeader(Header& header);
+
 		};
+
+		
 
 
 		FOFDSolver();
@@ -59,6 +66,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void HandleBoundaryConditions(Tensor4& nn, int i, int j, int k);
 		void Normalize(Tensor4& nn, int i, int j, int k);
 		void Print() override;
+
+		void ConfigureHeader(Header &header);
+		void ReadDataFromHeader(Header& header);
 
 		Dataset* GetData();
 		Dataset data;

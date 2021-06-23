@@ -2,8 +2,6 @@
 #include <complex>
 #include "Widget.h"
 
-#define USE_PLANE 1
-
 
 using namespace Magnum;
 using namespace Math::Literals;
@@ -45,10 +43,12 @@ private:
     void updateColor();
     void POM();
 
+    void save();
+    void saveAs();
+
     // Tested geometries
-    LC::SphereArray _grid;
     LC::Torus _sheet;
-    LC::DynamicColorSheet _dsheet;
+    LC::DynamicColorSheet *_dsheet;
     // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
 
@@ -62,10 +62,6 @@ private:
     LC::Solver* _solver;
 
     LC::Header _header;
-
-    // test save data
-    char data1 = 'g';
-    int data2 = 5;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -141,30 +137,17 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _solver->Init();
 
-    /* Setup spheres */
-    _grid.NX = data->voxels[0];
-    _grid.NY = data->voxels[1];
-    _grid.CX = data->cell_dims[0];
-    _grid.CY = data->cell_dims[1];
+    _dsheet = new LC::DynamicColorSheet;
 
-    _grid.Init();
-
-    _dsheet.NX = data->voxels[0];
-    _dsheet.NY = data->voxels[1];
-    _dsheet.CX = data->cell_dims[0];
-    _dsheet.CY = data->cell_dims[1];
-    _dsheet.Init();
+    _dsheet->NX = data->voxels[0];
+    _dsheet->NY = data->voxels[1];
+    _dsheet->CX = data->cell_dims[0];
+    _dsheet->CY = data->cell_dims[1];
+    _dsheet->Init();
 
 
     // Colors
     updateColor();
-
-    // Write data header
-    // HeaderObject initializer list is { 'variable', 'size', 'location' }
-    LC::Header::HeaderObject obj[] = { { "char", sizeof(char), 0 }, { "int", sizeof(int), 1 } };
-
-    _header.headerObjects.push_back({ obj[0], 0 });
-    _header.headerObjects.push_back({ obj[1], 0 });
 
 
 
@@ -176,6 +159,7 @@ Sandbox::~Sandbox() {
 	LC_INFO("Destroying Sandbox.");
 
     delete _solver;
+    delete _dsheet;
 }
 
 /*
@@ -195,76 +179,71 @@ void Sandbox::drawEvent()
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::Begin("lclab2", 0, window_flags);
 
+        bool updateImageFromLoad = false;
+
+        if (_widget.ctrlS.isPressed()) {
+            save();
+        }
+
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
 
-                if (ImGui::MenuItem("New", "Ctrl+N")) {}
+                //if (ImGui::MenuItem("New", "Ctrl+N")) {}
                 if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                
+
                     auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
-                        { "Text Files (.txt .text)", "*.txt *.text",
-                          "All Files", "*" },
+                        { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+                              "All Files", "*" },
                         pfd::opt::none);
 
                     auto res = of.result();
 
                     if (!res.empty()) {
-                        _header.read(res[0]);
-                        // See if successful
 
-                        for (const auto &obj : _header.headerObjects)
-                            std::cout << obj.first.variable << ","
-                                << obj.first.size_in_bytes << ","
-                                << obj.first.location << std::endl;
+                        _header.readFile = res[0];
+
+                        using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
+                        FOFDSolver* solver = (FOFDSolver*)_solver;
+
+                        using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+                        Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
+                        solver->ReadDataFromHeader(_header);
+
+                        {
+                            delete _dsheet;
+                            _dsheet = new LC::DynamicColorSheet;
+                        }
+
+                        // Reinit grid
+                        _dsheet->NX = data->voxels[0];
+                        _dsheet->NY = data->voxels[1];
+                        _dsheet->CX = data->cell_dims[0];
+                        _dsheet->CY = data->cell_dims[1];
+                        _dsheet->Init();
+
+                        updateImageFromLoad = true;
+
+                        // Tells program to save to readFile if "Save" is pressed
+                        _widget.loadedFromFile = true;
+                        LC_INFO("Loaded file {0}", res[0].c_str());
+
                     }
-
-
-                    // Read some test data
-                    _header.readBody();
-
-                    char* d1 = 0;
-                    int* d2 = 0;
-
-                    // After reading data, always keep a handle on it.
-                    // Header only makes the data when it reads.
-                    // It is up to the user to handle after that
-                    d1 = (char*)_header.passData(0);
-                    d2 = (int*)_header.passData(1);
-
-                    std::cout << *d1 << std::endl;
-                    std::cout << *d2 << std::endl;
-
-                    delete d1;
-                    delete d2;
-
+                    else {
+                        updateImageFromLoad = false;
+                    }
                 }
 
                 if (ImGui::MenuItem("Save", "Ctrl+S")) {
 
-                    // File save
-                    auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
-                        { "Text Files (.txt .text)", "*.txt *.text",
-                          "All Files", "*" },
-                        pfd::opt::none);
-
-
-                    // Pass file to header to be written
-                    auto res = sf.result();
-
-                    if (!res.empty()) {
-
-                        // Bind data
-                        _header.headerObjects[0].second = &data1;
-                        _header.headerObjects[1].second = &data2;
-
-
-                        _header.write(res);
-                        _header.writeBody();
-                    }
-
+                    save();
 
                 }
-                if (ImGui::MenuItem("Save As..")) {}
+                if (ImGui::MenuItem("Save As..")) {
+                
+                    saveAs();
+
+                }
 
                 ImGui::EndMenu();
             }
@@ -358,7 +337,7 @@ void Sandbox::drawEvent()
             }
         }
 
-        _widget.updateImage = ImGui::Button("Update Image");
+        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
 
 
         // Set Cycle
@@ -411,11 +390,9 @@ void Sandbox::drawEvent()
 
     polyRenderer();
 
-#if USE_PLANE
-    _dsheet.Draw(_arcballCamera, _projectionMatrix);
-#else
-    _grid.Draw(_arcballCamera, _projectionMatrix);
-#endif
+
+    _dsheet->Draw(_arcballCamera, _projectionMatrix);
+
     //_sheet.Draw(_arcballCamera, _projectionMatrix);
     //_sheetNormal.Draw(_arcballCamera, _projectionMatrix);
 
@@ -479,10 +456,22 @@ void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 }
 
 void Sandbox::keyPressEvent(KeyEvent& event) {
+
+    // Check if Ctrl + S is pressed
+
+
+    if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = true;
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) _widget.ctrlS.keyCtrl = true;
+
     if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
 
 void Sandbox::keyReleaseEvent(KeyEvent& event) {
+
+    if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = false;
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) _widget.ctrlS.keyCtrl = false;
+
+
     if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
 }
 
@@ -529,13 +518,12 @@ void Sandbox::updateColor() {
             if (hsv[1] > 1.0f) hsv[1] = 1.0f;
             if (hsv[2] > 1.0f) hsv[2] = 1.0f;
 
-            _grid.sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
-            _dsheet.data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+            _dsheet->data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
         }
     }
 
     // Update sheet
-    _dsheet.sheetBuffer.setData(_dsheet.data, GL::BufferUsage::DynamicDraw);
+    _dsheet->sheetBuffer.setData(_dsheet->data, GL::BufferUsage::DynamicDraw);
 }
 
 // Only for 5CB.
@@ -668,13 +656,70 @@ void Sandbox::POM() {
                 color[rgb] = pow(intensity[rgb] * I, gamma);
             }
 
-            _grid.sphereInstanceData[cross_idx(i, j)].color = color;
-            _dsheet.data[cross_idx(i, j)].color = color;
+            _dsheet->data[cross_idx(i, j)].color = color;
         }
     }
 
     // Update sheet
-    _dsheet.sheetBuffer.setData(_dsheet.data, GL::BufferUsage::DynamicDraw);
+    _dsheet->sheetBuffer.setData(_dsheet->data, GL::BufferUsage::DynamicDraw);
+}
+
+void Sandbox::save() {
+    // Check if file exists (was loaded)
+
+    std::string res;
+
+    if (!_widget.loadedFromFile) {
+        // File save
+        auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
+            { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+              "All Files", "*" },
+            pfd::opt::none);
+
+
+        // Pass file to header to be written
+        res = sf.result();
+    }
+    else {
+        res = _header.readFile;
+    }
+
+    if (!res.empty()) {
+
+        using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
+        FOFDSolver* solver = (FOFDSolver*)_solver;
+
+        solver->ConfigureHeader(_header);
+
+        _header.write(res);
+        _header.writeBody();
+        LC_INFO("Saved to file {0}", res.c_str());
+    }
+}
+
+void Sandbox::saveAs() {
+
+    // File save
+    auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
+        { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+              "All Files", "*" },
+        pfd::opt::none);
+
+
+    // Pass file to header to be written
+    auto res = sf.result();
+
+    if (!res.empty()) {
+
+        using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
+        FOFDSolver* solver = (FOFDSolver*)_solver;
+
+        solver->ConfigureHeader(_header);
+
+        _header.write(res);
+        _header.writeBody();
+        LC_INFO("Saved to file {0}", res.c_str());
+    }
 }
 
 LC::Application* LC::createApplication(int argc, char **argv) {

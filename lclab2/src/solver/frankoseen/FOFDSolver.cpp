@@ -36,6 +36,68 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	}
 
+	void FOFDSolver::Dataset::configureHeader(Header &header) {
+		// Specify format to save data
+
+		
+		header.headerObjects = { {{ "Scalar size", sizeof(std::size_t), 0 }, &size_of_scalar},
+															{{ "Iterations", sizeof(std::size_t), 1 }, &numIterations},
+															{{ "Voxels", 3 * sizeof(int), 2 }, &voxels[0]},
+															{{ "Cell dims", 3 * sizeof(LC::scalar), 3 }, &cell_dims[0]},
+															{{ "Boundaries", 3 * sizeof(bool), 4 }, &bc[0]},
+															{{ "Chirality", sizeof(LC::scalar), 5 }, &chirality},
+															{{ "Relax rate", sizeof(LC::scalar), 6 }, &rate},
+															{{ "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2], 7 }, directors} };
+		
+		
+	}
+
+	void FOFDSolver::Dataset::readDataFromHeader(Header& header) {
+
+		// Free directors if there
+		if (directors)
+			delete[] directors;
+
+		directors = 0;
+
+		// Clear header objects. It is assumed that any dynamic data has been
+		// freed at this point
+		header.headerObjects.swap(Header{}.headerObjects);
+
+		header.read();
+		header.readBody();
+
+		// Extract data
+		{
+			std::size_t* p_size_of_scalar = reinterpret_cast<std::size_t*>(header.passData(0));
+			std::size_t* p_iter = reinterpret_cast<std::size_t*>(header.passData(1));
+			int* p_vox = reinterpret_cast<int*>(header.passData(2));
+			LC::scalar* p_cell = reinterpret_cast<LC::scalar*>(header.passData(3));
+			bool* p_bc = reinterpret_cast<bool*>(header.passData(4));
+			LC::scalar* p_chir = reinterpret_cast<LC::scalar*>(header.passData(5));
+			LC::scalar* p_rate = reinterpret_cast<LC::scalar*>(header.passData(6));
+
+			// Pass data
+			directors = reinterpret_cast<LC::scalar*>(header.passData(7));
+			numIterations = *p_iter;
+			voxels = { p_vox[0], p_vox[1], p_vox[2] };
+			cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
+			bc = { p_bc[0], p_bc[1], p_bc[2] };
+			chirality = *p_chir;
+			rate = *p_rate;
+
+
+			delete p_size_of_scalar;
+			delete p_iter;
+			delete[] p_vox;
+			delete[] p_cell;
+			delete[] p_bc;
+			delete p_chir;
+			delete p_rate;
+		}
+
+	}
+
 
 	FOFDSolver::FOFDSolver() {
 
@@ -91,7 +153,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		for (int i = 0; i < data.voxels[0]; i++) {
 			for (int j = 0; j < data.voxels[1]; j++) {
 				for (int k = 0; k < data.voxels[1]; k++) {
-					data.config(nn, i, j, k, data.voxels);
+					data.config(nn, i, j, k, &data.voxels[0]);
 					// Ensure normalization
 					Normalize(nn, i, j, k);
 				}
@@ -260,6 +322,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	FOFDSolver::Dataset* FOFDSolver::GetData() {
 		return &data;
+	}
+
+	void FOFDSolver::ConfigureHeader(Header &header) {
+		data.configureHeader(header);
+	}
+
+	void FOFDSolver::ReadDataFromHeader(Header& header) {
+		data.readDataFromHeader(header);
 	}
 
 }}}

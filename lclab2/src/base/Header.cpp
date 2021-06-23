@@ -265,10 +265,19 @@ namespace LC {
 		else return 0;
 	}
 
-	void Header::setData(void* ptr, std::size_t index) {
-		if (ptr && index < headerObjects.size()) {
+	Header& Header::setData(void* ptr, std::size_t index) {
+		if (index < headerObjects.size()) {
 			headerObjects[index].second = ptr;
 		}
+		return *this;
+	}
+
+	void Header::read() {
+		read(readFile);
+	}
+
+	void Header::write() {
+		write(writeFile);
 	}
 
 

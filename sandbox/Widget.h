@@ -13,7 +13,16 @@ struct Widget {
 		Full530nm = 1
 	};
 
-	
+	struct CtrlS {
+		bool keyS = false;
+		bool keyCtrl = false;
+		bool isPressed() { return keyS && keyCtrl; }
+		void reset() {
+			keyS = false;
+			keyCtrl = false;
+		}
+	};
+
 
 	// From example
 	bool showDemoWindow = false;
@@ -24,6 +33,8 @@ struct Widget {
 	// For simulation
 	bool relax = false;
 	bool print = false;
+	bool loadedFromFile = false;
+	CtrlS ctrlS;
 	// Num cycles before next draw call
 	int cycle = 10;
 

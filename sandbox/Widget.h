@@ -7,22 +7,53 @@ using namespace Magnum;
 using namespace Math::Literals;
 
 struct Widget {
-	
-	enum class Waveplate {
-		None = 0,
-		Full530nm = 1
-	};
 
 	struct CtrlS {
 		bool keyS = false;
 		bool keyCtrl = false;
 		bool isPressed() { return keyS && keyCtrl; }
-		void reset() {
-			keyS = false;
-			keyCtrl = false;
-		}
 	};
 
+	struct CtrlO {
+		bool keyO = false;
+		bool keyCtrl = false;
+		bool isPressed() { return keyO && keyCtrl; }
+	};
+
+/*
+	struct CtrlCommand {
+		CtrlCommand() : ctrl(false) {
+			keys.push_back({ Magnum::KeyEvent::Key::S, false });
+			keys.push_Back({ Magnum::KeyEvent::Key::O, false });
+		}
+		bool ctrl;
+		std::vector<std::pair<Magnum::KeyEvent::Key, bool>> keys;
+		void press(Magnum::KeyEvent::Key key) {
+			for (auto & k : keys) {
+				if (k.first == key) {
+					k.second = true;
+					return;
+				}
+			}
+		}
+		void release(Magnum::KeyEvent::Key key) {
+			for (auto & k : keys) {
+				if (k.first == key) {
+					k.second = false;
+					return;
+				}
+			}
+		}
+
+		bool isPressed(Magnum::KeyEvent::Key key) { 
+			for (auto & k : keys) {
+				if (k.first == key && k.second && ctrl)
+					return true;
+			}
+			return false;
+		}
+	};
+*/
 
 	// From example
 	bool showDemoWindow = false;
@@ -35,6 +66,11 @@ struct Widget {
 	bool print = false;
 	bool loadedFromFile = false;
 	CtrlS ctrlS;
+	CtrlO ctrlO;
+
+	//CtrlCommand commands;
+
+
 	// Num cycles before next draw call
 	int cycle = 10;
 

@@ -27,6 +27,7 @@
 #include "core.h"
 #include "logger.h"
 #include "../graphics/ArcBall.h"
+#include "../solver/Solver.h"
 
 namespace LC
 {
@@ -63,6 +64,10 @@ namespace LC
 		
 		ImGuiIntegration::Context _imgui{ NoCreate };
 		// Pointer to io context
+
+		// Solver
+    	Solver* _solver;
+
 		ImGuiIO* _io;
 		bool _ioUpdate = true;
 	};

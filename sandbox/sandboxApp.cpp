@@ -12,13 +12,13 @@ using namespace Math::Literals;
     -   GPU accelerated POM (think computing and
         combining smaller stacks)
     -   More relax features
-    -   Save file system
-    -   Load file system
     -   Isosurfaces
     -   Interpolation
     -   RBF features
     -   Streamlines
     -   Q-tensor
+
+    Ambitions:
     -   Dynamic evolution methods
     -   Steady state evaluation methods
 */
@@ -41,13 +41,15 @@ private:
     void keyReleaseEvent(KeyEvent& event) override;
     void updateColor();
     void POM();
+    void initGrid();
 
     void save();
+    bool open();
     void saveAs();
 
     // Tested geometries
     LC::Torus _sheet;
-    LC::DynamicColorSheet *_dsheet;
+    LC::DynamicColorSheet *_dsheet = 0;
     // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
 
@@ -56,9 +58,6 @@ private:
         *** Make sure to keep decoupled from actual simulation core functionality
     */
     Widget _widget;
-
-    // Solver
-    LC::Solver* _solver;
 
     LC::Header _header;
     LC::Imaging::UniformGrid::POM _pomImager;
@@ -82,11 +81,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     /* Setup camera */
     setupCamera(0.9f);
-
-    
-    //_sheet.Init();
-    //_sheetNormal.Init();
-
 
     _solver = new LC::FrankOseen::ElasticOnly::FOFDSolver;
 
@@ -137,13 +131,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _solver->Init();
 
-    _dsheet = new LC::DynamicColorSheet;
-
-    _dsheet->NX = data->voxels[0];
-    _dsheet->NY = data->voxels[1];
-    _dsheet->CX = data->cell_dims[0];
-    _dsheet->CY = data->cell_dims[1];
-    _dsheet->Init();
+    initGrid();
 
 
     // Colors
@@ -159,7 +147,8 @@ Sandbox::~Sandbox() {
 	LC_INFO("Destroying Sandbox.");
 
     delete _solver;
-    delete _dsheet;
+    if (_dsheet)
+        delete _dsheet;
 }
 
 /*
@@ -185,53 +174,17 @@ void Sandbox::drawEvent()
             save();
         }
 
+        if (_widget.ctrlO.isPressed()) {
+            updateImageFromLoad = open();
+        }
+
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
 
                 //if (ImGui::MenuItem("New", "Ctrl+N")) {}
                 if (ImGui::MenuItem("Open", "Ctrl+O")) {
 
-                    auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
-                        { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
-                              "All Files", "*" },
-                        pfd::opt::none);
-
-                    auto res = of.result();
-
-                    if (!res.empty()) {
-
-                        _header.readFile = res[0];
-
-                        using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
-                        FOFDSolver* solver = (FOFDSolver*)_solver;
-
-                        using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
-                        Dataset* data = (Dataset*)(_solver->GetDataPtr());
-
-                        solver->ReadDataFromHeader(_header);
-
-                        {
-                            delete _dsheet;
-                            _dsheet = new LC::DynamicColorSheet;
-                        }
-
-                        // Reinit grid
-                        _dsheet->NX = data->voxels[0];
-                        _dsheet->NY = data->voxels[1];
-                        _dsheet->CX = data->cell_dims[0];
-                        _dsheet->CY = data->cell_dims[1];
-                        _dsheet->Init();
-
-                        updateImageFromLoad = true;
-
-                        // Tells program to save to readFile if "Save" is pressed
-                        _widget.loadedFromFile = true;
-                        LC_INFO("Loaded file {0}", res[0].c_str());
-
-                    }
-                    else {
-                        updateImageFromLoad = false;
-                    }
+                    updateImageFromLoad = open();
                 }
 
                 if (ImGui::MenuItem("Save", "Ctrl+S")) {
@@ -284,9 +237,6 @@ void Sandbox::drawEvent()
             Float pitch = _widget.pitch.first;
             ImGui::InputFloat("Pitch (um)", &pitch);
             _widget.pitch.first = pitch;
-
-
-
 
             if (ImGui::CollapsingHeader("POM Settings")) {
 
@@ -388,9 +338,6 @@ void Sandbox::drawEvent()
 
     _dsheet->Draw(_arcballCamera, _projectionMatrix);
 
-    //_sheet.Draw(_arcballCamera, _projectionMatrix);
-    //_sheetNormal.Draw(_arcballCamera, _projectionMatrix);
-
     // Make sure to draw gui last, otherwise the graphics will write over the GUI
     {
         /* Set appropriate states. If you only draw ImGui, it is sufficient to
@@ -426,12 +373,6 @@ void Sandbox::drawEvent()
 // Todo: inherit all these events through Application
 void Sandbox::mousePressEvent(MouseEvent& event) {
 
-    //for (std::size_t i = 0; i < _grid.spherePositions.size(); ++i) {
-    //    const Vector3 tmpCol = Vector3(std::rand(), std::rand(), std::rand()) /
-    //        Float(RAND_MAX);
-    //    _grid.sphereInstanceData[i].color = tmpCol;
-    //}
-
     _imgui.handleMousePressEvent(event);
 
     if (!_io->WantCaptureMouse) {
@@ -452,11 +393,10 @@ void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 
 void Sandbox::keyPressEvent(KeyEvent& event) {
 
-    // Check if Ctrl + S is pressed
-
-
+    // Check if Ctrl + S or Ctrl + O is pressed
     if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = true;
-    else if ((event.key() == KeyEvent::Key::LeftCtrl)) _widget.ctrlS.keyCtrl = true;
+    else if ((event.key() == KeyEvent::Key::O)) _widget.ctrlO.keyO = true;
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) {_widget.ctrlS.keyCtrl = true; _widget.ctrlO.keyCtrl = true; }
 
     if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
@@ -464,7 +404,8 @@ void Sandbox::keyPressEvent(KeyEvent& event) {
 void Sandbox::keyReleaseEvent(KeyEvent& event) {
 
     if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = false;
-    else if ((event.key() == KeyEvent::Key::LeftCtrl)) _widget.ctrlS.keyCtrl = false;
+    else if ((event.key() == KeyEvent::Key::O)) _widget.ctrlO.keyO = false;
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) {_widget.ctrlS.keyCtrl = false; _widget.ctrlO.keyCtrl = false; }
 
 
     if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
@@ -581,6 +522,39 @@ void Sandbox::save() {
     }
 }
 
+bool Sandbox::open() {
+    using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
+    bool updateImageFromLoad = false;
+    
+    
+    auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
+                { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+                        "All Files", "*" },
+                pfd::opt::none);
+
+    auto res = of.result();
+
+    if (!res.empty()) {
+        FOFDSolver* solver = (FOFDSolver*)_solver;
+
+        _header.readFile = res[0];
+
+        solver->ReadDataFromHeader(_header);
+
+        // Reinit grid
+        initGrid();
+
+        updateImageFromLoad = true;
+
+        // Tells program to save to readFile if "Save" is pressed
+        _widget.loadedFromFile = true;
+        LC_INFO("Loaded file {0}", res[0].c_str());
+
+    }
+
+    return updateImageFromLoad;
+}
+
 void Sandbox::saveAs() {
 
     // File save
@@ -604,6 +578,25 @@ void Sandbox::saveAs() {
         _header.writeBody();
         LC_INFO("Saved to file {0}", res.c_str());
     }
+}
+
+void Sandbox::initGrid() {
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
+    if (_dsheet) {
+        delete _dsheet;
+        _dsheet = 0;
+    }
+
+    _dsheet = new LC::DynamicColorSheet;
+
+    _dsheet->NX = data->voxels[0];
+                        _dsheet->NY = data->voxels[1];
+                        _dsheet->CX = data->cell_dims[0];
+                        _dsheet->CY = data->cell_dims[1];
+                        _dsheet->Init();
 }
 
 LC::Application* LC::createApplication(int argc, char **argv) {

@@ -311,11 +311,11 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	}
 
-	void FOFDSolver::Export(const char* filename, const char* filepath) {
+	void FOFDSolver::Export(const char* file) {
 
 	}
 
-	void FOFDSolver::Import(const char* filename, const char* filepath) {
+	void FOFDSolver::Import(const char* file) {
 
 	}
 

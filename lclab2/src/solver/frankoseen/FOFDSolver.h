@@ -59,8 +59,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Init() override;
 		void Relax(const std::size_t& iterations) override;
 
-		void Export(const char* filename, const char* filepath) override;
-		void Import(const char* filename, const char* filepath) override;
+		void Export(const char* filename) override;
+		void Import(const char* filename) override;
 
 		void OneConstAlgebraic(Tensor4& nn, int i, int j, int k);
 		void HandleBoundaryConditions(Tensor4& nn, int i, int j, int k);

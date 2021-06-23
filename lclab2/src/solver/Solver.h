@@ -22,8 +22,8 @@ namespace LC {
 		virtual ~Solver() = default;
 		virtual void Init() = 0;
 		virtual void Relax(const std::size_t& iterations) = 0;
-		virtual void Import(const char* filename, const char* filepath) = 0;
-		virtual void Export(const char* filename, const char *filepath) = 0;
+		virtual void Import(const char* file) = 0;
+		virtual void Export(const char* file) = 0;
 		virtual void Print() {}
 		Error errors = Error::None;
 

@@ -2,7 +2,6 @@
 #include <complex>
 #include "Widget.h"
 
-
 using namespace Magnum;
 using namespace Math::Literals;
 
@@ -62,6 +61,7 @@ private:
     LC::Solver* _solver;
 
     LC::Header _header;
+    LC::Imaging::UniformGrid::POM _pomImager;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -295,7 +295,8 @@ void Sandbox::drawEvent()
                 {
                     const char* items[] = { "None", "530 nm Full" };
                     std::string currentItem;
-                    if (_widget.waveplate == Widget::Waveplate::Full530nm) currentItem = "530 nm Full";
+                    using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
+                    if (_pomImager.waveplate == Waveplate::Full530nm) currentItem = "530 nm Full";
                     else currentItem = "None";
 
                     if (ImGui::BeginCombo("Waveplate", currentItem.c_str())) {
@@ -303,7 +304,7 @@ void Sandbox::drawEvent()
                         for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
                             bool selected = (currentItem == items[n]);
                             if (ImGui::Selectable(items[n], selected)) {
-                                _widget.waveplate = static_cast<Widget::Waveplate>(n);
+                                _pomImager.waveplate = static_cast<Waveplate>(n);
                                 currentItem = items[n];
                             }
 
@@ -318,21 +319,15 @@ void Sandbox::drawEvent()
 
 
                 // Show additional options in a dropdown (TODO)
-                std::array<Float, 3> lampIntensity = _widget.intensity;
-                ImGui::InputFloat3("Lamp intensity", &lampIntensity[0]);
-                _widget.intensity = lampIntensity;
+                ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
+                ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
+                ImGui::InputFloat("Gamma", &_pomImager.gamma);
 
-                std::array<Float, 3> rgbColors = _widget.rgbColors;
-                ImGui::InputFloat3("RGB", &rgbColors[0]);
-                _widget.rgbColors = rgbColors;
-
-                ImGui::Checkbox("Crossed polarizer", &_widget.crossedPolarizer);
+                ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
                 
-                if (_widget.crossedPolarizer) {
-                    Float polarizerAngle = _widget.polarizerAngle;
-                    ImGui::InputFloat("Polarizer angle", &polarizerAngle);
-                    _widget.polarizerAngle = polarizerAngle;
-                }
+                ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
+
+                
             
             }
         }
@@ -530,135 +525,24 @@ void Sandbox::updateColor() {
 void Sandbox::POM() {
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
-
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    // Colors
-    std::size_t slice = data->voxels[0];
-    std::size_t cross_slice = data->voxels[1] * slice;
-    std::size_t volslice = data->voxels[2] * cross_slice;
 
     LC::SIscalar pitch = _widget.pitch;
     LC::scalar dop = data->cell_dims[2];
 
-    Widget::Waveplate waveplate = _widget.waveplate;
-
-    LC::scalar thickness = pitch.first * dop;
-    LC::scalar dz = thickness * 1e-6 / data->voxels[2]; // meters
-    LC::scalar lambda[3]; // rgb
-    LC::scalar intensity[3]; // lamp intensity
-
-    for (int i = 0; i < 3; i++) {
-        lambda[i] = _widget.rgbColors[i] * 1e-9;
-        intensity[i] = _widget.intensity[i];
-    }
-
-    LC::scalar gamma = _widget.gamma;
-
-    // Jones matrix
-    Eigen::Matrix2cd M, m;
-
-    // 5CB
-    LC::scalar n0;
-    LC::scalar ne;
-
     if (_widget.lcType == LC::FrankOseen::LC_TYPE::_5CB) {
-        n0 = LC::FrankOseen::OpticalConstants::_5CB("n_o").first;
-        ne = LC::FrankOseen::OpticalConstants::_5CB("n_e").first;
+        _pomImager.n0 = LC::FrankOseen::OpticalConstants::_5CB("n_o").first;
+        _pomImager.ne = LC::FrankOseen::OpticalConstants::_5CB("n_e").first;
     }
 
+    _pomImager.thickness = pitch.first * dop;
+    _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
 
-    // Crossed polarizer (1), uncrossed (0)
-    LC::scalar crossed = (LC::scalar)_widget.crossedPolarizer;
-    LC::scalar polarizerAngle = _widget.polarizerAngle; // deg
-
-    LC::scalar th = crossed * polarizerAngle * M_PI / 180.0;
-
-    const std::complex<LC::scalar> ii(0, 1);
-    
-    // Convenient indexing lambdas
-    auto global_matlab_idx = [volslice, cross_slice, slice](int i, int j, int k, int l) {
-
-        return volslice * l + cross_slice * k + slice * j + i;
-    };
-
-    auto cross_idx = [slice](int i, int j) {
-        return slice * j + i;
-    };
-
-    LC::scalar theta, phi, nx, ny, nz;
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-
-            // Polarization states for rgb colors
-            Eigen::Vector2cd Eo[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
-
-            for (int k = 0; k < data->voxels[2]; k++) {
-
-                nx = data->directors[global_matlab_idx(i, j, k, 0)];
-                ny = data->directors[global_matlab_idx(i, j, k, 1)];
-                nz = data->directors[global_matlab_idx(i, j, k, 2)];
-
-                // Compute theta and phi
-                theta = M_PI / 2.0 - atan2(nz, sqrt(nx * nx + ny * ny));
-                phi = atan2(ny, nx);
-
-                const LC::scalar ct = cos(theta);
-                const LC::scalar st = sin(theta);
-                const LC::scalar cp = cos(phi);
-                const LC::scalar sp = sin(phi);
-
-
-                for (int rgb = 0; rgb < 3; rgb++) {
-                    const LC::scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
-                    const LC::scalar ne_th = ne * n0 / sqrt(pow(n0 * st, 2.0) + pow(ne * ct, 2.0));
-                    const LC::scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne_th;
-
-                    const std::complex<LC::scalar> eidE = std::exp(ii * deltaE);
-                    const std::complex<LC::scalar> eid0 = std::exp(ii * delta0);
-
-                    M(0, 0) = cp * cp * eidE + sp * sp * eid0;
-                    M(0, 1) = sp * cp * (eidE - eid0);
-                    M(1, 0) = M(0, 1);
-                    M(1, 1) = sp * sp * eidE + cp * cp * eid0;
-
-                    Eo[rgb] = M * Eo[rgb];
-                }
-
-
-            }
-
-            // Additional waveplate
-            if (waveplate == Widget::Waveplate::Full530nm) {
-
-                const std::array<int, 2> rb = { 0, 2 };
-                const LC::scalar thick = 5.8889e-05 * 7.0;
-
-
-                for (const auto& col : rb) {
-                    const LC::scalar de_wp = 2.0 * M_PI / lambda[col] * thick * 1.55338;
-                    const LC::scalar do_ep = 2.0 * M_PI / lambda[col] * thick * 1.54425;
-
-                    m(0, 0) = 0.5 * (exp(ii * de_wp) + exp(ii * do_ep));
-                    m(0, 1) = 0.5 * (exp(ii * de_wp) - exp(ii * do_ep));
-                    m(1, 0) = m(0, 1);
-                    m(1, 1) = m(0, 0);
-
-                    Eo[col] = m * Eo[col];
-                }
-
-            }
-
-            Color3 color;
-
-            for (int rgb = 0; rgb < 3; rgb++) {
-                LC::scalar I = std::abs(Eo[rgb](0) * cos(th) + Eo[rgb](1) * sin(th));
-                I *= I;
-                color[rgb] = pow(intensity[rgb] * I, gamma);
-            }
-
-            _dsheet->data[cross_idx(i, j)].color = color;
-        }
-    }
+    _pomImager.Compute(data->directors, data->voxels, (void*)(&_dsheet->data), [](void *data, const std::array<float, 3>&color, std::size_t idx) {
+        Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
+        for (int i = 0; i < 3; i++)
+            (*dataPtr)[idx].color[i] = color[i];
+    });
 
     // Update sheet
     _dsheet->sheetBuffer.setData(_dsheet->data, GL::BufferUsage::DynamicDraw);

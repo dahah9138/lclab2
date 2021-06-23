@@ -39,11 +39,14 @@ set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/Torus.h graphics/Torus.cpp
 			  graphics/NormalTorus.h graphics/NormalTorus.cpp
 			  graphics/DynamicColorSheet.h graphics/DynamicColorSheet.cpp)
+
+set (imaging imaging/POM.h imaging/POM.cpp)
 			
 set (lclab2_src_list 	${baselib}
 						${frankoseenlib}
 						${mathlib}
-						${graphics})
+						${graphics}
+						${imaging})
 					
 
 add_library(lclab2 SHARED ${lclab2_src_list})

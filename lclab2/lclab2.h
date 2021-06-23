@@ -20,5 +20,8 @@
 #include "src/graphics/NormalTorus.h"
 #include "src/graphics/DynamicColorSheet.h"
 
+// Imaging
+#include "src/imaging/POM.h"
+
 // ENTRY POINT
 #include "src/base/entrypoint.h"

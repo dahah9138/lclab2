@@ -62,7 +62,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		// Clear header objects. It is assumed that any dynamic data has been
 		// freed at this point
-		header.headerObjects.swap(Header{}.headerObjects);
+		{
+			Header tmp{};
+			header.headerObjects.swap(tmp.headerObjects);
+		}
 
 		header.read();
 		header.readBody();

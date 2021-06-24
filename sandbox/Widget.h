@@ -5,70 +5,41 @@
 	
 using namespace Magnum;
 using namespace Math::Literals;
+using Key = Magnum::Platform::Sdl2Application::KeyEvent::Key;
 
 struct Widget {
 
-	struct CtrlS {
-		bool keyS = false;
-		bool keyCtrl = false;
-		bool isPressed() { return keyS && keyCtrl; }
-	};
-
-	struct CtrlO {
-		bool keyO = false;
-		bool keyCtrl = false;
-		bool isPressed() { return keyO && keyCtrl; }
-	};
-
-/*
 	struct CtrlCommand {
 		CtrlCommand() : ctrl(false) {
-			keys.push_back({ Magnum::KeyEvent::Key::S, false });
-			keys.push_Back({ Magnum::KeyEvent::Key::O, false });
+			keys.insert({ Key::S, false });
+			keys.insert({ Key::O, false });
 		}
-		bool ctrl;
-		std::vector<std::pair<Magnum::KeyEvent::Key, bool>> keys;
-		void press(Magnum::KeyEvent::Key key) {
-			for (auto & k : keys) {
-				if (k.first == key) {
-					k.second = true;
-					return;
-				}
-			}
+		void press(Key key) {
+			keys[key] = true;
 		}
-		void release(Magnum::KeyEvent::Key key) {
-			for (auto & k : keys) {
-				if (k.first == key) {
-					k.second = false;
-					return;
-				}
-			}
+		void release(Key key) {
+			keys[key] = false;
 		}
 
-		bool isPressed(Magnum::KeyEvent::Key key) { 
-			for (auto & k : keys) {
-				if (k.first == key && k.second && ctrl)
-					return true;
-			}
-			return false;
+		bool isPressed(Key key) {
+			return keys[key];
 		}
+
+		std::map<Key, bool> keys;
+		bool ctrl;
 	};
-*/
+
 
 	// From example
 	bool showDemoWindow = false;
     bool showAnotherWindow = false;
-    Color4 clearColor = 0x72909aff_rgbaf;
-	Float floatValue = 0.0f;
 
 	// For simulation
 	bool relax = false;
 	bool print = false;
 	bool loadedFromFile = false;
-	CtrlS ctrlS;
-	CtrlO ctrlO;
 
-	//CtrlCommand commands;
+	CtrlCommand commands;
 
 
 	// Num cycles before next draw call

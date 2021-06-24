@@ -43,6 +43,9 @@ private:
     void POM();
     void initGrid();
 
+    template <typename T>
+    void dropDownMenu(const char* menuName, T &currentSelectable, std::map<T, std::string> & map);
+
     void save();
     bool open();
     void saveAs();
@@ -104,9 +107,9 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     data->cell_dims[1] = 0.35;
     data->cell_dims[2] = 0.35;
 
-    data->k11 = LC::FrankOseen::ElasticConstants::_5CB("k11");
-    data->k22 = LC::FrankOseen::ElasticConstants::_5CB("k22");
-    data->k33 = LC::FrankOseen::ElasticConstants::_5CB("k33");
+    data->k11 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k11);
+    data->k22 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k22);
+    data->k33 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k33);
 
     // Generate a toron
     // Make a director modifying config that takes a function pointer to a lambda that modifies that director
@@ -170,11 +173,11 @@ void Sandbox::drawEvent()
 
         bool updateImageFromLoad = false;
 
-        if (_widget.ctrlS.isPressed()) {
+        if (_widget.commands.isPressed(KeyEvent::Key::S)) {
             save();
         }
 
-        if (_widget.ctrlO.isPressed()) {
+        if (_widget.commands.isPressed(KeyEvent::Key::O)) {
             updateImageFromLoad = open();
         }
 
@@ -183,19 +186,13 @@ void Sandbox::drawEvent()
 
                 //if (ImGui::MenuItem("New", "Ctrl+N")) {}
                 if (ImGui::MenuItem("Open", "Ctrl+O")) {
-
                     updateImageFromLoad = open();
                 }
-
                 if (ImGui::MenuItem("Save", "Ctrl+S")) {
-
                     save();
-
                 }
                 if (ImGui::MenuItem("Save As..")) {
-                
                     saveAs();
-
                 }
 
                 ImGui::EndMenu();
@@ -210,27 +207,8 @@ void Sandbox::drawEvent()
 
         // Dropdown menu for lc types
         {
-            const char* items[] = { "5CB" };
-            std::string currentItem;
-            if (_widget.lcType == LC::FrankOseen::LC_TYPE::_5CB) currentItem = "5CB";
-            else currentItem = "Error";
-
-            if (ImGui::BeginCombo("LC Type", currentItem.c_str())) {
-
-                for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
-                    bool selected = (currentItem == items[n]);
-                    if (ImGui::Selectable(items[n], selected)) {
-                        _widget.lcType = static_cast<LC::FrankOseen::LC_TYPE>(n);
-                        currentItem = items[n];
-                    }
-
-                    if (selected)
-                        ImGui::SetItemDefaultFocus();
-                }
-
-                ImGui::EndCombo();
-            }
-
+            std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
+            dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", _widget.lcType, lcMap);
         }
 
         {
@@ -241,30 +219,12 @@ void Sandbox::drawEvent()
             if (ImGui::CollapsingHeader("POM Settings")) {
 
                 ImGui::Checkbox("Enable POM", &_widget.POM);
+
                 // Dropdown menu for waveplates
                 {
-                    const char* items[] = { "None", "530 nm Full" };
-                    std::string currentItem;
                     using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
-                    if (_pomImager.waveplate == Waveplate::Full530nm) currentItem = "530 nm Full";
-                    else currentItem = "None";
-
-                    if (ImGui::BeginCombo("Waveplate", currentItem.c_str())) {
-
-                        for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
-                            bool selected = (currentItem == items[n]);
-                            if (ImGui::Selectable(items[n], selected)) {
-                                _pomImager.waveplate = static_cast<Waveplate>(n);
-                                currentItem = items[n];
-                            }
-
-                            if (selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-
-                        ImGui::EndCombo();
-                    }
-
+                    std::map<Waveplate, std::string> waveplateMap{ { Waveplate::None, "None" }, { Waveplate::Full530nm, "530 nm Full" } };
+                    dropDownMenu<Waveplate>("Waveplate", _pomImager.waveplate, waveplateMap);
                 }
 
 
@@ -276,9 +236,6 @@ void Sandbox::drawEvent()
                 ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
                 
                 ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
-
-                
-            
             }
         }
 
@@ -300,8 +257,6 @@ void Sandbox::drawEvent()
 
         // Pressed the relax button
         _widget.relax = ImGui::Button("Relax");
-        ImGui::SameLine();
-        _widget.print = ImGui::Button("Print");
         
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
             1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
@@ -394,18 +349,19 @@ void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 void Sandbox::keyPressEvent(KeyEvent& event) {
 
     // Check if Ctrl + S or Ctrl + O is pressed
-    if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = true;
-    else if ((event.key() == KeyEvent::Key::O)) _widget.ctrlO.keyO = true;
-    else if ((event.key() == KeyEvent::Key::LeftCtrl)) {_widget.ctrlS.keyCtrl = true; _widget.ctrlO.keyCtrl = true; }
+
+    if ((event.key() == KeyEvent::Key::S)) _widget.commands.press(KeyEvent::Key::S);
+    else if ((event.key() == KeyEvent::Key::O)) _widget.commands.press(KeyEvent::Key::O);
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) { _widget.commands.ctrl = true; }
 
     if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
 
 void Sandbox::keyReleaseEvent(KeyEvent& event) {
 
-    if ((event.key() == KeyEvent::Key::S)) _widget.ctrlS.keyS = false;
-    else if ((event.key() == KeyEvent::Key::O)) _widget.ctrlO.keyO = false;
-    else if ((event.key() == KeyEvent::Key::LeftCtrl)) {_widget.ctrlS.keyCtrl = false; _widget.ctrlO.keyCtrl = false; }
+    if ((event.key() == KeyEvent::Key::S)) _widget.commands.release(KeyEvent::Key::S);
+    else if ((event.key() == KeyEvent::Key::O)) _widget.commands.release(KeyEvent::Key::O);
+    else if ((event.key() == KeyEvent::Key::LeftCtrl)) { _widget.commands.ctrl = false; }
 
 
     if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
@@ -471,11 +427,9 @@ void Sandbox::POM() {
     LC::SIscalar pitch = _widget.pitch;
     LC::scalar dop = data->cell_dims[2];
 
-    if (_widget.lcType == LC::FrankOseen::LC_TYPE::_5CB) {
-        _pomImager.n0 = LC::FrankOseen::OpticalConstants::_5CB("n_o").first;
-        _pomImager.ne = LC::FrankOseen::OpticalConstants::_5CB("n_e").first;
-    }
-
+    _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(_widget.lcType, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
+    _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(_widget.lcType, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
+ 
     _pomImager.thickness = pitch.first * dop;
     _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
 
@@ -597,6 +551,26 @@ void Sandbox::initGrid() {
                         _dsheet->CX = data->cell_dims[0];
                         _dsheet->CY = data->cell_dims[1];
                         _dsheet->Init();
+}
+
+template <typename T>
+void Sandbox::dropDownMenu(const char* menuName, T& currentSelectable, std::map<T, std::string>& map) {
+
+    std::string currentItem = map[currentSelectable];
+
+    if (ImGui::BeginCombo(menuName, currentItem.c_str())) {
+
+        for (const auto& elem : map) {
+            bool selected = (currentSelectable == elem.first);
+            if (ImGui::Selectable(elem.second.c_str(), selected)) {
+                currentSelectable = elem.first;
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+
+        ImGui::EndCombo();
+    }
 }
 
 LC::Application* LC::createApplication(int argc, char **argv) {

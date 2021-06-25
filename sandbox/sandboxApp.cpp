@@ -72,6 +72,7 @@ private:
 
 
     // Tested geometries
+    std::unique_ptr<LC::SphereArray> _sarray;
     LC::Torus _sheet;
     CrossX _dsheet;
 
@@ -185,6 +186,10 @@ void Sandbox::drawEvent()
 
     _imgui.newFrame();
 
+
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
     {
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar;
 
@@ -223,13 +228,13 @@ void Sandbox::drawEvent()
 
         if (ImGui::Button("Test Window"))
             _widget.showDemoWindow ^= true;
-        if (ImGui::Button("Another Window"))
+        if (ImGui::Button("LC Info"))
             _widget.showAnotherWindow ^= true;
 
         // Dropdown menu for lc types
         {
             std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
-            dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", _widget.lcType, lcMap);
+            dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
         }
 
         // Cross section radio buttons
@@ -310,8 +315,13 @@ void Sandbox::drawEvent()
     /* 2. Show another simple window, now using an explicit Begin/End pair */
     if (_widget.showAnotherWindow) {
         ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Another Window", &_widget.showAnotherWindow);
-        ImGui::Text("Hello");
+        ImGui::Begin("LC Info", &_widget.showAnotherWindow);
+
+        std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
+
+        // Show LC information
+        ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
+        ImGui::Text("Iterations = %d", data->numIterations);
         ImGui::End();
     }
 
@@ -337,6 +347,7 @@ void Sandbox::drawEvent()
 
     //_sheet.Draw(_arcballCamera, _projectionMatrix);
     _dsheet.Draw(_arcballCamera, _projectionMatrix);
+    //_sarray->Draw(_arcballCamera, _projectionMatrix);
 
     // Make sure to draw gui last, otherwise the graphics will write over the GUI
     {
@@ -411,8 +422,8 @@ void Sandbox::keyReleaseEvent(KeyEvent& event) {
 
 void Sandbox::updateColor() {
 
-    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
     // Colors
     std::size_t slice = data->voxels[0];
@@ -474,15 +485,24 @@ void Sandbox::updateColor() {
             if (hsv[2] > 1.0f) hsv[2] = 1.0f;
 
             _dsheet.section->data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+            //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
         }
     }
 
     // Update sheet
     _dsheet.section->sheetBuffer.setData(_dsheet.section->data, GL::BufferUsage::DynamicDraw);
+    //_sarray->sphereInstanceBuffer.setData(_sarray->sphereInstanceData, GL::BufferUsage::DynamicDraw);
 }
 
 // Only for 5CB.
 void Sandbox::POM() {
+
+    // Can't POM a cross section other than xy plane
+    if (_widget.axis != 2) {
+        _widget.axis = 2;
+        initGrid();
+    }
+
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
@@ -490,8 +510,8 @@ void Sandbox::POM() {
     LC::SIscalar pitch = _widget.pitch;
     LC::scalar dop = data->cell_dims[2];
 
-    _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(_widget.lcType, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
-    _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(_widget.lcType, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
+    _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
+    _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
  
     _pomImager.thickness = pitch.first * dop;
     _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
@@ -543,7 +563,9 @@ bool Sandbox::open() {
     using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
     bool updateImageFromLoad = false;
     
-    
+    using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
     auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
                 { "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
                         "All Files", "*" },
@@ -606,6 +628,7 @@ void Sandbox::initGrid() {
     Axis ax = static_cast<Axis>(d);
     
     _dsheet.section.reset(new LC::DynamicColorSheet);
+    //_sarray.reset(new LC::SphereArray);
 
     int i = (ax == Axis::x) ? 1 : 0;
     int j = (ax == Axis::y) ? 2 : i + 1;
@@ -615,7 +638,13 @@ void Sandbox::initGrid() {
     _dsheet.section->CX = data->cell_dims[i];
     _dsheet.section->CY = data->cell_dims[j];
 
+    //_sarray->NX = data->voxels[i];
+    //_sarray->NY = data->voxels[j];
+    //_sarray->CX = data->cell_dims[i];
+    //_sarray->CY = data->cell_dims[j];
+
     _dsheet.section->Init();
+    //_sarray->Init();
     
 }
 

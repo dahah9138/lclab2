@@ -20,6 +20,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		struct Dataset : public ElasticConstants {
 			typedef void (*Config)(Tensor4&,int,int,int,int*);
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
+			LC_TYPE lc_type = LC_TYPE::_5CB;
 			std::size_t numIterations = 0;
 			std::array<int, 3> voxels = { 0, 0, 0 };
 			std::array<scalar, 3> cell_dims = { 0.0, 0.0, 0.0 };

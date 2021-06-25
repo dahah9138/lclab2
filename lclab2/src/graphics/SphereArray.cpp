@@ -13,8 +13,8 @@ void SphereArray::Init() {
     for (std::size_t i = 0; i < numSpheres; ++i) {
 
         // Use indexing matlab format
-        UnsignedInt jj = i / NY;
-        UnsignedInt ii = i - jj * NY;
+        UnsignedInt jj = i / NX;
+        UnsignedInt ii = i - jj * NX;
         Float x = (Float)ii / (NX-1);
         Float y = (Float)jj / (NY-1);
 

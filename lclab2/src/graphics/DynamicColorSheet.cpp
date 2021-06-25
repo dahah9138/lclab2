@@ -40,11 +40,11 @@ namespace LC {
 
                 indVec.emplace_back(i);
                 indVec.emplace_back(i + 1);
-                indVec.emplace_back(NY + i);
+                indVec.emplace_back(NX + i);
 
                 indVec.emplace_back(i + 1);
-                indVec.emplace_back(NY + i + 1);
-                indVec.emplace_back(NY + i);
+                indVec.emplace_back(NX + i + 1);
+                indVec.emplace_back(NX + i);
             }
         }
 

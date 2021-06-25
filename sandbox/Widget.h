@@ -10,7 +10,7 @@ using Key = Magnum::Platform::Sdl2Application::KeyEvent::Key;
 struct Widget {
 
 	struct CtrlCommand {
-		CtrlCommand() : ctrl(false) {
+		CtrlCommand() {
 			keys.insert({ Key::S, false });
 			keys.insert({ Key::O, false });
 		}
@@ -18,15 +18,24 @@ struct Widget {
 			keys[key] = true;
 		}
 		void release(Key key) {
+			processedCommand = true;
 			keys[key] = false;
 		}
 
 		bool isPressed(Key key) {
-			return keys[key];
+			if (!processedCommand)
+				return false;
+
+			// Process initiated
+			if (ctrl && keys[key])
+				processedCommand = false;
+
+			return ctrl && keys[key];
 		}
 
 		std::map<Key, bool> keys;
-		bool ctrl;
+		bool ctrl = false;
+		bool processedCommand = true;
 	};
 
 
@@ -52,10 +61,6 @@ struct Widget {
 
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };
-
-	// Default type
-	LC::FrankOseen::LC_TYPE lcType = LC::FrankOseen::LC_TYPE::_5CB;
-	
 };
 
 

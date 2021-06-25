@@ -41,13 +41,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		
 		header.headerObjects = { {{ "Scalar size", sizeof(std::size_t), 0 }, &size_of_scalar},
-															{{ "Iterations", sizeof(std::size_t), 1 }, &numIterations},
-															{{ "Voxels", 3 * sizeof(int), 2 }, &voxels[0]},
-															{{ "Cell dims", 3 * sizeof(LC::scalar), 3 }, &cell_dims[0]},
-															{{ "Boundaries", 3 * sizeof(bool), 4 }, &bc[0]},
-															{{ "Chirality", sizeof(LC::scalar), 5 }, &chirality},
-															{{ "Relax rate", sizeof(LC::scalar), 6 }, &rate},
-															{{ "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2], 7 }, directors} };
+															{{ "LC", sizeof(LC_TYPE), 1 }, &lc_type},
+															{{ "Iterations", sizeof(std::size_t), 2 }, &numIterations},
+															{{ "Voxels", 3 * sizeof(int), 3 }, &voxels[0]},
+															{{ "Cell dims", 3 * sizeof(LC::scalar), 4 }, &cell_dims[0]},
+															{{ "Boundaries", 3 * sizeof(bool), 5 }, &bc[0]},
+															{{ "Chirality", sizeof(LC::scalar), 6 }, &chirality},
+															{{ "Relax rate", sizeof(LC::scalar), 7 }, &rate},
+															{{ "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2], 8 }, directors} };
 		
 		
 	}
@@ -73,24 +74,32 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		// Extract data
 		{
 			std::size_t* p_size_of_scalar = reinterpret_cast<std::size_t*>(header.passData(0));
-			std::size_t* p_iter = reinterpret_cast<std::size_t*>(header.passData(1));
-			int* p_vox = reinterpret_cast<int*>(header.passData(2));
-			LC::scalar* p_cell = reinterpret_cast<LC::scalar*>(header.passData(3));
-			bool* p_bc = reinterpret_cast<bool*>(header.passData(4));
-			LC::scalar* p_chir = reinterpret_cast<LC::scalar*>(header.passData(5));
-			LC::scalar* p_rate = reinterpret_cast<LC::scalar*>(header.passData(6));
+			LC_TYPE* p_type = reinterpret_cast<LC_TYPE*>(header.passData(1));
+			std::size_t* p_iter = reinterpret_cast<std::size_t*>(header.passData(2));
+			int* p_vox = reinterpret_cast<int*>(header.passData(3));
+			LC::scalar* p_cell = reinterpret_cast<LC::scalar*>(header.passData(4));
+			bool* p_bc = reinterpret_cast<bool*>(header.passData(5));
+			LC::scalar* p_chir = reinterpret_cast<LC::scalar*>(header.passData(6));
+			LC::scalar* p_rate = reinterpret_cast<LC::scalar*>(header.passData(7));
 
-			// Pass data
-			directors = reinterpret_cast<LC::scalar*>(header.passData(7));
-			numIterations = *p_iter;
-			voxels = { p_vox[0], p_vox[1], p_vox[2] };
-			cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
-			bc = { p_bc[0], p_bc[1], p_bc[2] };
-			chirality = *p_chir;
-			rate = *p_rate;
+			if (*p_size_of_scalar == SIZE_OF_SCALAR) {
+				// Pass data
+				directors = reinterpret_cast<LC::scalar*>(header.passData(8));
+				lc_type = *p_type;
+				numIterations = *p_iter;
+				voxels = { p_vox[0], p_vox[1], p_vox[2] };
+				cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
+				bc = { p_bc[0], p_bc[1], p_bc[2] };
+				chirality = *p_chir;
+				rate = *p_rate;
+			}
+			else {
+				LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
+			}
 
 
 			delete p_size_of_scalar;
+			delete p_type;
 			delete p_iter;
 			delete[] p_vox;
 			delete[] p_cell;
@@ -232,7 +241,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		}
 
-		++data.numIterations;
+		data.numIterations += iterations;
 
 	}
 

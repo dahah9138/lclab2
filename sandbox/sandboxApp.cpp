@@ -23,6 +23,26 @@ using namespace Math::Literals;
     -   Steady state evaluation methods
 */
 
+enum class Axis {
+    x = 0,
+    y = 1,
+    z = 2
+};
+struct CrossX {
+    Float axisPosition;
+    std::unique_ptr<LC::DynamicColorSheet> section;
+    bool draw = true;
+    static LC::DynamicColorSheet::PositionFunction Position[3];
+
+    void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball,
+        const Magnum::Matrix4& projection) { section->Draw(arcball, projection); }
+};
+LC::DynamicColorSheet::PositionFunction CrossX::Position[3] = { [](Float x, Float y, Float z) { return Vector3{ z, x, y }; },
+        [](Float x, Float y, Float z) { return Vector3{ x, z, y }; },
+        [](Float x, Float y, Float z) { return Vector3{ x, y, z }; } };
+
+
+
 class Sandbox : public LC::Application
 {
 public:
@@ -50,9 +70,11 @@ private:
     bool open();
     void saveAs();
 
+
     // Tested geometries
     LC::Torus _sheet;
-    LC::DynamicColorSheet *_dsheet = 0;
+    CrossX _dsheet;
+
     // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
 
@@ -69,7 +91,10 @@ private:
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                 Configuration{}.setTitle("Sandbox Application")
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable) 
-                                                              } {
+    
+                                                          } {
+
+
     /* Setup the GUI */
     setupGUI();
 
@@ -85,13 +110,15 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup camera */
     setupCamera(0.9f);
 
-    _solver = new LC::FrankOseen::ElasticOnly::FOFDSolver;
+    _solver = std::make_unique<LC::FrankOseen::ElasticOnly::FOFDSolver>();
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
 
     /* Setup data */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
+
 
     data->voxels[0] = 32;
     data->voxels[1] = 32;
@@ -134,13 +161,10 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _solver->Init();
 
+
     initGrid();
-
-
     // Colors
     updateColor();
-
-
 
 
     LC_INFO("Created Sandbox!");
@@ -148,10 +172,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
 Sandbox::~Sandbox() {
 	LC_INFO("Destroying Sandbox.");
-
-    delete _solver;
-    if (_dsheet)
-        delete _dsheet;
 }
 
 /*
@@ -172,6 +192,7 @@ void Sandbox::drawEvent()
         ImGui::Begin("lclab2", 0, window_flags);
 
         bool updateImageFromLoad = false;
+        bool updateImageFromRadio = false;
 
         if (_widget.commands.isPressed(KeyEvent::Key::S)) {
             save();
@@ -211,6 +232,28 @@ void Sandbox::drawEvent()
             dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", _widget.lcType, lcMap);
         }
 
+        // Cross section radio buttons
+        {
+            int axesInt = static_cast<int>(_widget.axis);
+            
+            ImGui::RadioButton("xy", &axesInt, static_cast<int>(Axis::z));
+            ImGui::SameLine();
+            ImGui::RadioButton("yz", &axesInt, static_cast<int>(Axis::x));
+            ImGui::SameLine();
+            ImGui::RadioButton("xz", &axesInt, static_cast<int>(Axis::y));
+
+            Axis newAxis = static_cast<Axis>(axesInt);
+
+            if (axesInt != _widget.axis) {
+                updateImageFromRadio = true;
+                _widget.axis = axesInt;
+                initGrid();
+            }
+
+        }
+
+
+
         {
             Float pitch = _widget.pitch.first;
             ImGui::InputFloat("Pitch (um)", &pitch);
@@ -239,7 +282,8 @@ void Sandbox::drawEvent()
             }
         }
 
-        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
+        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad
+                                                            || updateImageFromRadio;
 
 
         // Set Cycle
@@ -291,7 +335,8 @@ void Sandbox::drawEvent()
     polyRenderer();
 
 
-    _dsheet->Draw(_arcballCamera, _projectionMatrix);
+    //_sheet.Draw(_arcballCamera, _projectionMatrix);
+    _dsheet.Draw(_arcballCamera, _projectionMatrix);
 
     // Make sure to draw gui last, otherwise the graphics will write over the GUI
     {
@@ -315,10 +360,7 @@ void Sandbox::drawEvent()
         // For now just xy midplane
         if(_widget.POM) POM();
         else updateColor();
-    }
-    
-    if (_widget.print) {
-        _solver->Print();
+
     }
 
 
@@ -370,30 +412,51 @@ void Sandbox::keyReleaseEvent(KeyEvent& event) {
 void Sandbox::updateColor() {
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
-
+    using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
     // Colors
     std::size_t slice = data->voxels[0];
     std::size_t cross_slice = data->voxels[1] * slice;
     std::size_t volslice = data->voxels[2] * cross_slice;
 
-    // Convenient indexing lambdas
-    auto global_matlab_idx = [volslice, cross_slice, slice](int i, int j, int k, int l) {
+    T4 nn(data->directors, data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
-        return volslice * l + cross_slice * k + slice * j + i;
+    Axis ax = static_cast<Axis>(_widget.axis);
+
+
+    // x -> (1, 2)
+    // y -> (0, 2)
+    // z -> (0, 1)
+    int xx = (ax == Axis::x) ? 1 : 0;
+    int yy = (ax == Axis::y) ? 2 : xx + 1;
+
+    std::size_t permutedSlice = data->voxels[xx];
+
+    auto cross_idx = [permutedSlice](int i, int j) {
+        return permutedSlice * j + i;
     };
 
-    auto cross_idx = [slice](int i, int j) {
-        return slice * j + i;
-    };
+    int hvox = data->voxels[_widget.axis] / 2;
 
     LC::scalar theta, phi, nx, ny, nz;
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
+    for (int i = 0; i < data->voxels[xx]; i++) {
+        for (int j = 0; j < data->voxels[yy]; j++) {
 
-            nx = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 0)];
-            ny = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 1)];
-            nz = data->directors[global_matlab_idx(i, j, data->voxels[2] / 2, 2)];
+            if (ax == Axis::z) {
+                nx = nn(i, j, hvox, 0);
+                ny = nn(i, j, hvox, 1);
+                nz = nn(i, j, hvox, 2);
+            }
+            else if (ax == Axis::y) {
+                nx = nn(i, hvox, j, 0);
+                ny = nn(i, hvox, j, 1);
+                nz = nn(i, hvox, j, 2);
+            }
+            else if (ax == Axis::x) {
+                nx = nn(hvox, i, j, 0);
+                ny = nn(hvox, i, j, 1);
+                nz = nn(hvox, i, j, 2);
+            }
             // Compute theta and phi
 
             theta = acos(nz);
@@ -410,12 +473,12 @@ void Sandbox::updateColor() {
             if (hsv[1] > 1.0f) hsv[1] = 1.0f;
             if (hsv[2] > 1.0f) hsv[2] = 1.0f;
 
-            _dsheet->data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+            _dsheet.section->data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
         }
     }
 
     // Update sheet
-    _dsheet->sheetBuffer.setData(_dsheet->data, GL::BufferUsage::DynamicDraw);
+    _dsheet.section->sheetBuffer.setData(_dsheet.section->data, GL::BufferUsage::DynamicDraw);
 }
 
 // Only for 5CB.
@@ -433,14 +496,14 @@ void Sandbox::POM() {
     _pomImager.thickness = pitch.first * dop;
     _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
 
-    _pomImager.Compute(data->directors, data->voxels, (void*)(&_dsheet->data), [](void *data, const std::array<float, 3>&color, std::size_t idx) {
+    _pomImager.Compute(data->directors, data->voxels, (void*)(&_dsheet.section->data), [](void *data, const std::array<float, 4>&color, std::size_t idx) {
         Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 4; i++)
             (*dataPtr)[idx].color[i] = color[i];
     });
 
     // Update sheet
-    _dsheet->sheetBuffer.setData(_dsheet->data, GL::BufferUsage::DynamicDraw);
+    _dsheet.section->sheetBuffer.setData(_dsheet.section->data, GL::BufferUsage::DynamicDraw);
 }
 
 void Sandbox::save() {
@@ -466,7 +529,7 @@ void Sandbox::save() {
     if (!res.empty()) {
 
         using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
-        FOFDSolver* solver = (FOFDSolver*)_solver;
+        FOFDSolver* solver = (FOFDSolver*)_solver.get();
 
         solver->ConfigureHeader(_header);
 
@@ -489,7 +552,7 @@ bool Sandbox::open() {
     auto res = of.result();
 
     if (!res.empty()) {
-        FOFDSolver* solver = (FOFDSolver*)_solver;
+        FOFDSolver* solver = (FOFDSolver*)_solver.get();
 
         _header.readFile = res[0];
 
@@ -524,7 +587,7 @@ void Sandbox::saveAs() {
     if (!res.empty()) {
 
         using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
-        FOFDSolver* solver = (FOFDSolver*)_solver;
+        FOFDSolver* solver = (FOFDSolver*)_solver.get();
 
         solver->ConfigureHeader(_header);
 
@@ -539,18 +602,21 @@ void Sandbox::initGrid() {
 
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    if (_dsheet) {
-        delete _dsheet;
-        _dsheet = 0;
-    }
+    int d = _widget.axis;
+    Axis ax = static_cast<Axis>(d);
+    
+    _dsheet.section.reset(new LC::DynamicColorSheet);
 
-    _dsheet = new LC::DynamicColorSheet;
+    int i = (ax == Axis::x) ? 1 : 0;
+    int j = (ax == Axis::y) ? 2 : i + 1;
 
-    _dsheet->NX = data->voxels[0];
-                        _dsheet->NY = data->voxels[1];
-                        _dsheet->CX = data->cell_dims[0];
-                        _dsheet->CY = data->cell_dims[1];
-                        _dsheet->Init();
+    _dsheet.section->NX = data->voxels[i];
+    _dsheet.section->NY = data->voxels[j];
+    _dsheet.section->CX = data->cell_dims[i];
+    _dsheet.section->CY = data->cell_dims[j];
+
+    _dsheet.section->Init();
+    
 }
 
 template <typename T>

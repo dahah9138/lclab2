@@ -2,8 +2,14 @@
 
 namespace LC {
 
-    void DynamicColorSheet::Init() {
+    void DynamicColorSheet::Init(PositionFunction pos) {
         using namespace Magnum;
+
+        //Default position function
+        if (pos == 0) {
+            pos = [](Float x, Float y, Float z) { return Vector3{x, y, z}; };
+        }
+
 
         UnsignedInt numVerts = NX * NY;
         UnsignedInt numInds = 6 * (NX - 1) * (NY - 1);
@@ -15,16 +21,18 @@ namespace LC {
         for (std::size_t i = 0; i < numVerts; ++i) {
 
             // Matlab indexing
-            UnsignedInt jj = i / NY;
-            UnsignedInt ii = i - jj * NY;
+            UnsignedInt jj = i / NX;
+            UnsignedInt ii = i - jj * NX;
             Float x = (Float)ii / (NX - 1);
             Float y = (Float)jj / (NY - 1);
 
-            data[i].position = Vector3(-0.5f + x, CY / CX * (-0.5f + y), 0.0f);
+            data[i].position = pos(-0.5f + x, CY / CX * (-0.5f + y), 0.0f);
+
+            
 
             Float r = data[i].position.length();
 
-            data[i].color = Color3{ 1.0f, 1.0f, 0.0f };
+            data[i].color = Color4{ 1.0f, 1.0f, 1.0f, 0.5f };
 
             if (ii < NX - 1 && jj < NY - 1)
             {
@@ -54,7 +62,7 @@ namespace LC {
 
         sheetMesh.setCount(numInds).addVertexBuffer(sheetBuffer, 0,
             Shaders::VertexColorGL3D::Position{},
-            Shaders::VertexColorGL3D::Color3{})
+            Shaders::VertexColorGL3D::Color4{})
             .setIndexBuffer(sheetIndexBuffer, 0, indType, indStart, indEnd);
     }
 
@@ -67,5 +75,6 @@ namespace LC {
 
         Magnum::GL::Renderer::enable(Magnum::GL::Renderer::Feature::FaceCulling);
     }
+
 
 }

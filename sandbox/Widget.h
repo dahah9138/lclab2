@@ -36,8 +36,9 @@ struct Widget {
 
 	// For simulation
 	bool relax = false;
-	bool print = false;
 	bool loadedFromFile = false;
+
+	int axis = 2;
 
 	CtrlCommand commands;
 

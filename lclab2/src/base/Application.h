@@ -21,9 +21,6 @@
 // ImGui
 #include <Magnum/ImGuiIntegration/Context.hpp>
 
-
-
-
 #include "core.h"
 #include "logger.h"
 #include "../graphics/ArcBall.h"
@@ -33,6 +30,8 @@ namespace LC
 {
 	using namespace Magnum;
 	using std::chrono::high_resolution_clock;
+
+
 	
 	class LC_API Application : public Platform::Application {
     public:
@@ -58,7 +57,6 @@ namespace LC
 
 		virtual ~Application();
 
-
 		Containers::Optional<ArcBall> _arcballCamera;
 		Matrix4 _projectionMatrix;
 		
@@ -66,7 +64,7 @@ namespace LC
 		// Pointer to io context
 
 		// Solver
-    	Solver* _solver;
+    	std::unique_ptr<Solver> _solver;
 
 		ImGuiIO* _io;
 		bool _ioUpdate = true;

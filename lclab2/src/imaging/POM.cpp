@@ -87,13 +87,15 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
                 }
 
-                std::array<float, 3> color;
+                std::array<float, 4> color;
 
                 for (int rgb = 0; rgb < 3; rgb++) {
                     scalar I = std::abs(Eo[rgb](0) * cos(th) + Eo[rgb](1) * sin(th));
                     I *= I;
                     color[rgb] = pow(intensity[rgb] * I, gamma);
                 }
+
+                color[3] = alpha;
 
                 colorFunc(CData, color, cross2ind(i, j, (std::size_t)cumVoxProdSlice[0]));
             }

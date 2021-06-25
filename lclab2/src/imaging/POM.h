@@ -11,7 +11,7 @@ namespace LC { namespace Imaging { namespace UniformGrid {
 
 typedef std::size_t (*t4_2indFunc)(int, int, int, int, const std::array<std::size_t, 3>&);
 typedef std::size_t (*t2_2indFunc)(int, int, const std::size_t&);
-typedef void (*ColorDataFunc)(void *, const std::array<float, 3>&, std::size_t);
+typedef void (*ColorDataFunc)(void *, const std::array<float, 4>&, std::size_t);
 
 struct LC_API POM {
     enum class Waveplate {
@@ -44,7 +44,8 @@ struct LC_API POM {
     float polarizerAngle = 90.0f;
     double thickness = 0.0;
     double dz = 0.0;
-    float gamma = 1.0;
+    float gamma = 1.0f;
+    float alpha = 1.0f;
 
     double n0 = 0.0;
     double ne = 0.0;

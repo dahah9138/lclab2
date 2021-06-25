@@ -127,10 +127,10 @@ namespace LC
 	}
 
 	void Application::polyRenderer() {
-		GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
+		//GL::Renderer::disable(GL::Renderer::Feature::Blending);
+		//GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
 		GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
-		GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
-		GL::Renderer::disable(GL::Renderer::Feature::Blending);
+		GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
 	}
 
 	Application::~Application() {

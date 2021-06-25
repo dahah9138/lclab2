@@ -24,12 +24,15 @@
 namespace LC {
 
 	struct LC_API DynamicColorSheet {
+
+		typedef Magnum::Vector3(*PositionFunction)(Magnum::Float, Magnum::Float, Magnum::Float);
+
 		struct Vertex {
 			Magnum::Vector3 position;
-			Magnum::Color3 color;
+			Magnum::Color4 color;
 		};
 
-		virtual void Init();
+		virtual void Init(PositionFunction pos = 0);
 		virtual void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection);
 
 		// numpoints in x and y for sheet

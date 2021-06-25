@@ -155,7 +155,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		for (int i = 0; i < data.voxels[0]; i++) {
 			for (int j = 0; j < data.voxels[1]; j++) {
-				for (int k = 0; k < data.voxels[1]; k++) {
+				for (int k = 0; k < data.voxels[2]; k++) {
 					data.config(nn, i, j, k, &data.voxels[0]);
 					// Ensure normalization
 					Normalize(nn, i, j, k);

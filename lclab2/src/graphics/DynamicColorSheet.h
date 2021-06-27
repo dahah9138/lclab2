@@ -4,13 +4,25 @@
 #include "core.h"
 #include "logger.h"
 
+#include <Magnum/ImageView.h>
+#include <Magnum/Mesh.h>
+
 #include <Magnum/GL/Buffer.h>
 #include <Magnum/GL/DefaultFramebuffer.h>
 #include <Magnum/GL/Mesh.h>
 #include <Magnum/GL/Renderer.h>
+
 #include <Magnum/MeshTools/Interleave.h>
 #include <Magnum/MeshTools/CompressIndices.h>
 #include <Magnum/MeshTools/Compile.h>
+
+#include <Magnum/SceneGraph/Camera.h>
+#include <Magnum/SceneGraph/Drawable.h>
+#include <Magnum/SceneGraph/MatrixTransformation3D.h>
+#include <Magnum/SceneGraph/Scene.h>
+
+#include <Magnum/Trade/MeshData.h>
+
 #include <Magnum/Math/Color.h>
 #include <Magnum/Shaders/VertexColor.h>
 #include <Corrade/Containers/Optional.h>
@@ -23,33 +35,36 @@
 
 namespace LC {
 
-	struct LC_API DynamicColorSheet {
+    using namespace Magnum;
 
-		typedef Magnum::Vector3(*PositionFunction)(Magnum::Float, Magnum::Float, Magnum::Float);
+    struct LC_API DynamicColorSheet {
 
-		struct Vertex {
-			Magnum::Vector3 position;
-			Magnum::Color4 color;
-		};
+        typedef Magnum::Vector3(*PositionFunction)(Magnum::Float, Magnum::Float, Magnum::Float);
 
-		virtual void Init(PositionFunction pos = 0);
-		virtual void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection);
+        struct Vertex {
+            Magnum::Vector3 position;
+            Magnum::Color4 color;
+        };
 
-		// numpoints in x and y for sheet
-		Magnum::UnsignedInt NX;
-		Magnum::UnsignedInt NY;
-		Magnum::Float CX;
-		Magnum::Float CY;
+        virtual void Init(PositionFunction pos = 0, Float offset = 0.0f);
+        Trade::MeshData Data();
+        GL::Mesh Mesh();
 
-		Magnum::GL::Mesh sheetMesh{ Magnum::NoCreate };
-		Magnum::GL::Buffer sheetBuffer{ Magnum::NoCreate };
-		Magnum::GL::Buffer sheetIndexBuffer{ Magnum::NoCreate };
+        // numpoints in x and y for sheet
+        UnsignedInt NX = 32;
+        UnsignedInt NY = 32;
+        Float CX = 1.0f;
+        Float CY = 1.0f;
 
-		Magnum::Shaders::VertexColorGL3D sheetShader{ Magnum::NoCreate };
-		Magnum::Containers::Array<Vertex> data;
-		Magnum::Containers::Array<char> ind_data;
+        // This is the data to hold on to!
+        Containers::Array<Vertex> vertices;
+        Containers::Array<UnsignedInt> indices;
+        Containers::Array<Trade::MeshAttributeData> attributes;
 
-	};
+
+        // Hold onto vertex buffer
+        GL::Buffer vertexBuffer;
+    };
 
 }
 

@@ -19,6 +19,7 @@
 #include "src/graphics/Torus.h"
 #include "src/graphics/NormalTorus.h"
 #include "src/graphics/DynamicColorSheet.h"
+#include "src/graphics/TransparentDrawable.h"
 
 // Imaging
 #include "src/imaging/POM.h"

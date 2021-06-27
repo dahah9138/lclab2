@@ -38,7 +38,8 @@ set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/NormalSheet.h graphics/NormalSheet.cpp
 			  graphics/Torus.h graphics/Torus.cpp
 			  graphics/NormalTorus.h graphics/NormalTorus.cpp
-			  graphics/DynamicColorSheet.h graphics/DynamicColorSheet.cpp)
+			  graphics/DynamicColorSheet.h graphics/DynamicColorSheet.cpp
+			  graphics/TransparentDrawable.h)
 
 set (imaging imaging/POM.h imaging/POM.cpp)
 			

@@ -2,22 +2,23 @@
 
 namespace LC {
 
-    void DynamicColorSheet::Init(PositionFunction pos) {
-        using namespace Magnum;
+    void DynamicColorSheet::Init(PositionFunction pos, Float offset) {
 
         //Default position function
         if (pos == 0) {
-            pos = [](Float x, Float y, Float z) { return Vector3{x, y, z}; };
+            pos = [](Float x, Float y, Float z) { return Vector3{ x, y, z }; };
         }
 
 
         UnsignedInt numVerts = NX * NY;
         UnsignedInt numInds = 6 * (NX - 1) * (NY - 1);
 
-        data = Containers::Array<Vertex>{ NoInit, numVerts };
-        std::vector<UnsignedInt> indVec;
-        indVec.reserve(numInds);
+        vertices = Containers::Array<Vertex>{ NoInit, numVerts };
+        indices = Containers::Array<UnsignedInt>{ NoInit, numInds };
 
+        UnsignedInt indCount = 0;
+
+        // Generate vertices and indices
         for (std::size_t i = 0; i < numVerts; ++i) {
 
             // Matlab indexing
@@ -26,54 +27,59 @@ namespace LC {
             Float x = (Float)ii / (NX - 1);
             Float y = (Float)jj / (NY - 1);
 
-            data[i].position = pos(-0.5f + x, CY / CX * (-0.5f + y), 0.0f);
+            vertices[i].position = pos(CX * (-0.5f + x), CY * (-0.5f + y), offset);
 
-            
+            Float r = vertices[i].position.length();
 
-            Float r = data[i].position.length();
-
-            data[i].color = Color4{ 1.0f, 1.0f, 1.0f, 0.5f };
+            vertices[i].color = Color4{ 1.0f, 1.0f, 1.0f, 0.5f };
 
             if (ii < NX - 1 && jj < NY - 1)
             {
                 // i = ii * NY + jj
+                indices[indCount++] = i;
+                indices[indCount++] = i + 1;
+                indices[indCount++] = NX + i;
 
-                indVec.emplace_back(i);
-                indVec.emplace_back(i + 1);
-                indVec.emplace_back(NX + i);
-
-                indVec.emplace_back(i + 1);
-                indVec.emplace_back(NX + i + 1);
-                indVec.emplace_back(NX + i);
+                indices[indCount++] = i + 1;
+                indices[indCount++] = NX + i + 1;
+                indices[indCount++] = NX + i;
             }
         }
 
-        MeshIndexType indType;
-        UnsignedInt indStart, indEnd;
 
-        std::tie(ind_data, indType, indStart, indEnd) = MeshTools::compressIndices(indVec);
+        // Set Attributes
+        attributes = Containers::Array<Trade::MeshAttributeData>{ 2 };
 
-        sheetShader = Shaders::VertexColorGL3D{};
-        sheetBuffer = GL::Buffer{};
-        sheetIndexBuffer = GL::Buffer{};
-
-        sheetBuffer.setData(data, GL::BufferUsage::DynamicDraw);
-        sheetIndexBuffer.setData(ind_data, GL::BufferUsage::StaticDraw);
-
-        sheetMesh.setCount(numInds).addVertexBuffer(sheetBuffer, 0,
-            Shaders::VertexColorGL3D::Position{},
-            Shaders::VertexColorGL3D::Color4{})
-            .setIndexBuffer(sheetIndexBuffer, 0, indType, indStart, indEnd);
+        attributes[0] = Trade::MeshAttributeData{ Trade::MeshAttribute::Position,
+            Containers::stridedArrayView(vertices, &vertices[0].position,
+                Containers::arraySize(vertices), sizeof(Vertex)) };
+        attributes[1] = Trade::MeshAttributeData{ Trade::MeshAttribute::Color,
+            Containers::stridedArrayView(vertices, &vertices[0].color,
+                Containers::arraySize(vertices), sizeof(Vertex)) };
     }
 
-    void DynamicColorSheet::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
+    Trade::MeshData DynamicColorSheet::Data() {
+        return Trade::MeshData{ MeshPrimitive::Triangles,
+            {}, indices, Trade::MeshIndexData{indices},
+            {}, vertices, Trade::meshAttributeDataNonOwningArray(attributes) };
+    }
 
-        Magnum::GL::Renderer::disable(Magnum::GL::Renderer::Feature::FaceCulling);
+    GL::Mesh DynamicColorSheet::Mesh() {
+        Trade::MeshData data = Data();
+        GL::Mesh mesh{ data.primitive() };
 
-        sheetShader.setTransformationProjectionMatrix(projection * arcball->viewMatrix())
-            .draw(sheetMesh);
+        vertexBuffer.setData(MeshTools::interleave(data.positions3DAsArray(), data.colorsAsArray()));
+        mesh.addVertexBuffer(vertexBuffer, 0, Shaders::VertexColorGL3D::Position{}, Shaders::VertexColorGL3D::Color4{});
+        // Set up index buffer
+        if (data.isIndexed()) {
 
-        Magnum::GL::Renderer::enable(Magnum::GL::Renderer::Feature::FaceCulling);
+            std::pair<Containers::Array<char>, MeshIndexType> compressed = MeshTools::compressIndices(data.indicesAsArray());
+            GL::Buffer indices;
+            indices.setData(compressed.first);
+            mesh.setIndexBuffer(std::move(indices), 0, compressed.second).setCount(data.indexCount());
+        }
+
+        return mesh;
     }
 
 

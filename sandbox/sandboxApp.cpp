@@ -30,12 +30,10 @@ enum class Axis {
 };
 struct CrossX {
     Float axisPosition;
-    std::unique_ptr<LC::DynamicColorSheet> section;
+    Axis axis;
+    std::pair<Containers::Optional<GL::Mesh>, std::unique_ptr<LC::DynamicColorSheet>> section;
     bool draw = true;
     static LC::DynamicColorSheet::PositionFunction Position[3];
-
-    void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball,
-        const Magnum::Matrix4& projection) { section->Draw(arcball, projection); }
 };
 LC::DynamicColorSheet::PositionFunction CrossX::Position[3] = { [](Float x, Float y, Float z) { return Vector3{ z, x, y }; },
         [](Float x, Float y, Float z) { return Vector3{ x, z, y }; },
@@ -71,10 +69,16 @@ private:
     void saveAs();
 
 
+    // Used to draw CrossX mesh
+    Shaders::VertexColorGL3D _transparentShader;
+    SceneGraph::DrawableGroup3D _transparentDrawables;
+
+    Containers::Array<CrossX> _crossSections;
+
     // Tested geometries
     std::unique_ptr<LC::SphereArray> _sarray;
     LC::Torus _sheet;
-    CrossX _dsheet;
+
 
     // Torus with PhongGL shader
     LC::NormalTorus _sheetNormal;
@@ -96,6 +100,12 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                           } {
 
 
+
+
+
+    _transparentShader = Shaders::VertexColorGL3D{};
+
+
     /* Setup the GUI */
     setupGUI();
 
@@ -108,8 +118,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     setMinimalLoopPeriod(16);
     
 
-    /* Setup camera */
-    setupCamera(0.9f);
+    setupCamera(1.0f, CameraType::Group);
 
     _solver = std::make_unique<LC::FrankOseen::ElasticOnly::FOFDSolver>();
 
@@ -119,10 +128,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-
-
-    data->voxels[0] = 32;
-    data->voxels[1] = 32;
+    data->voxels[0] = 64;
+    data->voxels[1] = 48;
     data->voxels[2] = 32;
 
     // hard
@@ -178,9 +185,7 @@ Sandbox::~Sandbox() {
 /*
     Main simulation loop
 */
-void Sandbox::drawEvent()
-{
-
+void Sandbox::drawEvent() {
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
@@ -197,7 +202,6 @@ void Sandbox::drawEvent()
         ImGui::Begin("lclab2", 0, window_flags);
 
         bool updateImageFromLoad = false;
-        bool updateImageFromRadio = false;
 
         if (_widget.commands.isPressed(KeyEvent::Key::S)) {
             save();
@@ -237,28 +241,6 @@ void Sandbox::drawEvent()
             dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
         }
 
-        // Cross section radio buttons
-        {
-            int axesInt = static_cast<int>(_widget.axis);
-            
-            ImGui::RadioButton("xy", &axesInt, static_cast<int>(Axis::z));
-            ImGui::SameLine();
-            ImGui::RadioButton("yz", &axesInt, static_cast<int>(Axis::x));
-            ImGui::SameLine();
-            ImGui::RadioButton("xz", &axesInt, static_cast<int>(Axis::y));
-
-            Axis newAxis = static_cast<Axis>(axesInt);
-
-            if (axesInt != _widget.axis) {
-                updateImageFromRadio = true;
-                _widget.axis = axesInt;
-                initGrid();
-            }
-
-        }
-
-
-
         {
             Float pitch = _widget.pitch.first;
             ImGui::InputFloat("Pitch (um)", &pitch);
@@ -287,8 +269,7 @@ void Sandbox::drawEvent()
             }
         }
 
-        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad
-                                                            || updateImageFromRadio;
+        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
 
 
         // Set Cycle
@@ -337,7 +318,10 @@ void Sandbox::drawEvent()
 
 
     /* Update camera */
-    const bool moving = _arcballCamera->updateTransformation();
+    bool moving;
+
+    if (_cameraType == CameraType::ArcBall)
+        moving = _arcballCamera->updateTransformation();
 
     /* Reset state. Only needed if you want to draw something else with
         different state after. */
@@ -345,8 +329,19 @@ void Sandbox::drawEvent()
     polyRenderer();
 
 
-    //_sheet.Draw(_arcballCamera, _projectionMatrix);
-    _dsheet.Draw(_arcballCamera, _projectionMatrix);
+
+    // Sort objects to draw in correct order
+    std::vector<std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>>
+        drawableTransformations = _camera->drawableTransformations(_transparentDrawables);
+
+    std::sort(drawableTransformations.begin(), drawableTransformations.end(),
+        [](const std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>& a,
+            const std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>& b) {
+                return a.second.translation().z() < b.second.translation().z();
+        });
+
+    _camera->draw(_transparentDrawables);
+
     //_sarray->Draw(_arcballCamera, _projectionMatrix);
 
     // Make sure to draw gui last, otherwise the graphics will write over the GUI
@@ -368,12 +363,8 @@ void Sandbox::drawEvent()
     }
     
     if (_widget.updateImage) {
-        // For now just xy midplane
-        if(_widget.POM) POM();
-        else updateColor();
-
+        updateColor();
     }
-
 
     if (moving || _ioUpdate) redraw();
 }
@@ -381,12 +372,16 @@ void Sandbox::drawEvent()
 // Todo: inherit all these events through Application
 void Sandbox::mousePressEvent(MouseEvent& event) {
 
+    if (_cameraType == CameraType::Group)
+        if (event.button() == MouseEvent::Button::Left)
+            _previousPosition = positionOnSphere(event.position());
+
     _imgui.handleMousePressEvent(event);
 
-    if (!_io->WantCaptureMouse) {
-        _arcballCamera->initTransformation(event.position());
-    }
-    else _ioUpdate = true;
+    if (_cameraType == CameraType::ArcBall)
+        if (!_io->WantCaptureMouse) 
+            _arcballCamera->initTransformation(event.position());
+        
 
 }
 
@@ -396,6 +391,8 @@ void Sandbox::textInputEvent(TextInputEvent& event) {
 
 void Sandbox::mouseReleaseEvent(MouseEvent& event) {
 
+    if (event.button() == MouseEvent::Button::Left)
+        _previousPosition = Vector3();
     if (_imgui.handleMouseReleaseEvent(event)) _ioUpdate = true;
 }
 
@@ -420,6 +417,7 @@ void Sandbox::keyReleaseEvent(KeyEvent& event) {
     if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
 }
 
+
 void Sandbox::updateColor() {
 
     using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
@@ -432,76 +430,84 @@ void Sandbox::updateColor() {
 
     T4 nn(data->directors, data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
-    Axis ax = static_cast<Axis>(_widget.axis);
 
+    for (int id = 0; id < 3; id++) {
+        Axis ax = static_cast<Axis>(_crossSections[id].axis);
 
-    // x -> (1, 2)
-    // y -> (0, 2)
-    // z -> (0, 1)
-    int xx = (ax == Axis::x) ? 1 : 0;
-    int yy = (ax == Axis::y) ? 2 : xx + 1;
-
-    std::size_t permutedSlice = data->voxels[xx];
-
-    auto cross_idx = [permutedSlice](int i, int j) {
-        return permutedSlice * j + i;
-    };
-
-    int hvox = data->voxels[_widget.axis] / 2;
-
-    LC::scalar theta, phi, nx, ny, nz;
-    for (int i = 0; i < data->voxels[xx]; i++) {
-        for (int j = 0; j < data->voxels[yy]; j++) {
-
-            if (ax == Axis::z) {
-                nx = nn(i, j, hvox, 0);
-                ny = nn(i, j, hvox, 1);
-                nz = nn(i, j, hvox, 2);
-            }
-            else if (ax == Axis::y) {
-                nx = nn(i, hvox, j, 0);
-                ny = nn(i, hvox, j, 1);
-                nz = nn(i, hvox, j, 2);
-            }
-            else if (ax == Axis::x) {
-                nx = nn(hvox, i, j, 0);
-                ny = nn(hvox, i, j, 1);
-                nz = nn(hvox, i, j, 2);
-            }
-            // Compute theta and phi
-
-            theta = acos(nz);
-            phi = M_PI / 2.0f - atan2(ny, nx);
-
-            // Compute color
-
-            Color3 hsv;
-            hsv[0] = phi / (2.0f * M_PI);
-            hsv[1] = theta / M_PI * 2.0f;
-            hsv[2] = 2.0f - theta / M_PI * 2.0f;
-
-            if (hsv[0] > 1.0f) hsv[0] = 1.0f;
-            if (hsv[1] > 1.0f) hsv[1] = 1.0f;
-            if (hsv[2] > 1.0f) hsv[2] = 1.0f;
-
-            _dsheet.section->data[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
-            //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+        // Call POM and skip
+        if (_widget.POM && ax == Axis::z) {
+            POM();
+            continue;
         }
-    }
 
-    // Update sheet
-    _dsheet.section->sheetBuffer.setData(_dsheet.section->data, GL::BufferUsage::DynamicDraw);
-    //_sarray->sphereInstanceBuffer.setData(_sarray->sphereInstanceData, GL::BufferUsage::DynamicDraw);
+        // x -> (1, 2)
+        // y -> (0, 2)
+        // z -> (0, 1)
+        int xx = (ax == Axis::x) ? 1 : 0;
+        int yy = (ax == Axis::y) ? 2 : xx + 1;
+
+        std::size_t permutedSlice = data->voxels[xx];
+
+        auto cross_idx = [permutedSlice](int i, int j) {
+            return permutedSlice * j + i;
+        };
+
+        int hvox = data->voxels[id] / 2;
+
+        LC::scalar theta, phi, nx, ny, nz;
+        for (int i = 0; i < data->voxels[xx]; i++) {
+            for (int j = 0; j < data->voxels[yy]; j++) {
+
+                if (ax == Axis::z) {
+                    nx = nn(i, j, hvox, 0);
+                    ny = nn(i, j, hvox, 1);
+                    nz = nn(i, j, hvox, 2);
+                }
+                else if (ax == Axis::y) {
+                    nx = nn(i, hvox, j, 0);
+                    ny = nn(i, hvox, j, 1);
+                    nz = nn(i, hvox, j, 2);
+                }
+                else if (ax == Axis::x) {
+                    nx = nn(hvox, i, j, 0);
+                    ny = nn(hvox, i, j, 1);
+                    nz = nn(hvox, i, j, 2);
+                }
+                // Compute theta and phi
+
+                theta = acos(nz);
+                phi = M_PI / 2.0f - atan2(ny, nx);
+
+                // Compute color
+
+                Color3 hsv;
+                hsv[0] = phi / (2.0f * M_PI);
+                hsv[1] = theta / M_PI * 2.0f;
+                hsv[2] = 2.0f - theta / M_PI * 2.0f;
+
+                if (hsv[0] > 1.0f) hsv[0] = 1.0f;
+                if (hsv[1] > 1.0f) hsv[1] = 1.0f;
+                if (hsv[2] > 1.0f) hsv[2] = 1.0f;
+
+                _crossSections[id].section.second->vertices[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+                //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+            }
+        }
+
+        // Update sheet
+        Trade::MeshData meshData = _crossSections[id].section.second->Data();
+        _crossSections[id].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
+
+    }
 }
 
 // Only for 5CB.
 void Sandbox::POM() {
-
-    // Can't POM a cross section other than xy plane
-    if (_widget.axis != 2) {
-        _widget.axis = 2;
-        initGrid();
-    }
+    int i;
+    for (int id = 0; id < 3; id++)
+        if (_crossSections[id].axis == Axis::z)
+            i = id;
+    
 
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
@@ -516,14 +522,15 @@ void Sandbox::POM() {
     _pomImager.thickness = pitch.first * dop;
     _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
 
-    _pomImager.Compute(data->directors, data->voxels, (void*)(&_dsheet.section->data), [](void *data, const std::array<float, 4>&color, std::size_t idx) {
+    _pomImager.Compute(data->directors, data->voxels, (void*)(&_crossSections[i].section.second->vertices), [](void *data, const std::array<float, 4>&color, std::size_t idx) {
         Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
-        for (int i = 0; i < 4; i++)
-            (*dataPtr)[idx].color[i] = color[i];
+        for (int id = 0; id < 4; id++)
+            (*dataPtr)[idx].color[id] = color[id];
     });
 
     // Update sheet
-    _dsheet.section->sheetBuffer.setData(_dsheet.section->data, GL::BufferUsage::DynamicDraw);
+    Trade::MeshData meshData = _crossSections[i].section.second->Data();
+    _crossSections[i].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
 }
 
 void Sandbox::save() {
@@ -624,27 +631,29 @@ void Sandbox::initGrid() {
 
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    int d = _widget.axis;
-    Axis ax = static_cast<Axis>(d);
-    
-    _dsheet.section.reset(new LC::DynamicColorSheet);
-    //_sarray.reset(new LC::SphereArray);
+    std::array<int, 3> voxels = data->voxels;
+    std::array<LC::scalar, 3> cdims = data->cell_dims;
 
-    int i = (ax == Axis::x) ? 1 : 0;
-    int j = (ax == Axis::y) ? 2 : i + 1;
+    _crossSections = Containers::Array<CrossX>{ 3 };
 
-    _dsheet.section->NX = data->voxels[i];
-    _dsheet.section->NY = data->voxels[j];
-    _dsheet.section->CX = data->cell_dims[i];
-    _dsheet.section->CY = data->cell_dims[j];
+    for (int id = 0; id < 3; id++) {
 
-    //_sarray->NX = data->voxels[i];
-    //_sarray->NY = data->voxels[j];
-    //_sarray->CX = data->cell_dims[i];
-    //_sarray->CY = data->cell_dims[j];
+        Axis ax = static_cast<Axis>(id);
 
-    _dsheet.section->Init();
-    //_sarray->Init();
+        int i = (ax == Axis::x) ? 1 : 0;
+        int j = (ax == Axis::y) ? 2 : i + 1;
+
+        _crossSections[id].axis = ax;
+        _crossSections[id].section.second = std::make_unique<LC::DynamicColorSheet>();
+        _crossSections[id].section.second->NX = voxels[i];
+        _crossSections[id].section.second->NY = voxels[j];
+        _crossSections[id].section.second->CX = cdims[i];
+        _crossSections[id].section.second->CY = cdims[j];
+        _crossSections[id].section.second->Init(CrossX::Position[id], 0.0f);
+        _crossSections[id].section.first = _crossSections[id].section.second->Mesh();
+        new LC::Drawable::TransparentFlatDrawable{ _manipulator, _transparentShader, *_crossSections[id].section.first, Vector3{0.0f, 0.0f, 0.0f}, _transparentDrawables };
+
+    }
     
 }
 

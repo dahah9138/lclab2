@@ -17,6 +17,7 @@
 #include <Magnum/Primitives/Icosphere.h>
 #include <Magnum/Shaders/PhongGL.h>
 #include <Magnum/Trade/MeshData.h>
+#include <Magnum/SceneGraph/Camera.h>
 
 // ImGui
 #include <Magnum/ImGuiIntegration/Context.hpp>
@@ -25,6 +26,7 @@
 #include "logger.h"
 #include "../graphics/ArcBall.h"
 #include "../solver/Solver.h"
+#include "../graphics/TransparentDrawable.h"
 
 namespace LC
 {
@@ -35,10 +37,14 @@ namespace LC
 	
 	class LC_API Application : public Platform::Application {
     public:
+
+		enum class CameraType { ArcBall, Group };
+
+
         explicit Application(const Arguments& arguments);
 		explicit Application(const Arguments& arguments, const Configuration& configuration);
 
-		virtual void setupCamera(const Float& lag);
+		virtual void setupCamera(const Float& param, CameraType cameraType);
 		virtual void mouseScrollEvent(MouseScrollEvent& event) override;
 		virtual void viewportEvent(ViewportEvent& event) override;
 		virtual void mouseMoveEvent(MouseMoveEvent& event) override;
@@ -50,6 +56,8 @@ namespace LC
 		void enableFaceCulling();
 		void disableFaceCulling();
 
+		Vector3 positionOnSphere(const Vector2i& position) const;
+
 		void guiRenderer();
 		void polyRenderer();
 
@@ -59,7 +67,16 @@ namespace LC
 
 		Containers::Optional<ArcBall> _arcballCamera;
 		Matrix4 _projectionMatrix;
-		
+
+		// Make a part of Application
+		Drawable::Scene3D _scene;
+		Drawable::Object3D _manipulator, _cameraObject;
+		SceneGraph::Camera3D* _camera;
+		// Needed for camera
+		Vector3 _previousPosition;
+
+		CameraType _cameraType;
+
 		ImGuiIntegration::Context _imgui{ NoCreate };
 		// Pointer to io context
 
@@ -68,6 +85,7 @@ namespace LC
 
 		ImGuiIO* _io;
 		bool _ioUpdate = true;
+
 	};
 	
 }

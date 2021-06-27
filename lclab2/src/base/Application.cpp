@@ -13,18 +13,30 @@ namespace LC
 		}
 	}
 
-	void Application::setupCamera(const Float &lag) {
-
+	void Application::setupCamera(const Float& param, CameraType cameraType) {
 		using namespace Math::Literals;
 
-		/* Setup camera */
-		{
+		_cameraType = cameraType;
+
+		if (cameraType == CameraType::Group) {
+			_cameraObject
+				.setParent(&_scene)
+				.translate(Vector3::zAxis(param));
+			(*(_camera = new SceneGraph::Camera3D{ _cameraObject }))
+				.setAspectRatioPolicy(SceneGraph::AspectRatioPolicy::Extend)
+				.setProjectionMatrix(Matrix4::perspectiveProjection(35.0_degf, 1.0f, 0.01f, 1000.0f))
+				.setViewport(GL::defaultFramebuffer.viewport().size());
+
+			/* Base object, parent of all (for easy manipulation) */
+			_manipulator.setParent(&_scene);
+		}
+		else if (cameraType == CameraType::ArcBall) {
 			const Vector3 eye = Vector3::zAxis(-5.0f);
 			const Vector3 viewCenter;
 			const Vector3 up = Vector3::yAxis();
 			const Deg fov = 45.0_degf;
 			_arcballCamera.emplace(eye, viewCenter, up, fov, windowSize());
-			_arcballCamera->setLagging(lag);
+			_arcballCamera->setLagging(param);
 
 			_projectionMatrix = Matrix4::perspectiveProjection(fov,
 				Vector2{ framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
@@ -33,14 +45,27 @@ namespace LC
 
 	void Application::mouseScrollEvent(MouseScrollEvent& event) {
 
+		if (_cameraType == CameraType::Group) {
+			if (!event.offset().y()) return;
+
+			/* Distance to origin */
+			const Float distance = _cameraObject.transformation().translation().z();
+
+			/* Move 15% of the distance back or forward */
+			_cameraObject.translate(Vector3::zAxis(
+				distance * (1.0f - (event.offset().y() > 0 ? 1 / 0.85f : 0.85f))));
+		}
+
+
 		_imgui.handleMouseScrollEvent(event);
 
 		if (!_io->WantCaptureMouse) {
 
 			const Float delta = event.offset().y();
 
-			if (Math::abs(delta) >= 1.0e-2f)
-				_arcballCamera->zoom(delta);
+			if (_cameraType == CameraType::ArcBall)
+				if (Math::abs(delta) >= 1.0e-2f)
+					_arcballCamera->zoom(delta);
 		}
 		else _ioUpdate = true;
 
@@ -66,10 +91,14 @@ namespace LC
 
 	void Application::viewportEvent(ViewportEvent& event) {
 		GL::defaultFramebuffer.setViewport({ {}, event.framebufferSize() });
-		_arcballCamera->reshape(event.windowSize());
 
-		_projectionMatrix = Matrix4::perspectiveProjection(_arcballCamera->fov(),
+		if (_cameraType == CameraType::ArcBall) {
+			_arcballCamera->reshape(event.windowSize());
+			_projectionMatrix = Matrix4::perspectiveProjection(_arcballCamera->fov(),
 			Vector2{ event.framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
+		}
+		else if (_cameraType == CameraType::Group)
+			_camera->setViewport(event.windowSize());
 
 		_imgui.relayout(Vector2{ event.windowSize() } / event.dpiScaling(),
 			event.windowSize(), event.framebufferSize());
@@ -77,20 +106,29 @@ namespace LC
 
 	void Application::mouseMoveEvent(MouseMoveEvent& event) {
 
-		//if (!event.buttons()) return;
-
 		_imgui.handleMouseMoveEvent(event);
 
 		if (!_io->WantCaptureMouse) {
 
-			if (!event.buttons()) return;
+			if (_cameraType == CameraType::Group) {
+				if (!event.buttons()) return;
 
-			if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
-				_arcballCamera->translate(event.position());
-			else _arcballCamera->rotate(event.position());
+				if (event.buttons() & MouseMoveEvent::Button::Left) {
+					const Vector3 currentPosition = positionOnSphere(event.position());
+					const Vector3 axis = Math::cross(_previousPosition, currentPosition);
+
+					if (_previousPosition.length() < 0.001f || axis.length() < 0.001f) return;
+
+					_manipulator.rotate(Math::angle(_previousPosition, currentPosition), axis.normalized());
+					_previousPosition = currentPosition;
+				}
+			}
+			else if (_cameraType == CameraType::ArcBall) {
+
+				// ArcBall goes here
+			}
+
 		}
-		else _ioUpdate = true;
-
 	}
 
 	void Application::mousePressEvent(MouseEvent& event) {
@@ -98,7 +136,8 @@ namespace LC
 		_imgui.handleMousePressEvent(event);
 
 		if (!_io->WantCaptureMouse) {
-			_arcballCamera->initTransformation(event.position());
+			if (_cameraType == CameraType::ArcBall)
+				_arcballCamera->initTransformation(event.position());
 		}
 		else _ioUpdate = true;
 	}
@@ -131,6 +170,13 @@ namespace LC
 		//GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
 		GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
 		GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
+	}
+
+	Vector3 Application::positionOnSphere(const Vector2i& position) const {
+		const Vector2 positionNormalized = Vector2{ position } / Vector2{ _camera->viewport() } -Vector2{ 0.5f };
+		const Float length = positionNormalized.length();
+		const Vector3 result(length > 1.0f ? Vector3(positionNormalized, 0.0f) : Vector3(positionNormalized, 1.0f - length));
+		return (result * Vector3::yScale(-1.0f)).normalized();
 	}
 
 	Application::~Application() {

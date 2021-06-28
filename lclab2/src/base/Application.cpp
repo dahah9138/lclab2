@@ -110,8 +110,9 @@ namespace LC
 
 		if (!_io->WantCaptureMouse) {
 
+			if (!event.buttons()) return;
+
 			if (_cameraType == CameraType::Group) {
-				if (!event.buttons()) return;
 
 				if (event.buttons() & MouseMoveEvent::Button::Left) {
 					const Vector3 currentPosition = positionOnSphere(event.position());
@@ -124,8 +125,9 @@ namespace LC
 				}
 			}
 			else if (_cameraType == CameraType::ArcBall) {
-
-				// ArcBall goes here
+				if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
+					_arcballCamera->translate(event.position());
+				else _arcballCamera->rotate(event.position());
 			}
 
 		}

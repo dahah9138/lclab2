@@ -19,7 +19,7 @@ struct LC_API POM {
 		Full530nm = 1
 	};
 
-    void Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc);
+    void Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc, const float &alpha = 0.5f);
 
     // Default matlab indexing where slices is of the form
     /*
@@ -45,7 +45,6 @@ struct LC_API POM {
     double thickness = 0.0;
     double dz = 0.0;
     float gamma = 1.0f;
-    float alpha = 1.0f;
 
     double n0 = 0.0;
     double ne = 0.0;

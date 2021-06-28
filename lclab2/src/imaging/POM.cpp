@@ -2,7 +2,7 @@
 
 namespace LC { namespace Imaging { namespace UniformGrid {
 
-void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc) {
+void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc, const float &alpha) {
 
     // Jones matrices
     Eigen::Matrix2cd M, m;

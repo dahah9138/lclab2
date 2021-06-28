@@ -128,8 +128,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    data->voxels[0] = 64;
-    data->voxels[1] = 48;
+    data->voxels[0] = 32;
+    data->voxels[1] = 32;
     data->voxels[2] = 32;
 
     // hard
@@ -198,101 +198,108 @@ void Sandbox::drawEvent() {
     {
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar;
 
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::Begin("lclab2", 0, window_flags);
 
-        bool updateImageFromLoad = false;
+        if (_widget.showSettings) {
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::Begin("lclab2", 0, window_flags);
 
-        if (_widget.commands.isPressed(KeyEvent::Key::S)) {
-            save();
-        }
+            bool updateImageFromLoad = false;
 
-        if (_widget.commands.isPressed(KeyEvent::Key::O)) {
-            updateImageFromLoad = open();
-        }
-
-        if (ImGui::BeginMenuBar()) {
-            if (ImGui::BeginMenu("File")) {
-
-                //if (ImGui::MenuItem("New", "Ctrl+N")) {}
-                if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                    updateImageFromLoad = open();
-                }
-                if (ImGui::MenuItem("Save", "Ctrl+S")) {
-                    save();
-                }
-                if (ImGui::MenuItem("Save As..")) {
-                    saveAs();
-                }
-
-                ImGui::EndMenu();
+            if (_widget.commands.isPressed(KeyEvent::Key::S)) {
+                save();
             }
-            ImGui::EndMenuBar();
-        }
 
-        if (ImGui::Button("Test Window"))
-            _widget.showDemoWindow ^= true;
-        if (ImGui::Button("LC Info"))
-            _widget.showAnotherWindow ^= true;
+            if (_widget.commands.isPressed(KeyEvent::Key::O)) {
+                updateImageFromLoad = open();
+            }
 
-        // Dropdown menu for lc types
-        {
-            std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
-            dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
-        }
+            if (ImGui::BeginMenuBar()) {
+                if (ImGui::BeginMenu("File")) {
 
-        {
-            Float pitch = _widget.pitch.first;
-            ImGui::InputFloat("Pitch (um)", &pitch);
-            _widget.pitch.first = pitch;
+                    //if (ImGui::MenuItem("New", "Ctrl+N")) {}
+                    if (ImGui::MenuItem("Open", "Ctrl+O")) {
+                        updateImageFromLoad = open();
+                    }
+                    if (ImGui::MenuItem("Save", "Ctrl+S")) {
+                        save();
+                    }
+                    if (ImGui::MenuItem("Save As..")) {
+                        saveAs();
+                    }
 
-            if (ImGui::CollapsingHeader("POM Settings")) {
-
-                ImGui::Checkbox("Enable POM", &_widget.POM);
-
-                // Dropdown menu for waveplates
-                {
-                    using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
-                    std::map<Waveplate, std::string> waveplateMap{ { Waveplate::None, "None" }, { Waveplate::Full530nm, "530 nm Full" } };
-                    dropDownMenu<Waveplate>("Waveplate", _pomImager.waveplate, waveplateMap);
+                    ImGui::EndMenu();
                 }
+                ImGui::EndMenuBar();
+            }
+
+            if (ImGui::Button("Test Window"))
+                _widget.showDemoWindow ^= true;
+            if (ImGui::Button("LC Info"))
+                _widget.showAnotherWindow ^= true;
+
+            // Dropdown menu for lc types
+            {
+                std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
+                dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
+            }
+
+            {
+                Float pitch = _widget.pitch.first;
+                ImGui::InputFloat("Pitch (um)", &pitch);
+                _widget.pitch.first = pitch;
 
 
-                // Show additional options in a dropdown (TODO)
-                ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
-                ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
-                ImGui::InputFloat("Gamma", &_pomImager.gamma);
+                ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
 
-                ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
+                if (ImGui::CollapsingHeader("POM Settings")) {
+
+                    ImGui::Checkbox("Enable POM", &_widget.POM);
+
+                    // Dropdown menu for waveplates
+                    {
+                        using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
+                        std::map<Waveplate, std::string> waveplateMap{ { Waveplate::None, "None" }, { Waveplate::Full530nm, "530 nm Full" } };
+                        dropDownMenu<Waveplate>("Waveplate", _pomImager.waveplate, waveplateMap);
+                    }
+
+
+                    // Show additional options in a dropdown (TODO)
+                    ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
+                    ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
+                    ImGui::InputFloat("Gamma", &_pomImager.gamma);
+
+                    ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
                 
-                ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
+                    ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
+                }
             }
-        }
 
-        _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
+            _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
 
 
-        // Set Cycle
-        ImGui::InputInt("Cycle", &_widget.cycle);
+            // Set Cycle
+            ImGui::InputInt("Cycle", &_widget.cycle);
 
-        // Relaxation rate
-        {
-            using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
+            // Relaxation rate
+            {
+                using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
 
-            Dataset* data = (Dataset*)(_solver->GetDataPtr());
-            Float relaxRate = data->rate;
-            ImGui::InputFloat("Relax rate", &relaxRate);
-            data->rate = relaxRate;
-        }
+                Dataset* data = (Dataset*)(_solver->GetDataPtr());
+                Float relaxRate = data->rate;
+                ImGui::InputFloat("Relax rate", &relaxRate);
+                data->rate = relaxRate;
+            }
 
-        // Pressed the relax button
-        _widget.relax = ImGui::Button("Relax");
+            // Pressed the relax button
+            _widget.relax = ImGui::Button("Relax");
         
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-            1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
+                1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
     
-        ImGui::End();
+            ImGui::End();
+        }
     }
+
     /* 2. Show another simple window, now using an explicit Begin/End pair */
     if (_widget.showAnotherWindow) {
         ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
@@ -403,6 +410,7 @@ void Sandbox::keyPressEvent(KeyEvent& event) {
     if ((event.key() == KeyEvent::Key::S)) _widget.commands.press(KeyEvent::Key::S);
     else if ((event.key() == KeyEvent::Key::O)) _widget.commands.press(KeyEvent::Key::O);
     else if ((event.key() == KeyEvent::Key::LeftCtrl)) { _widget.commands.ctrl = true; }
+    else if ((event.key() == KeyEvent::Key::G)) _widget.showSettings = !_widget.showSettings;
 
     if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
@@ -430,6 +438,7 @@ void Sandbox::updateColor() {
 
     T4 nn(data->directors, data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
+    Float alpha = _widget.alpha;
 
     for (int id = 0; id < 3; id++) {
         Axis ax = static_cast<Axis>(_crossSections[id].axis);
@@ -439,6 +448,7 @@ void Sandbox::updateColor() {
             POM();
             continue;
         }
+
 
         // x -> (1, 2)
         // y -> (0, 2)
@@ -489,7 +499,8 @@ void Sandbox::updateColor() {
                 if (hsv[1] > 1.0f) hsv[1] = 1.0f;
                 if (hsv[2] > 1.0f) hsv[2] = 1.0f;
 
-                _crossSections[id].section.second->vertices[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
+                _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] }), alpha };
+
                 //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
             }
         }
@@ -508,7 +519,7 @@ void Sandbox::POM() {
         if (_crossSections[id].axis == Axis::z)
             i = id;
     
-
+    Float alpha = _widget.alpha;
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
@@ -526,7 +537,7 @@ void Sandbox::POM() {
         Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
         for (int id = 0; id < 4; id++)
             (*dataPtr)[idx].color[id] = color[id];
-    });
+    }, alpha);
 
     // Update sheet
     Trade::MeshData meshData = _crossSections[i].section.second->Data();

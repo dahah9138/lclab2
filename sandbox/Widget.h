@@ -43,6 +43,8 @@ struct Widget {
 	bool showDemoWindow = false;
     bool showAnotherWindow = false;
 
+	bool showSettings = true;
+
 	// For simulation
 	bool relax = false;
 	bool loadedFromFile = false;
@@ -56,8 +58,8 @@ struct Widget {
 	int cycle = 10;
 
 	bool updateImage = false;
-
 	bool POM = false;
+	float alpha = 0.5f;
 
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };

@@ -7,4 +7,4 @@ include_directories(${CMAKE_SOURCE_DIR}/lclab2)
 remove_definitions(-DLC_BUILD_DLL)
 
 add_executable(sandbox-test sandboxApp.cpp Widget.h)
-target_link_libraries(sandbox-test lclab2)
+target_link_libraries(sandbox-test PRIVATE lclab2)

@@ -44,28 +44,26 @@ namespace LC
 	}
 
 	void Application::mouseScrollEvent(MouseScrollEvent& event) {
-
-		if (_cameraType == CameraType::Group) {
-			if (!event.offset().y()) return;
-
-			/* Distance to origin */
-			const Float distance = _cameraObject.transformation().translation().z();
-
-			/* Move 15% of the distance back or forward */
-			_cameraObject.translate(Vector3::zAxis(
-				distance * (1.0f - (event.offset().y() > 0 ? 1 / 0.85f : 0.85f))));
-		}
-
-
 		_imgui.handleMouseScrollEvent(event);
 
 		if (!_io->WantCaptureMouse) {
 
-			const Float delta = event.offset().y();
 
-			if (_cameraType == CameraType::ArcBall)
-				if (Math::abs(delta) >= 1.0e-2f)
-					_arcballCamera->zoom(delta);
+			if (_cameraType == CameraType::ArcBall) {
+				const Float delta = event.offset().y();
+				if (Math::abs(delta) >= 1.0e-2f) _arcballCamera->zoom(delta);
+			}
+			else if (_cameraType == CameraType::Group) {
+
+				if (!event.offset().y()) return;
+
+				/* Distance to origin */
+				const Float distance = _cameraObject.transformation().translation().z();
+
+				/* Move 15% of the distance back or forward */
+				_cameraObject.translate(Vector3::zAxis(
+					distance * (1.0f - (event.offset().y() > 0 ? 1 / 0.85f : 0.85f))));
+			}
 		}
 		else _ioUpdate = true;
 
@@ -74,9 +72,18 @@ namespace LC
 
 	void Application::setupGUI() {
 
-		/* Setup imgui */
+
+
+		/* Setup imgui (Calls ImGui::CreateContext() */
 		_imgui = ImGuiIntegration::Context(Vector2{ windowSize() } / dpiScaling(),
 			windowSize(), framebufferSize());
+
+		// Create ImPlot Context() in pair with ImGui
+		//if ((_options & App::OptionFlag::ImPlot) != App::OptionFlag::None)
+		//	ImPlot::CreateContext();
+
+		//LC::ImPlotIntegration::CreateContext();
+		ImPlot::CreateContext();
 
 		/* Set up proper blending to be used by ImGui. There's a great chance
 		   you'll need this exact behavior for the rest of your scene. If not, set
@@ -168,6 +175,7 @@ namespace LC
 	}
 
 	void Application::polyRenderer() {
+		// Blending is needed for transparency
 		//GL::Renderer::disable(GL::Renderer::Feature::Blending);
 		//GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
 		GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
@@ -182,6 +190,15 @@ namespace LC
 	}
 
 	Application::~Application() {
+
+		// Good enough to just destroy ImPlot context here
+		
+		// Need to check that ImGui and ImPlot is being used
+		bool condImGui = (_options & App::OptionFlag::ImGui) != App::OptionFlag::None;
+		bool condImPlot = (_options & App::OptionFlag::ImPlot) != App::OptionFlag::None;
+
+		if (condImGui && condImPlot) ImPlot::DestroyContext();
+
 		Debug{} << "Terminating application.\n";
 	}
 }

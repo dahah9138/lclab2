@@ -2,9 +2,14 @@ Building:
 <Dependencies>
 - magnum <https://github.com/mosra/magnum>
 - magnum-plugins <https://github.com/mosra/magnum-plugins>
+- magnum-integration <https://github.com/mosra/magnum-integration>
 - corrade <https://github.com/mosra/corrade>
+- imgui <https://github.com/ocornut/imgui>
+- implot <https://github.com/epezent/implot>
+- portable-file-dialogs <https://github.com/samhocevar/portable-file-dialogs>
+- spdlog <https://github.com/gabime/spdlog>
 - Eigen <https://github.com/libigl/eigen>
-- SDL
+- SDL2 <https://github.com/libsdl-org/SDL>
 
 * For macOS and linux
 - If you do not have SDL installed follow the instructions below

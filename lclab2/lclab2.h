@@ -21,6 +21,9 @@
 #include "src/graphics/DynamicColorSheet.h"
 #include "src/graphics/TransparentDrawable.h"
 
+//implot impl
+#include "src/implementation/ImContext.h"
+
 // Imaging
 #include "src/imaging/POM.h"
 

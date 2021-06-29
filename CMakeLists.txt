@@ -31,11 +31,14 @@ set(WITH_SDL2APPLICATION ON CACHE BOOL "" FORCE)
 set(WITH_ANYIMAGEIMPORTER ON CACHE BOOL "" FORCE)
 set(WITH_STBIMAGEIMPORTER ON CACHE BOOL "" FORCE)
 
-set(WITH_IMGUI ON CACHE BOOL "" FORCE)
+#set(WITH_IMGUI ON CACHE BOOL "" FORCE)
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
+set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/implot)
 
 add_subdirectory(external/magnum EXCLUDE_FROM_ALL)
 add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
+
+#add_subdirectory(external/mahi-gui)
 
 #include_directories(${CMAKE_SOURCE_DIR}/deps/include ${CMAKE_SOURCE_DIR}/deps/include/spdlog/include)
 

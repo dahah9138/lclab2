@@ -189,8 +189,12 @@ void Sandbox::drawEvent() {
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
+
+
     _imgui.newFrame();
 
+
+    
 
     using Dataset = LC::FrankOseen::ElasticOnly::FOFDSolver::Dataset;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
@@ -200,8 +204,21 @@ void Sandbox::drawEvent() {
 
 
         if (_widget.showSettings) {
+           
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::Begin("lclab2", 0, window_flags);
+
+            int   bar_data[] = {1, 2, 3};
+            //float x_data[1000] = ...;
+            //float y_data[1000] = ...;
+
+            if (ImPlot::BeginPlot("My Plot")) {
+                ImPlot::PlotBars("My Bar Plot", bar_data, 3);
+                //ImPlot::PlotLine("My Line Plot", x_data, y_data, 1000);
+                
+                ImPlot::EndPlot();
+            }
+
 
             bool updateImageFromLoad = false;
 
@@ -316,7 +333,7 @@ void Sandbox::drawEvent() {
     /* 3. Show the ImGui demo window. Most of the sample code is in
        ImGui::ShowDemoWindow() */
     if (_widget.showDemoWindow) {
-        ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(100, 20), ImGuiCond_FirstUseEver);
         ImGui::ShowDemoWindow();
     }
 
@@ -374,6 +391,7 @@ void Sandbox::drawEvent() {
     }
 
     if (moving || _ioUpdate) redraw();
+
 }
 
 // Todo: inherit all these events through Application

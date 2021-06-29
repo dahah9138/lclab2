@@ -20,27 +20,40 @@
 #include <Magnum/SceneGraph/Camera.h>
 
 // ImGui
-#include <Magnum/ImGuiIntegration/Context.hpp>
+//#include <Magnum/ImGuiIntegration/Context.hpp>
 
+// ImPlot addon for plotting
+#include "implementation/ImContext.h"
+//#include <implot.h>
 #include "core.h"
+
 #include "logger.h"
-#include "../graphics/ArcBall.h"
-#include "../solver/Solver.h"
-#include "../graphics/TransparentDrawable.h"
+#include "graphics/ArcBall.h"
+#include "solver/Solver.h"
+#include "graphics/TransparentDrawable.h"
 
 namespace LC
 {
 	using namespace Magnum;
 	using std::chrono::high_resolution_clock;
 
+	namespace App {
+		enum class OptionFlag { None = 0, ImGui = BIT(0), ImPlot = BIT(1) };
+		inline constexpr OptionFlag operator | (OptionFlag f1, OptionFlag f2) {
+			return static_cast<OptionFlag>(static_cast<unsigned>(f1) | static_cast<unsigned>(f2));
+		}
+		inline constexpr OptionFlag operator & (OptionFlag f1, OptionFlag f2) {
+			return static_cast<OptionFlag>(static_cast<unsigned>(f1) & static_cast<unsigned>(f2));
+		}
 
-	
+	}
+
 	class LC_API Application : public Platform::Application {
     public:
 
+		// Not a flag
 		enum class CameraType { ArcBall, Group };
-
-
+		
         explicit Application(const Arguments& arguments);
 		explicit Application(const Arguments& arguments, const Configuration& configuration);
 
@@ -76,6 +89,7 @@ namespace LC
 		Vector3 _previousPosition;
 
 		CameraType _cameraType;
+		App::OptionFlag _options = App::OptionFlag::ImGui;
 
 		ImGuiIntegration::Context _imgui{ NoCreate };
 		// Pointer to io context

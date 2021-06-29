@@ -112,16 +112,16 @@ else()
 
         # Handle export and import of imgui symbols via IMGUI_API definition
         # in visibility.h of Magnum ImGuiIntegration.
-        set_property(TARGET ImGui::ImGui APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS
-            "IMGUI_USER_CONFIG=\"Magnum/ImGuiIntegration/visibility.h\"")
+        #set_property(TARGET ImGui::ImGui APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS
+        #    "IMGUI_USER_CONFIG=\"implementation/visibility.h\"")
     endif()
 endif()
 
 macro(_imgui_setup_source_file source_var)
     # Handle export and import of imgui symbols via IMGUI_API
     # definition in visibility.h of Magnum ImGuiIntegration.
-    set_property(SOURCE ${${source_var}} APPEND PROPERTY COMPILE_DEFINITIONS
-        "IMGUI_USER_CONFIG=\"Magnum/ImGuiIntegration/visibility.h\"")
+    #set_property(SOURCE ${${source_var}} APPEND PROPERTY COMPILE_DEFINITIONS
+    #    "IMGUI_USER_CONFIG=\"implementation/visibility.h\"")
 
     # Hide warnings from imgui source files
 

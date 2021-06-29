@@ -27,8 +27,9 @@ namespace LC
 				.setProjectionMatrix(Matrix4::perspectiveProjection(35.0_degf, 1.0f, 0.01f, 1000.0f))
 				.setViewport(GL::defaultFramebuffer.viewport().size());
 
+			_manipulator = std::make_unique<Drawable::Object3D>();
 			/* Base object, parent of all (for easy manipulation) */
-			_manipulator.setParent(&_scene);
+			_manipulator->setParent(&_scene);
 		}
 		else if (cameraType == CameraType::ArcBall) {
 			const Vector3 eye = Vector3::zAxis(-5.0f);
@@ -79,11 +80,12 @@ namespace LC
 			windowSize(), framebufferSize());
 
 		// Create ImPlot Context() in pair with ImGui
-		//if ((_options & App::OptionFlag::ImPlot) != App::OptionFlag::None)
-		//	ImPlot::CreateContext();
+		if ((_options & App::OptionFlag::ImPlot) != App::OptionFlag::None)
+			ImPlot::CreateContext();
 
 		//LC::ImPlotIntegration::CreateContext();
-		ImPlot::CreateContext();
+		
+		//ImPlot::CreateContext();
 
 		/* Set up proper blending to be used by ImGui. There's a great chance
 		   you'll need this exact behavior for the rest of your scene. If not, set
@@ -127,7 +129,7 @@ namespace LC
 
 					if (_previousPosition.length() < 0.001f || axis.length() < 0.001f) return;
 
-					_manipulator.rotate(Math::angle(_previousPosition, currentPosition), axis.normalized());
+					_manipulator->rotate(Math::angle(_previousPosition, currentPosition), axis.normalized());
 					_previousPosition = currentPosition;
 				}
 			}

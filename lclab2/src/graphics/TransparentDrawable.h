@@ -23,18 +23,22 @@ namespace LC {	namespace Drawable {
 
     class TransparentFlatDrawable : public SceneGraph::Drawable3D {
     public:
-        explicit TransparentFlatDrawable(Object3D& object, Shaders::VertexColor3D& shader, GL::Mesh& mesh, const Vector3& position, SceneGraph::DrawableGroup3D& group) : SceneGraph::Drawable3D{ object, &group }, _shader(shader), _mesh(mesh), _position{ position } {}
+        explicit TransparentFlatDrawable(Object3D& object, Shaders::VertexColor3D& shader, GL::Mesh& mesh, bool& draw, const Vector3& position, SceneGraph::DrawableGroup3D& group) : SceneGraph::Drawable3D{ object, &group }, _shader(shader), _mesh(mesh), _draw{draw}, _position{ position } {}
 
     private:
         void draw(const Matrix4& transformationMatrix, SceneGraph::Camera3D& camera) override;
 
         Shaders::VertexColorGL3D& _shader;
+        bool& _draw;
         GL::Mesh& _mesh;
         Vector3 _position;
     };
 
     // Really a draw call for FlatTransparentDrawable
     void TransparentFlatDrawable::draw(const Matrix4& transformationMatrix, SceneGraph::Camera3D& camera) {
+
+        if (!_draw) return;
+
         GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
         GL::Renderer::enable(GL::Renderer::Feature::Blending);
         _shader.setTransformationProjectionMatrix(camera.projectionMatrix() * transformationMatrix * Matrix4::translation(_position))

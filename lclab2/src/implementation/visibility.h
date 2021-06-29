@@ -5,6 +5,8 @@
 
 //#include "Magnum/ImGuiIntegration/configure.h"
 
+// Needed to prevent assertions in ImPlot
+#define ImDrawIdx unsigned int
 
 #ifdef LC_PLATFORM_WIN32
 

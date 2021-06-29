@@ -81,15 +81,16 @@ namespace LC
 		Containers::Optional<ArcBall> _arcballCamera;
 		Matrix4 _projectionMatrix;
 
-		// Make a part of Application
 		Drawable::Scene3D _scene;
-		Drawable::Object3D _manipulator, _cameraObject;
+		Drawable::Object3D _cameraObject;
+		std::unique_ptr<Drawable::Object3D> _manipulator;
 		SceneGraph::Camera3D* _camera;
+
 		// Needed for camera
 		Vector3 _previousPosition;
 
 		CameraType _cameraType;
-		App::OptionFlag _options = App::OptionFlag::ImGui;
+		App::OptionFlag _options = App::OptionFlag::ImGui | App::OptionFlag::ImPlot;
 
 		ImGuiIntegration::Context _imgui{ NoCreate };
 		// Pointer to io context

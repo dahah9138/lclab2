@@ -21,7 +21,7 @@ set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 find_package(ImGui REQUIRED Sources)
 
 set(IMPLOT_HEADERS ${IMPLOT_DIR}/implot.h ${IMPLOT_DIR}/implot_internal.h)
-set(IMPLOT_SRC     ${IMPLOT_DIR}/implot.cpp ${IMPLOT_DIR}/implot_items.cpp #${IMPLOT_DIR}/implot_demo.cpp
+set(IMPLOT_SRC     ${IMPLOT_DIR}/implot.cpp ${IMPLOT_DIR}/implot_items.cpp ${IMPLOT_DIR}/implot_demo.cpp
 )
 
 # Copy pasted directly from magnum-plugins...
@@ -51,7 +51,6 @@ set_property(TARGET ImPlot::Sources APPEND PROPERTY
 add_library(LCLAB2ImGuiIntegration SHARED
 implementation/ImContext.h implementation/ImContext.cpp
 ${ImGuiIntegration_HEADERS} ${ImGuiIntegration_SRCS}
-#${IMPLOT_HEADERS} ${IMPLOT_SRC}
 )
 
 target_compile_definitions(LCLAB2ImGuiIntegration PUBLIC IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/implementation/visibility.h" PRIVATE LC_BUILD_DLL)

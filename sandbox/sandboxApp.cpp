@@ -208,18 +208,6 @@ void Sandbox::drawEvent() {
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::Begin("lclab2", 0, window_flags);
 
-            int   bar_data[] = {1, 2, 3};
-            //float x_data[1000] = ...;
-            //float y_data[1000] = ...;
-
-            if (ImPlot::BeginPlot("My Plot")) {
-                ImPlot::PlotBars("My Bar Plot", bar_data, 3);
-                //ImPlot::PlotLine("My Line Plot", x_data, y_data, 1000);
-                
-                ImPlot::EndPlot();
-            }
-
-
             bool updateImageFromLoad = false;
 
             if (_widget.commands.isPressed(KeyEvent::Key::S)) {
@@ -249,11 +237,20 @@ void Sandbox::drawEvent() {
                 ImGui::EndMenuBar();
             }
 
-            if (ImGui::Button("Test Window"))
+            // Demo widgets for fast prototyping
+            if (ImGui::Button("Demo ImGui"))
                 _widget.showDemoWindow ^= true;
+            
+            ImGui::SameLine();
+
+            static bool p_open = false;
+            if (ImGui::Button("Demo ImPlot")) 
+                p_open ^= true;
+            if (p_open)
+                ImPlot::ShowDemoWindow(&p_open);
+
             if (ImGui::Button("LC Info"))
                 _widget.showAnotherWindow ^= true;
-
             // Dropdown menu for lc types
             {
                 std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
@@ -289,6 +286,28 @@ void Sandbox::drawEvent() {
                 
                     ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
                 }
+
+                if (ImGui::Button("Plane Selector"))
+                    ImGui::OpenPopup("plane_selector");
+
+                std::map<std::pair<std::string, Axis>, bool&> planes{ {{"yz", Axis::x }, _crossSections[0].draw },
+                    {{"xz", Axis::y }, _crossSections[1].draw },
+                    {{"xy", Axis::z }, _crossSections[2].draw } };
+
+
+                if (ImGui::BeginPopup("plane_selector")) {
+                    ImGui::Text("Draw planes");
+                    ImGui::Separator();
+                    for (const auto& p : planes) {
+                        ImGui::MenuItem(p.first.first.c_str(), "", &p.second);
+                    }
+                    ImGui::EndPopup();
+                }
+
+                
+
+                
+                
             }
 
             _widget.updateImage = ImGui::Button("Update Image") || updateImageFromLoad;
@@ -663,7 +682,16 @@ void Sandbox::initGrid() {
     std::array<int, 3> voxels = data->voxels;
     std::array<LC::scalar, 3> cdims = data->cell_dims;
 
+    // Create a new manipulator and set its parent
+    _manipulator = std::make_unique<LC::Drawable::Object3D>();
+    _manipulator->setParent(&_scene);
+
+    // Manipulator rotation can be set
+    
+
     _crossSections = Containers::Array<CrossX>{ 3 };
+
+
 
     for (int id = 0; id < 3; id++) {
 
@@ -671,6 +699,9 @@ void Sandbox::initGrid() {
 
         int i = (ax == Axis::x) ? 1 : 0;
         int j = (ax == Axis::y) ? 2 : i + 1;
+
+        if (ax != Axis::z)
+            _crossSections[id].draw = false;
 
         _crossSections[id].axis = ax;
         _crossSections[id].section.second = std::make_unique<LC::DynamicColorSheet>();
@@ -680,9 +711,9 @@ void Sandbox::initGrid() {
         _crossSections[id].section.second->CY = cdims[j];
         _crossSections[id].section.second->Init(CrossX::Position[id], 0.0f);
         _crossSections[id].section.first = _crossSections[id].section.second->Mesh();
-        new LC::Drawable::TransparentFlatDrawable{ _manipulator, _transparentShader, *_crossSections[id].section.first, Vector3{0.0f, 0.0f, 0.0f}, _transparentDrawables };
-
+        new LC::Drawable::TransparentFlatDrawable{ *_manipulator, _transparentShader, *_crossSections[id].section.first, _crossSections[id].draw, Vector3{0.0f, 0.0f, 0.0f}, _transparentDrawables };
     }
+    std::cout << _transparentDrawables.size() << std::endl;
     
 }
 

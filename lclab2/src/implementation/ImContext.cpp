@@ -4,8 +4,8 @@
 
 namespace LC { namespace ImPlotIntegration {
 	
-	ImPlotContext* CreateContext() {
-		return ImPlot::CreateContext();
-	}
+	//ImPlotContext* CreateContext() {
+	//	return ImPlot::CreateContext();
+	//}
 	
 }}

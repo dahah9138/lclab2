@@ -7,7 +7,7 @@
 
 namespace LC { namespace ImPlotIntegration {
 	
-	MAGNUM_IMPLOTINTEGRATION_EXPORT ImPlotContext* CreateContext();
+	//MAGNUM_IMPLOTINTEGRATION_EXPORT ImPlotContext* CreateContext();
 	
 }}
 

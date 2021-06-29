@@ -23,10 +23,14 @@
 #elif LC_PLATFORM_UNIX || LC_PLATFORM_MACOS
 	#ifdef LC_BUILD_DLL
 		#define MAGNUM_IMGUIINTEGRATION_EXPORT __attribute__((visibility("default")))
+		#define MAGNUM_IMPLOTINTEGRATION_EXPORT __attribute__((visibility("default")))
         #define IMGUI_API __attribute__((visibility("default")))
+		#define IMPLOT_API __attribute__((visibility("default")))
 	#else
 		#define MAGNUM_IMGUIINTEGRATION_EXPORT
+		#define MAGNUM_IMPLOTINTEGRATION_EXPORT
         #define IMGUI_API
+		#define IMPLOT_API
 	#endif
 #else
 	#error LCLAB2 only supports windows and unix!

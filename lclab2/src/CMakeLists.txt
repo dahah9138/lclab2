@@ -64,6 +64,7 @@ target_link_libraries(LCLAB2ImGuiIntegration
     PRIVATE
         ImGui::Sources
 		ImPlot::Sources)
+set_property(TARGET LCLAB2ImGuiIntegration PROPERTY POSITION_INDEPENDENT_CODE 1)
 target_include_directories(LCLAB2ImGuiIntegration PUBLIC ${IMGUI_DIR} ${IMPLOT_DIR} ${CMAKE_SOURCE_DIR}/external ${CMAKE_SOURCE_DIR}/external/SDL2-2.0.10/include
 															${BASE_DIR}/base)
 

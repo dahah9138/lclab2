@@ -8,6 +8,7 @@
 #include <string>
 #include <algorithm>
 
+
 // Gives std::pair
 #include <utility>
 
@@ -19,6 +20,9 @@
 // Gives M_PI
 #define _USE_MATH_DEFINES
 #include <cmath>
+
+// Gives std::async
+#include <future>
 
 // Gives std::function
 #include <functional>

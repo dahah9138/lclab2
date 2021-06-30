@@ -1,5 +1,4 @@
 #include <lclab2.h>
-#include <complex>
 #include "Widget.h"
 
 using namespace Magnum;
@@ -68,6 +67,7 @@ private:
     bool open();
     void saveAs();
 
+    bool CheckRelax(const std::size_t& seconds = 0);
 
     // Used to draw CrossX mesh
     Shaders::VertexColorGL3D _transparentShader;
@@ -78,6 +78,8 @@ private:
     // Tested geometries
     std::unique_ptr<LC::SphereArray> _sarray;
     LC::Torus _sheet;
+
+    std::pair<std::future<void>, bool> _relaxFuture;
 
 
     // Torus with PhongGL shader
@@ -168,7 +170,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     data->config = toron;
 
     _solver->Init();
-
+    _relaxFuture.second = false;
 
     initGrid();
     // Colors
@@ -401,12 +403,19 @@ void Sandbox::drawEvent() {
 
     if (_widget.relax) {
 
-        _solver->Relax(_widget.cycle);
+        // Try to relax asynchronously...
+        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle);
+        _relaxFuture.second = true;
         _widget.updateImage = true;
     }
     
-    if (_widget.updateImage) {
-        updateColor();
+    if (_widget.updateImage || _relaxFuture.second) {
+
+        bool ready = CheckRelax();
+
+        if (ready)
+            updateColor();
+
     }
 
     if (moving || _ioUpdate) redraw();
@@ -582,6 +591,10 @@ void Sandbox::POM() {
 }
 
 void Sandbox::save() {
+
+    bool ready = CheckRelax();
+    if (!ready) return;
+
     // Check if file exists (was loaded)
 
     std::string res;
@@ -615,6 +628,10 @@ void Sandbox::save() {
 }
 
 bool Sandbox::open() {
+
+    bool ready = CheckRelax();
+    if (!ready) return false;
+
     using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
     bool updateImageFromLoad = false;
     
@@ -650,6 +667,9 @@ bool Sandbox::open() {
 }
 
 void Sandbox::saveAs() {
+
+    bool ready = CheckRelax();
+    if (!ready) return;
 
     // File save
     auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
@@ -713,8 +733,6 @@ void Sandbox::initGrid() {
         _crossSections[id].section.first = _crossSections[id].section.second->Mesh();
         new LC::Drawable::TransparentFlatDrawable{ *_manipulator, _transparentShader, *_crossSections[id].section.first, _crossSections[id].draw, Vector3{0.0f, 0.0f, 0.0f}, _transparentDrawables };
     }
-    std::cout << _transparentDrawables.size() << std::endl;
-    
 }
 
 template <typename T>
@@ -735,6 +753,20 @@ void Sandbox::dropDownMenu(const char* menuName, T& currentSelectable, std::map<
 
         ImGui::EndCombo();
     }
+}
+
+bool Sandbox::CheckRelax(const std::size_t &seconds) {
+
+    // Check if future ready
+    if (_relaxFuture.second) {
+        auto status = _relaxFuture.first.wait_for(std::chrono::seconds(seconds));
+
+        if (status == std::future_status::ready) {
+            _relaxFuture.first.get();
+            _relaxFuture.second = false;
+        }
+    }
+    return !_relaxFuture.second;
 }
 
 LC::Application* LC::createApplication(int argc, char **argv) {

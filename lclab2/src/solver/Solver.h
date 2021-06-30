@@ -18,6 +18,13 @@ namespace LC {
 			Export = BIT(3)
 		};
 
+		// Returns the future of RelaxAsync
+		// Can optionally use a difference launch policy if so desired...
+		static std::future<void> RelaxAsync(Solver* solver, const std::size_t& iterations, const std::launch &policy = std::launch::async) {
+
+			return std::async(policy, RelaxAsyncImpl, solver, iterations);
+		}
+
 		Solver() = default;
 		virtual ~Solver() = default;
 		virtual void Init() = 0;
@@ -28,6 +35,11 @@ namespace LC {
 		Error errors = Error::None;
 
 		virtual void* GetDataPtr() = 0;
+
+	private:
+		static void RelaxAsyncImpl(Solver* solver, const std::size_t& iterations) {
+			solver->Relax(iterations);
+		}
 
 	};
 	

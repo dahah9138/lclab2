@@ -248,18 +248,21 @@ namespace LC {
 	bool Header::ValidateHeaderObjects() {
 
 		for (int i = 1; i < headerObjects.size(); i++) {
-			if (headerObjects[i].first.location <= headerObjects[i - 1].first.location) return false;
+			if (headerObjects[i].first.location <= headerObjects[i - 1].first.location) {
+				LC_CORE_WARN("Error: Locations {1} and {0}", headerObjects[i].first.location, headerObjects[i - 1].first.location);
+				return false;
+			}
 		}
 
 		return true;
 	}
 
-	void* Header::passData(std::size_t index) {
+	void* Header::passData(std::size_t &index) {
 		// return data at that index and set to null
 		if (headerObjects.size() > index) {
 
 			void *tmp = headerObjects[index].second;
-			headerObjects[index].second = 0;
+			headerObjects[index++].second = 0;
 			return tmp;
 		}
 		else return 0;
@@ -271,6 +274,20 @@ namespace LC {
 		}
 		return *this;
 	}
+
+	Header& Header::addObject(const std::pair<HeaderObject, void*>& obj) {
+		headerObjects.emplace_back(obj);
+		return *this;
+	}
+
+	Header& Header::addObject(HeaderObject hobj, void* ptr, std::size_t& loc) {
+
+		hobj.location = loc++;
+
+		headerObjects.emplace_back(std::pair<HeaderObject, void*>(hobj, ptr));
+		return *this;
+	}
+
 
 	void Header::read() {
 		read(readFile);

@@ -24,7 +24,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				CellDims = BIT(2),
 				Elastic = BIT(3)
 			};
-			enum class RelaxKind { OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
+			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
 
 			typedef void (*Config)(Tensor4&,int,int,int,int*);
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
@@ -41,8 +41,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 			DataError errors = DataError::None;
 			RelaxKind relaxKind = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
-								  static_cast<int>(RelaxKind::Algebraic));// |
-								  //static_cast<int>(RelaxKind::Order4));
+								  static_cast<int>(RelaxKind::Algebraic) |
+								  static_cast<int>(RelaxKind::Order4));
 			
 			// Returns 0 for no errors, 1 for errors
 			bool chkErrors();
@@ -50,6 +50,39 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			// Return a specialized header object for the dataset
 			void configureHeader(Header &header);
 			void readDataFromHeader(Header& header);
+			
+			static std::map<RelaxKind, std::string> RelaxMap() {
+
+				constexpr RelaxKind OneConstAlgebraicO4 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
+					static_cast<int>(RelaxKind::Algebraic) |
+					static_cast<int>(RelaxKind::Order4));
+				constexpr RelaxKind OneConstAlgebraicO2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
+					static_cast<int>(RelaxKind::Algebraic));
+				constexpr RelaxKind OneConstFunctionalO4 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
+					static_cast<int>(RelaxKind::Algebraic) |
+					static_cast<int>(RelaxKind::Order4));
+				constexpr RelaxKind OneConstFunctionalO2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
+					static_cast<int>(RelaxKind::Algebraic));
+				constexpr RelaxKind FullAlgebraicOrder4 =  static_cast<RelaxKind>(static_cast<int>(RelaxKind::Algebraic) |
+					static_cast<int>(RelaxKind::Order4));
+				constexpr RelaxKind FullAlgebraicOrder2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::Algebraic));
+				constexpr RelaxKind FullFunctionalOrder4 = RelaxKind::Order4;
+				constexpr RelaxKind FullFunctionalOrder2 = RelaxKind::Full;
+
+
+				std::map<RelaxKind, std::string> map{
+					{OneConstAlgebraicO4, "One Constant Algebraic (O4)"},
+					{OneConstAlgebraicO2, "One Constant Algebraic (O2)"},
+					{RelaxKind::OneConst, "One Constant Functional (O2)"}, 
+					{OneConstFunctionalO4, "One Constant Functional (O4)"},
+					{OneConstFunctionalO2, "One Constant Algebraic (O2)"},
+					{FullAlgebraicOrder4, "Full Algebraic (O4)"},
+					{FullAlgebraicOrder2, "Full Algebraic (O2)"},
+					{FullFunctionalOrder4, "Full Functional (O4)"},
+					{FullFunctionalOrder2, "Full Functional (O2)"}
+				};
+				return map;
+			}
 
 		};
 

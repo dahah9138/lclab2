@@ -9,6 +9,9 @@ namespace LC {
 
 	struct LC_API Header {
 		struct HeaderObject {
+			HeaderObject() = default;
+			HeaderObject(const std::string& var, const std::size_t& sz, const std::size_t& loc) : variable(var), size_in_bytes(sz), location(loc) {}
+			HeaderObject(const std::string& var, const std::size_t& sz) : variable(var), size_in_bytes(sz), location(0) {}
 			std::string variable;
 			std::size_t size_in_bytes;
 			std::size_t location;
@@ -33,7 +36,11 @@ namespace LC {
 		void sortHeaderObjects();
 		bool ValidateHeaderObjects();
 
-		void* passData(std::size_t index);
+		// Iterates through the data using the starting index passed.
+		// The index is incremented by one each time.
+		void* passData(std::size_t &index);
+		Header& addObject(const std::pair<HeaderObject, void*> &obj);
+		Header& addObject(HeaderObject hobj, void *ptr, std::size_t& id);
 		Header& setData(void *ptr, std::size_t index);
 
 		// Need to store read file in case user specifies 'save'

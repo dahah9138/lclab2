@@ -120,7 +120,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     setMinimalLoopPeriod(16);
     
 
-    setupCamera(1.0f, CameraType::Group);
+    setupCamera(2.0f, CameraType::Group);
 
     _solver = std::make_unique<LC::FrankOseen::ElasticOnly::FOFDSolver>();
 
@@ -140,9 +140,9 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     data->bc[2] = 0;
 
     // toron stable dimensions for one const algebraic
-    data->cell_dims[0] = 0.35;
-    data->cell_dims[1] = 0.35;
-    data->cell_dims[2] = 0.35;
+    data->cell_dims[0] = 1.0;
+    data->cell_dims[1] = 1.0;
+    data->cell_dims[2] = 1.0;
 
     data->k11 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k11);
     data->k22 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k22);
@@ -259,10 +259,14 @@ void Sandbox::drawEvent() {
                 dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
             }
 
+            // Dropdown menu for relax method
             {
-                Float pitch = _widget.pitch.first;
-                ImGui::InputFloat("Pitch (um)", &pitch);
-                _widget.pitch.first = pitch;
+                using namespace LC::FrankOseen::ElasticOnly;
+                auto map = Dataset::RelaxMap();
+                dropDownMenu<Dataset::RelaxKind>("Relax method", data->relaxKind, map);
+            }
+
+            {
 
 
                 ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
@@ -271,6 +275,11 @@ void Sandbox::drawEvent() {
 
                     ImGui::Checkbox("Enable POM", &_widget.POM);
 
+                    {
+                        Float pitch = _widget.pitch.first;
+                        ImGui::InputFloat("Pitch (um)", &pitch);
+                        _widget.pitch.first = pitch;
+                    }
                     // Dropdown menu for waveplates
                     {
                         using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
@@ -330,6 +339,10 @@ void Sandbox::drawEvent() {
 
             // Pressed the relax button
             _widget.relax = ImGui::Button("Relax");
+            if (_relaxFuture.second) {
+                ImGui::SameLine();
+                ImGui::Text("Relaxing...");
+            }
         
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                 1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
@@ -340,14 +353,20 @@ void Sandbox::drawEvent() {
 
     /* 2. Show another simple window, now using an explicit Begin/End pair */
     if (_widget.showAnotherWindow) {
+        using namespace LC::FrankOseen;
+
         ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
         ImGui::Begin("LC Info", &_widget.showAnotherWindow);
 
-        std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
+        std::map<LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
+        auto relaxMethodMap = ElasticOnly::FOFDSolver::Dataset::RelaxMap();
 
         // Show LC information
         ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
+        ImGui::Text("Voxels = %d %d %d", data->voxels[0], data->voxels[1], data->voxels[2]);
+        ImGui::Text("Cell dimensions = %.2f %.2f %.2f", data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
         ImGui::Text("Iterations = %d", data->numIterations);
+        ImGui::Text("Relax method = %s", relaxMethodMap[data->relaxKind].c_str());
         ImGui::End();
     }
 
@@ -558,7 +577,6 @@ void Sandbox::updateColor() {
     }
 }
 
-// Only for 5CB.
 void Sandbox::POM() {
     int i;
     for (int id = 0; id < 3; id++)
@@ -599,6 +617,7 @@ void Sandbox::save() {
 
     std::string res;
 
+
     if (!_widget.loadedFromFile) {
         // File save
         auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
@@ -624,7 +643,12 @@ void Sandbox::save() {
         _header.write(res);
         _header.writeBody();
         LC_INFO("Saved to file {0}", res.c_str());
+        // If the file was saved, then it is now technically the same state
+        // as 'loadedFromFile'
+        _widget.loadedFromFile = true;
+        _header.readFile = res;
     }
+
 }
 
 bool Sandbox::open() {
@@ -720,6 +744,7 @@ void Sandbox::initGrid() {
         int i = (ax == Axis::x) ? 1 : 0;
         int j = (ax == Axis::y) ? 2 : i + 1;
 
+        // Start by only drawing the xy plane
         if (ax != Axis::z)
             _crossSections[id].draw = false;
 
@@ -735,13 +760,15 @@ void Sandbox::initGrid() {
     }
 }
 
+// Menu template to make menu creation a breeze with maps
+// Should really be in a separate header file in Sandbox to clear up
+// the main application file...
 template <typename T>
 void Sandbox::dropDownMenu(const char* menuName, T& currentSelectable, std::map<T, std::string>& map) {
 
     std::string currentItem = map[currentSelectable];
 
     if (ImGui::BeginCombo(menuName, currentItem.c_str())) {
-
         for (const auto& elem : map) {
             bool selected = (currentSelectable == elem.first);
             if (ImGui::Selectable(elem.second.c_str(), selected)) {

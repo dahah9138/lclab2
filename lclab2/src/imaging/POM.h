@@ -16,7 +16,8 @@ typedef void (*ColorDataFunc)(void *, const std::array<float, 4>&, std::size_t);
 struct LC_API POM {
     enum class Waveplate {
 		None = 0,
-		Full530nm = 1
+		Full530nm = 1,
+        Quarter530nm = 2
 	};
 
     void Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc, const float &alpha = 0.5f);
@@ -52,6 +53,7 @@ struct LC_API POM {
     std::array<float, 3> lightRGB = { 650.0, 550.0, 450.0 };
     std::array<float, 3> intensity = { 1.0, 0.6, 0.2 };
 
+    // Dimension order
     std::array<int, 3> indexOrder = { 0, 1, 2 };
 
 

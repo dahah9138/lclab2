@@ -69,8 +69,28 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                 // Additional waveplate
                 if (waveplate == Waveplate::Full530nm) {
 
-                    const std::array<int, 2> rb = { 0, 2 };
-                    const scalar thick = 5.8889e-05 * 7.0;
+                    constexpr std::array<int, 2> rb = { 0, 2 };
+                    constexpr scalar thick = 5.8889e-05;// * 7.0;
+
+
+                    for (const auto& col : rb) {
+                        // 1.55338 (extraordinary), 1.54425 (ordinary) are optical axes of quarts
+                        const scalar de_wp = 2.0 * M_PI / lambda[col] * thick * 1.55338;
+                        const scalar do_ep = 2.0 * M_PI / lambda[col] * thick * 1.54425;
+
+                        m(0, 0) = 0.5 * (exp(ii * de_wp) + exp(ii * do_ep));
+                        m(0, 1) = 0.5 * (exp(ii * de_wp) - exp(ii * do_ep));
+                        m(1, 0) = m(0, 1);
+                        m(1, 1) = m(0, 0);
+
+                        Eo[col] = m * Eo[col];
+                    }
+
+                }
+                else if (waveplate == Waveplate::Quarter530nm) {
+
+                    constexpr std::array<int, 2> rb = { 0, 2 };
+                    constexpr scalar thick = 5.8889e-05 * 7.0;
 
 
                     for (const auto& col : rb) {
@@ -84,7 +104,6 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
                         Eo[col] = m * Eo[col];
                     }
-
                 }
 
                 std::array<float, 4> color;

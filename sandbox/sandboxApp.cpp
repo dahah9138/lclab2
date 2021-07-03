@@ -96,7 +96,7 @@ private:
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
-                                                                Configuration{}.setTitle("Sandbox Application")
+                                                                Configuration{}.setTitle("FOFD Elastic Simulation")
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable) 
     
                                                           } {
@@ -177,11 +177,11 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     updateColor();
 
 
-    LC_INFO("Created Sandbox!");
+    LC_INFO("Created client application!");
 }
 
 Sandbox::~Sandbox() {
-	LC_INFO("Destroying Sandbox.");
+	LC_INFO("Destroying client application.");
 }
 
 /*
@@ -363,7 +363,7 @@ void Sandbox::drawEvent() {
 
 
     /* Update camera */
-    bool moving;
+    bool moving = true;
 
     if (_cameraType == CameraType::ArcBall)
         moving = _arcballCamera->updateTransformation();

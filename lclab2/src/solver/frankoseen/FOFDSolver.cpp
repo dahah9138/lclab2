@@ -196,7 +196,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		/* Create tensor map */
 		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
-
+		Dataset::RelaxKind relaxKind = data.relaxKind;
 
 
 		// TensorMap uses matlab indexing
@@ -213,13 +213,23 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		/* Relax routine */
 
 		typedef void (FOFDSolver::*FunctionPtr)(Tensor4&, int, int, int);
-		bool oneConst = true;
-		bool algebraic = true;
+		bool oneConst = static_cast<int>(relaxKind) & static_cast<int>(Dataset::RelaxKind::OneConst);
+		bool algebraic = static_cast<int>(relaxKind) & static_cast<int>(Dataset::RelaxKind::Algebraic);
+		bool order4 = static_cast<int>(relaxKind) & static_cast<int>(Dataset::RelaxKind::Order4);
 		FunctionPtr relaxMethod;
+		FunctionPtr boundaryMethod;
 
-
-		if (oneConst && algebraic)
-			relaxMethod = &FOFDSolver::OneConstAlgebraic;
+		if (oneConst && algebraic && order4) relaxMethod = &FOFDSolver::OneConstAlgebraicOrder4;
+		else if (oneConst && algebraic) relaxMethod = &FOFDSolver::OneConstAlgebraicOrder2;
+		else if (oneConst && order4) relaxMethod = &FOFDSolver::OneConstFunctionalOrder4;
+		else if (oneConst) relaxMethod = &FOFDSolver::OneConstFunctionalOrder2;
+		else if (algebraic && order4) relaxMethod = &FOFDSolver::FullAlgebraicOrder4;
+		else if (algebraic) relaxMethod = &FOFDSolver::FullAlgebraicOrder2;
+		else if (order4) relaxMethod = &FOFDSolver::FullFunctionalOrder4;
+		else relaxMethod = &FOFDSolver::FullFunctionalOrder2;
+		
+		if (order4) boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder4;
+		else boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder2;
 
 
 		for (std::size_t it = 0; it < iterations; it++) {
@@ -230,7 +240,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				{
 					for (int k = 0; k < data.voxels[2]; k++)
 					{
-						HandleBoundaryConditions(nn, i, j, k);
+						(this->*boundaryMethod)(nn, i, j, k);
 
 						(this->*relaxMethod)(nn, i, j, k);
 
@@ -246,14 +256,59 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 
-	void FOFDSolver::OneConstAlgebraic(Tensor4 &nn, int i, int j, int k) {
 
+	void FOFDSolver::OneConstAlgebraicOrder4(Tensor4& nn, int i, int j, int k) {
+		// Make sure within bounds for fourth order
+		{
+			// Don't use module for gpu operations!
+			const std::size_t ri[] = { i, j, k };
+			for (int d = 0; d < 3; d++)
+				if (ri[d] % (data.voxels[d] - 1) == 0) return; // Outermost layer
+				else if ((ri[d] - 1) % (data.voxels[d] - 1) == 0) return; // Second outermost lower
+		}
 
+		scalar c = (1 + data.rate) * 2.0 / 15.0;
+
+		constexpr scalar c1 = 1.0/12.0;
+		constexpr scalar c2 = 2.0/3.0;
+
+		// currently assumes dr = dx = dy = dz
+		scalar dr = data.cell_dims[0] / (data.voxels[0] - 1);
+
+		scalar N, curl;
+
+		scalar nD[3][3];
+
+		// Central second order accuracy finite difference first derivatives
+		for (int d = 0; d < 3; d++) {
+
+			nD[0][d] = (-c1 * nn(i + 2, j, k, d) + c2 * nn(i + 1, j, k, d) - c2 * nn(i - 1, j, k, d) + c1 * nn(i - 2, j, k, d)) / dr;
+			nD[1][d] = (-c1 * nn(i, j + 2, k, d) + c2 * nn(i, j + 1, k, d) - c2 * nn(i, j - 1, k, d) + c1 * nn(i, j - 2, k, d)) / dr;
+			nD[2][d] = (-c1 * nn(i, j, k + 2, d) + c2 * nn(i, j, k + 1, d) - c2 * nn(i, j, k - 1, d) + c1 * nn(i, j, k - 2, d)) / dr;
+		}
+
+		constexpr scalar c0 = 4.0/3.0;
+
+		for (int d = 0; d < 3; d++) {
+
+			N = c0 *(nn(i + 1, j, k, d) + nn(i, j + 1, k, d) + nn(i, j, k + 1, d) + nn(i - 1, j, k, d) + nn(i, j - 1, k, d) + nn(i, j, k - 1, d))
+			     -c1 * (nn(i + 2, j, k, d) + nn(i, j + 2, k, d) + nn(i, j, k + 2, d) + nn(i - 2, j, k, d) + nn(i, j - 2, k, d) + nn(i, j, k - 2, d));
+
+			const int a = (d + 1) % 3;
+			const int b = (d + 2) % 3;
+
+			curl = nD[a][b] - nD[b][a];
+
+			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - data.rate * nn(i, j, k, d);
+		}
+
+	}
+	void FOFDSolver::OneConstAlgebraicOrder2(Tensor4 &nn, int i, int j, int k) {
 		// Make sure within bounds for second order
 		{
 			const std::size_t ri[] = { i, j, k };
 			for (int d = 0; d < 3; d++)
-			if (ri[d] % (data.voxels[d] - 1) == 0) return;
+				if (ri[d] % (data.voxels[d] - 1) == 0) return;
 		}
 
 
@@ -270,9 +325,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		// Central second order accuracy finite difference first derivatives
 		for (int d = 0; d < 3; d++) {
 
-			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / dr;
-			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / dr;
-			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / dr;
+			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / (2.0 * dr);
+			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / (2.0 * dr);
+			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / (2.0 * dr);
 		}
 
 		for (int d = 0; d < 3; d++) {
@@ -286,7 +341,23 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - data.rate * nn(i, j, k, d);
 		}
+	}
+	void FOFDSolver::OneConstFunctionalOrder4(Tensor4& nn, int i, int j, int k) {
 
+	}
+	void FOFDSolver::FullAlgebraicOrder4(Tensor4& nn, int i, int j, int k) {
+
+	}
+	void FOFDSolver::FullFunctionalOrder4(Tensor4& nn, int i, int j, int k) {
+
+	}
+	void FOFDSolver::OneConstFunctionalOrder2(Tensor4& nn, int i, int j, int k) {
+
+	}
+	void FOFDSolver::FullAlgebraicOrder2(Tensor4& nn, int i, int j, int k) {
+
+	}
+	void FOFDSolver::FullFunctionalOrder2(Tensor4& nn, int i, int j, int k) {
 
 	}
 
@@ -303,7 +374,29 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			nn(i, j, k, d) /= len;
 	}
 
-	void FOFDSolver::HandleBoundaryConditions(Tensor4& nn, int i, int j, int k) {
+	void FOFDSolver::HandleBoundaryConditionsOrder2(Tensor4& nn, int i, int j, int k) {
+
+		for (int d = 0; d < 3; d++) {
+
+			if (data.bc[0] && i == 0) nn(i, j, k, d) = nn(data.voxels[0] - 4, j, k, d);
+			else if (data.bc[0] && i == 1) nn(i, j, k, d) = nn(data.voxels[0] - 3, j, k, d);
+			else if (data.bc[0] && i == data.voxels[0] - 2) nn(i, j, k, d) = nn(2, j, k, d);
+			else if (data.bc[0] && i == data.voxels[0] - 1) nn(i, j, k, d) = nn(3, j, k, d);
+
+			if (data.bc[1] && j == 0) nn(i, j, k, d) = nn(i, data.voxels[1] - 4, k, d);
+			else if (data.bc[1] && j == 1) nn(i, j, k, d) = nn(i, data.voxels[1] - 3, k, d);
+			else if (data.bc[1] && j == data.voxels[1] - 2) nn(i, j, k, d) = nn(i, 2, k, d);
+			else if (data.bc[1] && j == data.voxels[1] - 1) nn(i, j, k, d) = nn(i, 3, k, d);
+			
+			if (data.bc[2] && k == 0) nn(i, j, k, d) = nn(i, j, data.voxels[2] - 4, d);
+			else if (data.bc[2] && k == 1) nn(i, j, k, d) = nn(i, j, data.voxels[2] - 3, d);
+			else if (data.bc[2] && k == data.voxels[2] - 2) nn(i, j, k, d) = nn(i, j, 2, d);
+			else if (data.bc[2] && k == data.voxels[2] - 1) nn(i, j, k, d) = nn(i, j, 3, d);
+		}
+
+	}
+
+	void FOFDSolver::HandleBoundaryConditionsOrder4(Tensor4& nn, int i, int j, int k) {
 
 		for (int d = 0; d < 3; d++) {
 

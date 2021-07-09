@@ -283,14 +283,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				else if (ri[d] < 2) return; // Second outermost lower
 		}
 
-		scalar c = (1 + data.rate) * 2.0 / 15.0;
 
 		constexpr scalar c1 = 1.0/12.0;
 		constexpr scalar c2 = 2.0/3.0;
 
 		// currently assumes dr = dx = dy = dz
-		scalar dr = data.cell_dims[0] / (data.voxels[0] - 1);
-
+		std::array<scalar, 3> dr;
+		std::array<scalar, 3> dr2;
+		scalar vol = 1.0, denom = 0.0;
 		scalar N, curl;
 
 		scalar nD[3][3];
@@ -298,24 +298,31 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		// Central second order accuracy finite difference first derivatives
 		for (int d = 0; d < 3; d++) {
 
-			nD[0][d] = (-c1 * nn(i + 2, j, k, d) + c2 * nn(i + 1, j, k, d) - c2 * nn(i - 1, j, k, d) + c1 * nn(i - 2, j, k, d)) / dr;
-			nD[1][d] = (-c1 * nn(i, j + 2, k, d) + c2 * nn(i, j + 1, k, d) - c2 * nn(i, j - 1, k, d) + c1 * nn(i, j - 2, k, d)) / dr;
-			nD[2][d] = (-c1 * nn(i, j, k + 2, d) + c2 * nn(i, j, k + 1, d) - c2 * nn(i, j, k - 1, d) + c1 * nn(i, j, k - 2, d)) / dr;
+			dr[d] = data.cell_dims[d] / (data.voxels[d] - 1);
+			dr2[d] = dr[d] * dr[d];
+			vol *= dr2[d];
+			denom += dr2[d] * dr2[(d + 1) % 3];
+
+			nD[0][d] = (-c1 * nn(i + 2, j, k, d) + c2 * nn(i + 1, j, k, d) - c2 * nn(i - 1, j, k, d) + c1 * nn(i - 2, j, k, d)) / dr[d];
+			nD[1][d] = (-c1 * nn(i, j + 2, k, d) + c2 * nn(i, j + 1, k, d) - c2 * nn(i, j - 1, k, d) + c1 * nn(i, j - 2, k, d)) / dr[d];
+			nD[2][d] = (-c1 * nn(i, j, k + 2, d) + c2 * nn(i, j, k + 1, d) - c2 * nn(i, j, k - 1, d) + c1 * nn(i, j, k - 2, d)) / dr[d];
 		}
 
+		scalar c = (1 + data.rate) * 2.0 / (5.0 * denom);
 		constexpr scalar c0 = 4.0/3.0;
 
 		for (int d = 0; d < 3; d++) {
 
-			N = c0 *(nn(i + 1, j, k, d) + nn(i, j + 1, k, d) + nn(i, j, k + 1, d) + nn(i - 1, j, k, d) + nn(i, j - 1, k, d) + nn(i, j, k - 1, d))
-			     -c1 * (nn(i + 2, j, k, d) + nn(i, j + 2, k, d) + nn(i, j, k + 2, d) + nn(i - 2, j, k, d) + nn(i, j - 2, k, d) + nn(i, j, k - 2, d));
+			N = (vol / dr2[0]) * (c0 * (nn(i + 1, j, k, d) + nn(i - 1, j, k, d)) - c1 * (nn(i + 2, j, k, d) + nn(i - 2, j, k, d))) +
+				(vol / dr2[1]) * (c0 * (nn(i, j + 1, k, d) + nn(i, j - 1, k, d)) - c1 * (nn(i, j + 2, k, d) + nn(i, j - 2, k, d))) +
+				(vol / dr2[2]) * (c0 * (nn(i, j, k + 1, d) + nn(i, j, k - 1, d)) - c1 * (nn(i, j, k + 2, d) + nn(i, j, k - 2, d)));
 
 			const int a = (d + 1) % 3;
 			const int b = (d + 2) % 3;
 
 			curl = nD[a][b] - nD[b][a];
 
-			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - data.rate * nn(i, j, k, d);
+			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * vol * curl) - data.rate * nn(i, j, k, d);
 		}
 
 	}
@@ -328,34 +335,41 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 
 
-		scalar c = (1 + data.rate) * 1.0 / 6.0;
-
 		// currently assumes dr = dx = dy = dz
-		scalar dr = data.cell_dims[0] / (data.voxels[0] - 1);
+
+		std::array<scalar, 3> dr;
+		std::array<scalar, 3> dr2;
 
 		scalar N, curl;
 
 		scalar nD[3][3];
+		scalar vol = 1.0, denom = 0.0;
 
 
 		// Central second order accuracy finite difference first derivatives
 		for (int d = 0; d < 3; d++) {
-
-			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / (2.0 * dr);
-			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / (2.0 * dr);
-			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / (2.0 * dr);
+			dr[d] = data.cell_dims[d] / (data.voxels[d] - 1);
+			dr2[d] = dr[d] * dr[d];
+			vol *= dr2[d];
+			denom += dr2[d] * dr2[(d + 1) % 3];
+			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / (2.0 * dr[d]);
+			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / (2.0 * dr[d]);
+			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / (2.0 * dr[d]);
 		}
+
+		scalar c = (1 + data.rate) * 1.0 / (2.0 * denom);
 
 		for (int d = 0; d < 3; d++) {
 
-			N = nn(i + 1, j, k, d) + nn(i, j + 1, k, d) + nn(i, j, k + 1, d) + nn(i - 1, j, k, d) + nn(i, j - 1, k, d) + nn(i, j, k - 1, d);
+			N = (vol/dr2[0]) * (nn(i + 1, j, k, d)+ nn(i - 1, j, k, d)) +
+				(vol/dr2[1]) * (nn(i, j + 1, k, d) + nn(i, j - 1, k, d)) +
+				(vol/dr2[2]) * (nn(i, j, k + 1, d)+ nn(i, j, k - 1, d));
 
 			const int a = (d + 1) % 3;
 			const int b = (d + 2) % 3;
-
 			curl = nD[a][b] - nD[b][a];
 
-			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * dr * dr * curl) - data.rate * nn(i, j, k, d);
+			nn(i, j, k, d) = c * (N - 4.0 * M_PI * data.chirality * vol * curl) - data.rate * nn(i, j, k, d);
 		}
 	}
 	void FOFDSolver::OneConstFunctionalOrder4(Tensor4& nn, int i, int j, int k) {

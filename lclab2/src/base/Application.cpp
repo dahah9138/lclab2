@@ -252,6 +252,7 @@ namespace LC
 				if (ImGui::MenuItem("Open", "Ctrl+O")) {
 					loaded = open();
 					if (loaded && loadAction) loadAction();
+					else if (loaded) LC_CORE_WARN("menu load action was null");
 				}
 				if (ImGui::MenuItem("Save", "Ctrl+S")) {
 					save();

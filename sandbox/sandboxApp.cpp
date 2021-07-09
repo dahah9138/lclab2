@@ -87,15 +87,15 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     data->voxels[1] = 32;
     data->voxels[2] = 32;
 
-    // hard
-    data->bc[0] = 0;
-    data->bc[1] = 0;
+    // xy periodic, z hard
+    data->bc[0] = 1;
+    data->bc[1] = 1;
     data->bc[2] = 0;
 
     // toron stable dimensions for one const algebraic
-    data->cell_dims[0] = 1.0;
-    data->cell_dims[1] = 1.0;
-    data->cell_dims[2] = 1.0;
+    data->cell_dims[0] = 1;
+    data->cell_dims[1] = 1;
+    data->cell_dims[2] = 0.6;
 
     data->k11 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k11);
     data->k22 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k22);
@@ -263,6 +263,7 @@ void Sandbox::drawEvent() {
         ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
         ImGui::Text("Voxels = %d %d %d", data->voxels[0], data->voxels[1], data->voxels[2]);
         ImGui::Text("Cell dimensions = %.2f %.2f %.2f", data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
+        ImGui::Text("Periodic Boundaries = %d %d %d", data->bc[0], data->bc[1], data->bc[2]);
         ImGui::Text("Iterations = %d", data->numIterations);
         ImGui::Text("Relax method = %s", relaxMethodMap[data->relaxKind].c_str());
         ImGui::End();
@@ -328,7 +329,10 @@ void Sandbox::keyPressEvent(KeyEvent& event) {
 
     // Check if Ctrl + S or Ctrl + O is pressed
     if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { save(); }
-    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { _widget.updateImageFromLoad = open(); }
+    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { 
+        _widget.updateImageFromLoad = open();
+        if (_widget.updateImageFromLoad) initVisuals();
+    }
     else {
         _widget.updateImageFromLoad = false;
     }
@@ -444,6 +448,7 @@ void Sandbox::initVisuals() {
 
     std::array<int, 3> voxels = data->voxels;
     std::array<LC::scalar, 3> cdims = data->cell_dims;
+
 
     // Create a new manipulator and set its parent
     _manipulator = std::make_unique<LC::Drawable::Object3D>();

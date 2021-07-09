@@ -146,7 +146,9 @@ target_link_libraries(lclab2
 		#MagnumIntegration::ImGui
 		LCLAB2ImGuiIntegration
 		#ImGui::ImGui
+		Threads::Threads
 		)
+target_compile_features(lclab2 PUBLIC cxx_std_14)
 
 # Make the executable a default target to build & run in Visual Studio
 #set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT lclab2)

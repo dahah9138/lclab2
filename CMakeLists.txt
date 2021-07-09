@@ -43,6 +43,10 @@ add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
 #include_directories(${CMAKE_SOURCE_DIR}/deps/include ${CMAKE_SOURCE_DIR}/deps/include/spdlog/include)
 
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+
 add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")
 
 add_subdirectory(lclab2/src)

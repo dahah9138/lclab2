@@ -12,6 +12,9 @@
 // Gives std::pair
 #include <utility>
 
+// Gives special pointer types
+#include <memory>
+
 #include <vector>
 
 // File processes

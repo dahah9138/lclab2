@@ -29,21 +29,10 @@ struct LC_API SphereArray {
         Magnum::Color3 color;
     };
 
-    void Init();
+    void Init(void* positions, const Magnum::Vector3& (*Access)(void* data, std::size_t i), std::size_t size, int subdivisions = 2);
     void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4 &projection);
 
-    // TODO:
-    // - Write an update color function
-    // - Create a cpp file in lclab2
-    // - Make a plane version where vertex colors are updated for each point in the plane
-
-    // numpoints in x and y
-    Magnum::UnsignedInt NX;
-    Magnum::UnsignedInt NY;
-
-    // spatial dimensions of grid
-    Magnum::Float CX;
-    Magnum::Float CY;
+    Magnum::UnsignedInt numObjects;
 
     Magnum::Containers::Array<Magnum::Vector3> spherePositions;
     Magnum::Float sphereRadius;

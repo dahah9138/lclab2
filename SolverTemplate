@@ -1,0 +1,29 @@
+#ifndef RBFFDSOLVER_H
+#define RBFFDSOLVER_H
+
+#include "../Solver.h"
+#include "FOAssets.h"
+#include "Header.h"
+
+namespace LC { namespace FrankOseen { namespace ElasticOnly {
+
+	struct LC_API RBFFDSolver : public Solver {
+		struct Dataset : public ElasticConstants {
+
+		};
+
+		RBFFDSolver();
+		~RBFFDSolver();
+
+		void Init() override;
+		void Relax(const std::size_t& iterations) override;
+		void Export(const char* filename) override;
+		void Import(const char* filename) override;
+		void Print() override;
+		Dataset* GetData();
+		void* GetDataPtr() override;
+	};
+
+}}}
+
+#endif

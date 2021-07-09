@@ -48,3 +48,5 @@ add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")
 add_subdirectory(lclab2/src)
 # Test
 add_subdirectory(sandbox)
+# This is the folder where all user projects can go
+add_subdirectory(projects)

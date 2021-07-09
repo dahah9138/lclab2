@@ -38,8 +38,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	void FOFDSolver::Dataset::configureHeader(Header &header) {
 		// Specify format to save data
-
-
 		std::size_t iter = 0;
 		{
 			Header tmp{};
@@ -431,12 +429,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	}
 
-	void FOFDSolver::Export(const char* file) {
-
+	void FOFDSolver::Export(Header& header) {
+		ConfigureHeader(header);
+		header.write();
+		header.writeBody();
 	}
 
-	void FOFDSolver::Import(const char* file) {
-
+	void FOFDSolver::Import(Header& header) {
+		ReadDataFromHeader(header);
 	}
 
 	void* FOFDSolver::GetDataPtr() {

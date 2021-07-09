@@ -31,6 +31,9 @@
 
 #define BIT(X) (1 << X)
 
+#define PACK(...) (__VA_ARGS__)
+#define GET_METHOD_PTR(CLASS, METHOD, ARG_PACK, PTR) { void (CLASS::*ptr) ARG_PACK = &CLASS::METHOD; PTR = reinterpret_cast<void(*) ARG_PACK >(reinterpret_cast<void*&>(ptr)); }
+
 #ifdef LC_PLATFORM_WIN32
 
 	#ifdef LC_BUILD_DLL

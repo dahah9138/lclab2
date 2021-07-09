@@ -1,24 +1,18 @@
 #include "SphereArray.h"
 #include <algorithm>
 
+using namespace Magnum;
+
 namespace LC {
-void SphereArray::Init() {
-    using namespace Magnum;
+    
+void SphereArray::Init(void* positions, const Vector3& (*Access)(void* data, std::size_t i), std::size_t size, int subdivisions) {
+    numObjects = size;
+    sphereRadius = 0.5f / (Float)pow(numObjects, 1.0f/3.0f);
+    spherePositions = Containers::Array<Vector3>{ NoInit, numObjects };
+    sphereInstanceData = Containers::Array<SphereInstanceData>{ NoInit, numObjects };
 
-    sphereRadius = 0.5f/(Float)((std::max)(NX, NY)-1);
-    UnsignedInt numSpheres = NX * NY;
-    spherePositions = Containers::Array<Vector3>{ NoInit, numSpheres };
-    sphereInstanceData = Containers::Array<SphereInstanceData>{ NoInit, numSpheres };
-
-    for (std::size_t i = 0; i < numSpheres; ++i) {
-
-        // Use indexing matlab format
-        UnsignedInt jj = i / NX;
-        UnsignedInt ii = i - jj * NX;
-        Float x = (Float)ii / (NX-1);
-        Float y = (Float)jj / (NY-1);
-
-        spherePositions[i] = Vector3(-0.5f + x, CY/CX*(-0.5f + y), 0.0f);
+    for (std::size_t i = 0; i < numObjects; ++i) {
+        spherePositions[i] = Access(positions, i);
 
         /* Fill in the instance data. Most of this stays the same, except
            for the translation */
@@ -27,14 +21,14 @@ void SphereArray::Init() {
             Matrix4::scaling(Vector3{ sphereRadius });
         sphereInstanceData[i].normalMatrix =
             sphereInstanceData[i].transformationMatrix.normalMatrix();
-        sphereInstanceData[i].color = Color3::green();
+        sphereInstanceData[i].color = Color3{1.0f, 1.0f, 1.0f};
     }
 
     sphereShader = Shaders::PhongGL{
                 Shaders::PhongGL::Flag::VertexColor |
                 Shaders::PhongGL::Flag::InstancedTransformation };
     sphereInstanceBuffer = GL::Buffer{};
-    sphereMesh = MeshTools::compile(Primitives::icosphereSolid(2));
+    sphereMesh = MeshTools::compile(Primitives::icosphereSolid(subdivisions));
     sphereMesh.addVertexBufferInstanced(sphereInstanceBuffer, 1, 0,
         Shaders::PhongGL::TransformationMatrix{},
         Shaders::PhongGL::NormalMatrix{},
@@ -44,10 +38,6 @@ void SphereArray::Init() {
 
 void SphereArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
     using namespace Magnum;
-
-    for (std::size_t i = 0; i != spherePositions.size(); ++i)
-        sphereInstanceData[i].transformationMatrix.translation() =
-        spherePositions[i];
 
     sphereInstanceBuffer.setData(sphereInstanceData, GL::BufferUsage::DynamicDraw);
     sphereShader

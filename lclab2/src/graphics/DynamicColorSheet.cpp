@@ -82,5 +82,12 @@ namespace LC {
         return mesh;
     }
 
+    void DynamicColorSheet::Set(UnsignedInt NX_, UnsignedInt NY_, Float CX_, Float CY_) {
+        NX = NX_;
+        NY = NY_;
+        CX = CX_;
+        CY = CY_;
+    }
+
 
 }

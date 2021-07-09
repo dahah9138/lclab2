@@ -3,7 +3,6 @@
 
 #include "../Solver.h"
 #include "FOAssets.h"
-#include "math/vec3.h"
 #include "Header.h"
 
 /*
@@ -59,10 +58,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				constexpr RelaxKind OneConstAlgebraicO2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
 					static_cast<int>(RelaxKind::Algebraic));
 				constexpr RelaxKind OneConstFunctionalO4 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
-					static_cast<int>(RelaxKind::Algebraic) |
 					static_cast<int>(RelaxKind::Order4));
-				constexpr RelaxKind OneConstFunctionalO2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
-					static_cast<int>(RelaxKind::Algebraic));
+				constexpr RelaxKind OneConstFunctionalO2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst));
 				constexpr RelaxKind FullAlgebraicOrder4 =  static_cast<RelaxKind>(static_cast<int>(RelaxKind::Algebraic) |
 					static_cast<int>(RelaxKind::Order4));
 				constexpr RelaxKind FullAlgebraicOrder2 = static_cast<RelaxKind>(static_cast<int>(RelaxKind::Algebraic));
@@ -73,15 +70,31 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				std::map<RelaxKind, std::string> map{
 					{OneConstAlgebraicO4, "One Constant Algebraic (O4)"},
 					{OneConstAlgebraicO2, "One Constant Algebraic (O2)"},
-					{RelaxKind::OneConst, "One Constant Functional (O2)"}, 
 					{OneConstFunctionalO4, "One Constant Functional (O4)"},
-					{OneConstFunctionalO2, "One Constant Algebraic (O2)"},
+					{OneConstFunctionalO2, "One Constant Functional (O2)"},
 					{FullAlgebraicOrder4, "Full Algebraic (O4)"},
 					{FullAlgebraicOrder2, "Full Algebraic (O2)"},
 					{FullFunctionalOrder4, "Full Functional (O4)"},
 					{FullFunctionalOrder2, "Full Functional (O2)"}
 				};
 				return map;
+			}
+
+			static Config Toron() {
+				return [](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					int d[3] = { voxels[0] / 4, voxels[1] / 4, voxels[2] / 4 };
+
+					if (abs(k - voxels[2] / 2) < d[2] && abs(i - voxels[0] / 2) < d[0] && abs(j - voxels[1] / 2) < d[1]) {
+						n(i, j, k, 2) = -1.0;
+					}
+					else {
+						n(i, j, k, 2) = 1.0;
+					}
+
+					n(i, j, k, 0) = 0.0;
+					n(i, j, k, 1) = 0.0;
+				};
 			}
 
 		};
@@ -95,8 +108,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Init() override;
 		void Relax(const std::size_t& iterations) override;
 
-		void Export(const char* filename) override;
-		void Import(const char* filename) override;
+		void Export(Header& header) override;
+		void Import(Header& header) override;
 
 		void OneConstAlgebraicOrder4(Tensor4& nn, int i, int j, int k);
 		void OneConstFunctionalOrder4(Tensor4& nn, int i, int j, int k);

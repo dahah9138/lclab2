@@ -47,6 +47,8 @@ namespace LC {
         };
 
         virtual void Init(PositionFunction pos = 0, Float offset = 0.0f);
+        void Set(UnsignedInt NX_, UnsignedInt NY_, Float CX_, Float CY_);
+
         Trade::MeshData Data();
         GL::Mesh Mesh();
 

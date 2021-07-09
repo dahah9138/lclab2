@@ -77,7 +77,8 @@ set (baselib		base/entrypoint.h
 				
 set (frankoseenlib 	solver/Solver.h
 					solver/frankoseen/FOAssets.h
-					solver/frankoseen/FOFDSolver.h solver/frankoseen/FOFDSolver.cpp)
+					solver/frankoseen/FOFDSolver.h solver/frankoseen/FOFDSolver.cpp
+					solver/frankoseen/RBFFDSolver.h solver/frankoseen/RBFFDSolver.cpp)
 
 set (mathlib math/vec3.h math/vec3.cpp
 			 math/RangePair.h math/RangePair.cpp)
@@ -93,7 +94,7 @@ set (graphics graphics/ArcBall.h graphics/ArcBall.cpp
 			  graphics/DynamicColorSheet.h graphics/DynamicColorSheet.cpp
 			  graphics/TransparentDrawable.h)
 
-set (imaging imaging/POM.h imaging/POM.cpp)
+set (imaging imaging/POM.h imaging/POM.cpp imaging/RungeSphere.h)
 			
 set (lclab2_src_list 	${baselib}
 						${frankoseenlib}

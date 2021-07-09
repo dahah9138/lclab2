@@ -3,11 +3,17 @@
 namespace LC
 {
 	Application::Application(const Arguments& arguments): Platform::Application{arguments} {
+
+		_relaxFuture.second = false;
+
 		if (!pfd::settings::available()) {
 			LC_CORE_WARN("Portable File Dialogs are not available on this platform");
 		}
 	}
 	Application::Application(const Arguments& arguments, const Configuration& configuration) : Platform::Application{ arguments, configuration } {
+		
+		_relaxFuture.second = false;
+		
 		if (!pfd::settings::available()) {
 			LC_CORE_WARN("Portable File Dialogs are not available on this platform");
 		}
@@ -83,19 +89,42 @@ namespace LC
 		if ((_options & App::OptionFlag::ImPlot) != App::OptionFlag::None)
 			ImPlot::CreateContext();
 
-		//LC::ImPlotIntegration::CreateContext();
-		
-		//ImPlot::CreateContext();
-
-		/* Set up proper blending to be used by ImGui. There's a great chance
-		   you'll need this exact behavior for the rest of your scene. If not, set
-		   this only for the drawFrame() call. */
 		GL::Renderer::setBlendEquation(GL::Renderer::BlendEquation::Add,
 			GL::Renderer::BlendEquation::Add);
 		GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
 			GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
 		_io = &ImGui::GetIO();
+	}
+
+	bool Application::checkRelax(const std::size_t& seconds) {
+
+		// Check if future ready
+		if (_relaxFuture.second) {
+			auto status = _relaxFuture.first.wait_for(std::chrono::seconds(seconds));
+
+			if (status == std::future_status::ready) {
+				_relaxFuture.first.get();
+				_relaxFuture.second = false;
+			}
+		}
+		return !_relaxFuture.second;
+	}
+
+	std::string Application::saveDialog() {
+		auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
+			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+			  "All Files", "*" },
+			pfd::opt::none);
+		return sf.result();
+	}
+
+	std::vector<std::string> Application::openDialog() {
+		auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
+			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
+					"All Files", "*" },
+			pfd::opt::none);
+		return of.result();
 	}
 
 	void Application::viewportEvent(ViewportEvent& event) {
@@ -144,13 +173,25 @@ namespace LC
 
 	void Application::mousePressEvent(MouseEvent& event) {
 
+		if (_cameraType == CameraType::Group)
+			if (event.button() == MouseEvent::Button::Left)
+				_previousPosition = positionOnSphere(event.position());
+
 		_imgui.handleMousePressEvent(event);
 
-		if (!_io->WantCaptureMouse) {
-			if (_cameraType == CameraType::ArcBall)
+		if (_cameraType == CameraType::ArcBall)
+			if (!_io->WantCaptureMouse)
 				_arcballCamera->initTransformation(event.position());
-		}
-		else _ioUpdate = true;
+	}
+
+	void Application::mouseReleaseEvent(MouseEvent& event) {
+		if (event.button() == MouseEvent::Button::Left)
+			_previousPosition = Vector3();
+		if (_imgui.handleMouseReleaseEvent(event)) _ioUpdate = true;
+	}
+
+	void Application::textInputEvent(TextInputEvent& event) {
+		_imgui.handleTextInputEvent(event);
 	}
 
 	void Application::enableDepthTest() {
@@ -189,6 +230,95 @@ namespace LC
 		const Float length = positionNormalized.length();
 		const Vector3 result(length > 1.0f ? Vector3(positionNormalized, 0.0f) : Vector3(positionNormalized, 1.0f - length));
 		return (result * Vector3::yScale(-1.0f)).normalized();
+	}
+
+	void Application::sortObjects(Magnum::SceneGraph::DrawableGroup3D& drawables) {
+		// Sort objects to draw in correct order
+		std::vector<std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>>
+			drawableTransformations = _camera->drawableTransformations(drawables);
+
+		std::sort(drawableTransformations.begin(), drawableTransformations.end(),
+			[](const std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>& a,
+				const std::pair<std::reference_wrapper<SceneGraph::Drawable3D>, Matrix4>& b) {
+					return a.second.translation().z() < b.second.translation().z();
+			});
+	}
+
+	void Application::saveMenu(bool& loaded, void (*loadAction)()) {
+		if (ImGui::BeginMenuBar()) {
+			if (ImGui::BeginMenu("File")) {
+
+				//if (ImGui::MenuItem("New", "Ctrl+N")) {}
+				if (ImGui::MenuItem("Open", "Ctrl+O")) {
+					loaded = open();
+					if (loaded && loadAction) loadAction();
+				}
+				if (ImGui::MenuItem("Save", "Ctrl+S")) {
+					save();
+				}
+				if (ImGui::MenuItem("Save As..")) {
+					saveAs();
+				}
+
+				ImGui::EndMenu();
+			}
+			ImGui::EndMenuBar();
+		}
+	}
+
+	void Application::save() {
+		bool ready = checkRelax();
+		if (!ready) return;
+
+		// Check if file exists (was loaded)
+
+		std::string res;
+
+		bool loadedFromFile = !_header.readFile.empty() || !_header.writeFile.empty();
+
+		if (!loadedFromFile) {
+			res = saveDialog();
+		}
+		else {
+			res = _header.readFile;
+		}
+
+		if (!res.empty()) {
+			_header.writeFile = res;
+			_solver->Export(_header);
+			LC_CORE_INFO("Saved to file {0}", res.c_str());
+			_header.readFile = res;
+		}
+	}
+	void Application::saveAs() {
+		bool ready = checkRelax();
+		if (!ready) return;
+
+		// Pass file to header to be written
+		auto res = saveDialog();
+
+		if (!res.empty()) {
+			_header.writeFile = res;
+			_solver->Export(_header);
+			LC_INFO("Saved to file {0}", res.c_str());
+		}
+	}
+	bool Application::open() {
+		bool ready = checkRelax();
+		if (!ready) return false;
+		bool success = false;
+
+		auto res = openDialog();
+
+		if (!res.empty()) {
+			_header.readFile = res[0];
+			_solver->Import(_header);
+			success = true;
+			LC_CORE_INFO("Loaded file {0}", res[0].c_str());
+
+		}
+
+		return success;
 	}
 
 	Application::~Application() {

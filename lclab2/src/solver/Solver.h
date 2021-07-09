@@ -3,6 +3,7 @@
 
 #include "core.h"
 #include "logger.h"
+#include "Header.h"
 #include <Eigen/Dense>
 #include <Eigen/CXX11/Tensor>
 
@@ -29,8 +30,8 @@ namespace LC {
 		virtual ~Solver() = default;
 		virtual void Init() = 0;
 		virtual void Relax(const std::size_t& iterations) = 0;
-		virtual void Import(const char* file) = 0;
-		virtual void Export(const char* file) = 0;
+		virtual void Import(Header& header) = 0;
+		virtual void Export(Header& header) = 0;
 		virtual void Print() {}
 		Error errors = Error::None;
 

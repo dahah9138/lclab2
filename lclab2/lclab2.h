@@ -9,6 +9,7 @@
 #include "src/solver/Solver.h"
 #include "src/solver/frankoseen/FOAssets.h"
 #include "src/solver/frankoseen/FOFDSolver.h"
+#include "src/solver/frankoseen/RBFFDSolver.h"
 // Math
 #include "src/math/vec3.h"
 // Graphics
@@ -26,6 +27,7 @@
 
 // Imaging
 #include "src/imaging/POM.h"
+#include "src/imaging/RungeSphere.h"
 
 // ENTRY POINT
 #include "src/base/entrypoint.h"

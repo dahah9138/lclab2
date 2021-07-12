@@ -104,16 +104,33 @@ set (lclab2_src_list 	${baselib}
 						#${LCLAB2ImGuiIntegration}
 						)
 					
-
 add_library(lclab2 SHARED ${lclab2_src_list})
 
-if (MSVC)
+if (WITH_CUDA AND CUDA_FOUND)
+	set (lclab2_cuda_src_list cuda/CudaContext.cu)
+	cuda_add_library(lclab2_cuda ${lclab2_cuda_src_list})
+
+	target_link_libraries(lclab2 PUBLIC lclab2_cuda)
+
+	if (MSVC)
+	foreach(source IN LISTS lclab2_src_list lclab2_cuda_src_list)
+		get_filename_component(source_path "${source}" PATH)
+		string(REPLACE "/" "\\" source_path_msvc "${source_path}")
+		source_group("${source_path_msvc}" FILES "${source}")
+	endforeach()
+	endif()
+else()
+
+	if (MSVC)
 	foreach(source IN LISTS lclab2_src_list)
 		get_filename_component(source_path "${source}" PATH)
 		string(REPLACE "/" "\\" source_path_msvc "${source_path}")
 		source_group("${source_path_msvc}" FILES "${source}")
 	endforeach()
+	endif()
+
 endif()
+
 				
 #set_target_properties(lclab2 PROPERTIES LINKER_LANGUAGE CXX)
 

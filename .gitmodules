@@ -22,3 +22,6 @@
 [submodule "external/implot"]
 	path = external/implot
 	url = https://github.com/epezent/implot.git
+[submodule "external/hemi"]
+	path = external/hemi
+	url = https://github.com/harrism/hemi.git

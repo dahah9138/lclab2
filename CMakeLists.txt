@@ -46,6 +46,12 @@ add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+set(WITH_CUDA ON CACHE BOOL "" FORCE)
+
+if (WITH_CUDA)
+	find_package(CUDA REQUIRED)
+	add_definitions(-DLCLAB2_CUDA)
+endif()
 
 add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")
 

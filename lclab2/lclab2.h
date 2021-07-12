@@ -29,5 +29,10 @@
 #include "src/imaging/POM.h"
 #include "src/imaging/RungeSphere.h"
 
+// CUDA
+#ifdef LCLAB2_CUDA
+    #include "src/cuda/CudaContext.h"
+#endif
+
 // ENTRY POINT
 #include "src/base/entrypoint.h"

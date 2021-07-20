@@ -26,8 +26,11 @@ struct Widget {
 	int cycle = 10;
 
 	bool updateImage = false;
+	bool nonlinear = false;
 	bool POM = false;
 	float alpha = 0.5f;
+
+	bool GPU = false;
 
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };

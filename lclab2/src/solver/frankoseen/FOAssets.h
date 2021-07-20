@@ -15,10 +15,6 @@ namespace LC { namespace FrankOseen {
 
 		Ensuring matching units is currently up to the user.
 
-		TODO:
-		- Write a function that takes a specified unit and converts it to the
-		SI equivalent.
-
 	*/
 
 	// Supported types
@@ -101,6 +97,7 @@ namespace LC { namespace FrankOseen {
 
 	};
 
+	// Not configured yet
 	struct LC_API ElectricConstants {
 		SIscalar epar{ 0.0, "NOINIT" };
 		SIscalar eper{ 0.0, "NOINIT" };

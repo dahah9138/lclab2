@@ -21,15 +21,15 @@ namespace LC {
 
 		// Returns the future of RelaxAsync
 		// Can optionally use a difference launch policy if so desired...
-		static std::future<void> RelaxAsync(Solver* solver, const std::size_t& iterations, const std::launch &policy = std::launch::async) {
+		static std::future<void> RelaxAsync(Solver* solver, const std::size_t& iterations, const std::launch &policy = std::launch::async, bool GPU = false) {
 
-			return std::async(policy, RelaxAsyncImpl, solver, iterations);
+			return std::async(policy, RelaxAsyncImpl, solver, iterations, GPU);
 		}
 
 		Solver() = default;
 		virtual ~Solver() = default;
 		virtual void Init() = 0;
-		virtual void Relax(const std::size_t& iterations) = 0;
+		virtual void Relax(const std::size_t& iterations, bool GPU) = 0;
 		virtual void Import(Header& header) = 0;
 		virtual void Export(Header& header) = 0;
 		virtual void Print() {}
@@ -38,8 +38,8 @@ namespace LC {
 		virtual void* GetDataPtr() = 0;
 
 	private:
-		static void RelaxAsyncImpl(Solver* solver, const std::size_t& iterations) {
-			solver->Relax(iterations);
+		static void RelaxAsyncImpl(Solver* solver, const std::size_t& iterations, bool GPU) {
+			solver->Relax(iterations, GPU);
 		}
 
 	};

@@ -61,8 +61,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
 } {
     _transparentShader = Shaders::VertexColorGL3D{};
-
-
+   
     /* Setup the GUI */
     setupGUI();
 
@@ -176,6 +175,7 @@ void Sandbox::drawEvent() {
 
             {
                 ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
+                ImGui::Checkbox("Nonlinear imaging", &_widget.nonlinear);
 
                 if (ImGui::CollapsingHeader("POM Settings")) {
 
@@ -234,6 +234,8 @@ void Sandbox::drawEvent() {
                 ImGui::InputFloat("Relax rate", &relaxRate);
                 data->rate = relaxRate;
             }
+
+            ImGui::Checkbox("GPU", &_widget.GPU);
 
             // Pressed the relax button
             _widget.relax = ImGui::Button("Relax");
@@ -304,10 +306,11 @@ void Sandbox::drawEvent() {
 
     swapBuffers();
 
+
     if (_widget.relax) {
 
         // Try to relax asynchronously...
-        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle);
+        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, _widget.GPU);
         _relaxFuture.second = true;
         _widget.updateImage = true;
     }
@@ -316,8 +319,10 @@ void Sandbox::drawEvent() {
 
         bool ready = checkRelax();
 
-        if (ready)
+        if (ready) {
             updateColor();
+            _widget.updateImageFromLoad = false;
+        }
 
     }
 
@@ -398,7 +403,10 @@ void Sandbox::updateColor() {
                 theta = acos(nz);
                 phi = M_PI / 2.0f - atan2(ny, nx);
 
-                _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
+                
+                if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
+                // Green 3 photon nonlinear imaging
+                else _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx,6.0f) }), alpha };
 
                 //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
             }

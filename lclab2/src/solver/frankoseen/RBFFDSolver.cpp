@@ -14,7 +14,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		/* TODO */
 	}
 
-	void RBFFDSolver::Relax(const std::size_t& iterations) {
+	void RBFFDSolver::Relax(const std::size_t& iterations, bool GPU) {
 		/* TODO */
 	}
 

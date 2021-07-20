@@ -19,7 +19,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		Dataset data;
 
 		void Init() override;
-		void Relax(const std::size_t& iterations) override;
+		void Relax(const std::size_t& iterations, bool GPU) override;
 		void Export(Header& header) override;
 		void Import(Header& header) override;
 		void Print() override;

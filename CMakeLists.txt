@@ -46,6 +46,7 @@ add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+# This option will be left to the user..
 set(WITH_CUDA ON CACHE BOOL "" FORCE)
 
 if (WITH_CUDA)

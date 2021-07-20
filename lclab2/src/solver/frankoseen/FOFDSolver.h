@@ -9,6 +9,7 @@
 	Basic LC elastic FD solver type
 */
 
+
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
 	struct LC_API FOFDSolver : public Solver {
@@ -106,7 +107,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		~FOFDSolver();
 
 		void Init() override;
-		void Relax(const std::size_t& iterations) override;
+		void Relax(const std::size_t& iterations, bool GPU) override;
 
 		void Export(Header& header) override;
 		void Import(Header& header) override;

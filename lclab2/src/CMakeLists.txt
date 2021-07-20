@@ -101,16 +101,34 @@ set (lclab2_src_list 	${baselib}
 						${mathlib}
 						${graphics}
 						${imaging}
-						#${LCLAB2ImGuiIntegration}
 						)
 					
 add_library(lclab2 SHARED ${lclab2_src_list})
 
 if (WITH_CUDA AND CUDA_FOUND)
-	set (lclab2_cuda_src_list cuda/CudaContext.cu)
+	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} --expt-extended-lambda)
+	set (lclab2_cuda_src_list cuda/CudaContext.cu cuda/CudaContext.cuh)
+	
+	# Only need the lclab2 CudaContext.cuh for following cuda files
+	
+	# Solver cuda files
+	set (frankoseenlib_gpu solver/frankoseen/FOFDSolver.cu)
+	
+	set (lclab2_cuda_src_list ${lclab2_cuda_src_list}
+							  ${frankoseenlib_gpu})
+							 
+	
 	cuda_add_library(lclab2_cuda ${lclab2_cuda_src_list})
-
+	target_include_directories(lclab2_cuda PRIVATE ${CMAKE_SOURCE_DIR}/external/hemi ${CMAKE_SOURCE_DIR}/external/hemi/hemi ${CMAKE_CURRENT_SOURCE_DIR}/cuda ${CMAKE_CURRENT_SOURCE_DIR})
+	
+	if (MSVC)
+		target_compile_definitions(lclab2_cuda PRIVATE not=!)
+		target_compile_definitions(lclab2 PUBLIC LCLAB2_CUDA_AVAIL)
+	else()
+		target_compile_definitions(lclab2 PUBLIC LCLAB2_CUDA_AVAIL)
+	endif()
 	target_link_libraries(lclab2 PUBLIC lclab2_cuda)
+
 
 	if (MSVC)
 	foreach(source IN LISTS lclab2_src_list lclab2_cuda_src_list)

@@ -1,7 +1,13 @@
 #include "FOFDSolver.h"
 
+
+
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
+	#ifdef LCLAB2_CUDA_AVAIL
+
+	extern void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations);
+	#endif
 
 	bool FOFDSolver::Dataset::chkErrors() {
 
@@ -202,27 +208,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 
-	void FOFDSolver::Relax(const std::size_t& iterations) {
+	void FOFDSolver::Relax(const std::size_t& iterations, bool GPU) {
+
+
 
 		if (errors != Solver::Error::None) {
 			LC_CORE_WARN("Abort: Attempting to relax with errors!");
 			return;
 		}
-
-		/* Create tensor map */
-		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
-
-
-		// TensorMap uses matlab indexing
-		
-		/*
-		std::size_t slice = data.voxels[0];
-		std::size_t cross_slice = data.voxels[1] * slice;
-		std::size_t volslice = data.voxels[2] * cross_slice;
-
-		std::size_t global_idx = volslice * d + cross_slice * nz + slice * ny + nx;
-
-		*/
 
 		/* Relax routine */
 
@@ -244,6 +237,18 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		
 		if (order4) boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder4;
 		else boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder2;
+
+#ifdef LCLAB2_CUDA_AVAIL
+		if (GPU) {
+			RelaxGPU(data.directors, &data.voxels[0], &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations);
+			data.numIterations += iterations;
+			return;
+		}
+#endif
+
+
+		/* Create tensor map */
+		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
 
 
 		for (std::size_t it = 0; it < iterations; it++) {

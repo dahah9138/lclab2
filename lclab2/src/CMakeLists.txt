@@ -108,8 +108,9 @@ add_library(lclab2 SHARED ${lclab2_src_list})
 if (WITH_CUDA AND CUDA_FOUND)
 	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} --expt-extended-lambda)
 	set (lclab2_cuda_src_list cuda/CudaContext.cu cuda/CudaContext.cuh)
-	
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpic")
 	# Only need the lclab2 CudaContext.cuh for following cuda files
+
 	
 	# Solver cuda files
 	set (frankoseenlib_gpu solver/frankoseen/FOFDSolver.cu)

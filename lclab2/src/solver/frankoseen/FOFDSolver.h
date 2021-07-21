@@ -26,7 +26,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			};
 			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
 
-			typedef void (*Config)(Tensor4&,int,int,int,int*);
+			typedef std::function<void(Tensor4, int, int, int, int*)> Config;
+
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
 			LC_TYPE lc_type = LC_TYPE::_5CB;
 			std::size_t numIterations = 0;
@@ -96,6 +97,104 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 					n(i, j, k, 0) = 0.0;
 					n(i, j, k, 1) = 0.0;
 				};
+			}
+
+			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135) {
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					scalar layersscale = ceil(2 * Q * lim);
+					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)voxels[0] - 0.5, (scalar)j / (scalar)voxels[1] - 0.5, (scalar)k / (scalar)voxels[2] - 0.5 };
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords;
+
+					scalar phi = atan2(p[1], p[0]);
+					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
+					scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
+
+					if (p.dot(p) == 0.0) p[2] = 1.0;
+
+					// Rescale
+					p = lim * p;
+
+					scalar rsq = p.dot(p);
+					scalar r = sqrt(rsq);
+
+					// Rotate each z - plane
+					p[0] = rrpolar * cos(phi - omega);
+					p[1] = p[2] / lim;
+					p[2] = rrpolar * sin(phi - omega);
+
+					if (r < lambda) {
+
+						scalar theta = 2 * M_PI * r * Q / lambda;
+
+						Eigen::Matrix<scalar, 3, 1> nn;
+
+						nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
+						nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
+						nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
+
+						// flip handedness
+
+						scalar nytemp = nn[1];
+						nn[1] = nn[2];
+						nn[2] = -nn[1];
+
+
+						// Rotate directors
+
+						scalar nxtemp = cos(omega) * nn[0] - sin(omega) * nn[1];
+						nytemp = sin(omega) * nn[0] + cos(omega) * nn[1];
+
+						nn[0] = nxtemp;
+						nn[1] = nytemp;
+
+						// Normalize
+
+						nn.normalize();
+
+						for (int d = 0; d < 3; d++)
+							n(i, j, k, d) = nn[d];
+					}
+					else {
+						n(i, j, k, 0) = -sin(omega);
+						n(i, j, k, 1) = cos(omega);
+						n(i, j, k, 2) = 0.0;
+					}
+					
+				};
+			}
+
+			Dataset& Voxels(int X, int Y, int Z) {
+				voxels[0] = X;
+				voxels[1] = Y;
+				voxels[2] = Z;
+				return *this;
+			}
+
+			Dataset& Cell(scalar cX, scalar cY, scalar cZ) {
+				cell_dims[0] = cX;
+				cell_dims[1] = cY;
+				cell_dims[2] = cZ;
+				return *this;
+			}
+
+			Dataset& Boundaries(bool bX, bool bY, bool bZ) {
+				bc[0] = bX;
+				bc[1] = bY;
+				bc[2] = bZ;
+				return *this;
+			}
+
+			Dataset& ElasticConstants(const std::array<SIscalar, 3>& elastics) {
+				k11 = elastics[0];
+				k22 = elastics[1];
+				k33 = elastics[2];
+				return *this;
+			}
+
+			Dataset& Configuration(const Config& cfg) {
+				config = cfg;
+				return *this;
 			}
 
 		};

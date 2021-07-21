@@ -47,6 +47,13 @@ namespace LC { namespace FrankOseen {
 				return ZLI2806(K);
 		}
 
+		static std::array<SIscalar, 3> LC(const LC_TYPE& lc) {
+			if (lc == LC_TYPE::_5CB)
+				return _5CB();
+			else if (lc == LC_TYPE::ZLI2806)
+				return ZLI2806();
+		}
+
 		// Returns the specified elastic constant of 5CB in pN
 		// Allowed arguments: k11, k22, k33
 		static SIscalar _5CB(const Constant &K) {
@@ -71,6 +78,10 @@ namespace LC { namespace FrankOseen {
 			return k;
 
 		}
+
+		static std::array<SIscalar, 3> _5CB() {
+			return { _5CB(Constant::k11), _5CB(Constant::k22), _5CB(Constant::k33) };
+		}
 		
 		static SIscalar ZLI2806(const Constant &K) {
 
@@ -93,6 +104,10 @@ namespace LC { namespace FrankOseen {
 
 			return k;
 
+		}
+
+		static std::array<SIscalar, 3> ZLI2806() {
+			return { ZLI2806(Constant::k11), ZLI2806(Constant::k22), ZLI2806(Constant::k33) };
 		}
 
 	};

@@ -77,32 +77,14 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _solver = std::make_unique<FOFDSolver>();
 
-    using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
-
-    /* Setup data */
+    /* Setup data using function chaining */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    data->voxels[0] = 32;
-    data->voxels[1] = 32;
-    data->voxels[2] = 32;
-
-    // xy periodic, z hard
-    data->bc[0] = 1;
-    data->bc[1] = 1;
-    data->bc[2] = 0;
-
-    // toron stable dimensions for one const algebraic
-    data->cell_dims[0] = 1;
-    data->cell_dims[1] = 1;
-    data->cell_dims[2] = 0.6;
-
-    data->k11 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k11);
-    data->k22 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k22);
-    data->k33 = LC::FrankOseen::ElasticConstants::_5CB(LC::FrankOseen::ElasticConstants::Constant::k33);
-
-    // Initial conditions to generate a toron
-
-    data->config = Dataset::Toron();
+    (*data).Voxels(64, 64, 64)
+        .Boundaries(1, 1, 0)
+        .Cell(2.5, 2.5, 2.5)
+        .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+        .Configuration(Dataset::Heliknoton(1));
 
     _solver->Init();
     _relaxFuture.second = false;

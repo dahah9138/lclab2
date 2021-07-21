@@ -30,7 +30,7 @@
 #include "src/imaging/RungeSphere.h"
 
 // CUDA
-#ifdef LCLAB2_CUDA
+#ifdef LCLAB2_CUDA_AVAIL
     #include "src/cuda/CudaContext.h"
 #endif
 

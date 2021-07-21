@@ -100,7 +100,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 	}
 
-	//HEMI_LAUNCHABLE
 	void OneConstAlgebraicO2(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, const scalar *dr, const scalar *dr2, scalar chirality, scalar rate, unsigned int N) {
 		
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
@@ -108,13 +107,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			HandleBoundaryConditionsOrder2_Device(directors, idx, vXi, bc, N);
 			Normalize_Device(directors, idx, N);
 		});
-
-		//for (auto idx : hemi::grid_stride_range(0u, N)) {
-		//		OneConstAlgebraicO2_Device(directors, idx, N, vXi, dr, dr2, rate, chirality);
-		//		HandleBoundaryConditionsOrder2_Device(directors, idx, vXi, bc, N);
-		//		Normalize_Device(directors, idx, N);
-		//}
-		
 	}
 
 	// Add relax flag types somehow...

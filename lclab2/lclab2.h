@@ -12,6 +12,7 @@
 #include "src/solver/frankoseen/RBFFDSolver.h"
 // Math
 #include "src/math/vec3.h"
+#include "src/math/test.h"
 // Graphics
 #include "src/graphics/ArcBall.h"
 #include "src/graphics/SphereArray.h"

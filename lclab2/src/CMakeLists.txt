@@ -16,8 +16,6 @@ set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
 
 #find_package(Corrade REQUIRED Main)
 
-#add_definitions(-DLC_BUILD_DLL)
-
 find_package(ImGui REQUIRED Sources)
 
 set(IMPLOT_HEADERS ${IMPLOT_DIR}/implot.h ${IMPLOT_DIR}/implot_internal.h)
@@ -67,8 +65,6 @@ set_property(TARGET LCLAB2ImGuiIntegration PROPERTY POSITION_INDEPENDENT_CODE 1)
 target_include_directories(LCLAB2ImGuiIntegration PUBLIC ${IMGUI_DIR} ${IMPLOT_DIR} ${CMAKE_SOURCE_DIR}/external ${CMAKE_SOURCE_DIR}/external/SDL2-2.0.10/include
 															${BASE_DIR}/base)
 
-
-
 set (baselib		base/entrypoint.h
 					base/Application.h base/Application.cpp
 					base/logger.h base/logger.cpp
@@ -103,6 +99,8 @@ set (lclab2_src_list 	${baselib}
 						${imaging}
 						)
 					
+add_subdirectory(math)
+
 add_library(lclab2 SHARED ${lclab2_src_list})
 
 if (WITH_CUDA AND CUDA_FOUND)
@@ -153,9 +151,6 @@ else()
 
 endif()
 
-				
-#set_target_properties(lclab2 PROPERTIES LINKER_LANGUAGE CXX)
-
 target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 										 ${CMAKE_CURRENT_SOURCE_DIR}/base
 										 ${CMAKE_SOURCE_DIR}/external
@@ -163,7 +158,6 @@ target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 										 ${CMAKE_SOURCE_DIR}/external/spdlog/include
 										 ${CMAKE_SOURCE_DIR}/external/eigen
 										 ${CMAKE_SOURCE_DIR}/external/eigen/unsupported
-										 #${CMAKE_SOURCE_DIR}/external/SDL2-2.0.10/include
 										 ${IMGUI_DIR}
 										 ${IMPLOT_DIR})
 										 
@@ -178,14 +172,12 @@ target_link_libraries(lclab2
 		Magnum::GL
 		Magnum::Magnum
 		Magnum::MeshTools
-	#	Magnum::DebugTools
 		Magnum::Primitives
 		Magnum::SceneGraph
 		Magnum::Shaders
-		#MagnumIntegration::ImGui
 		LCLAB2ImGuiIntegration
-		#ImGui::ImGui
 		Threads::Threads
+		lc2Math
 		)
 target_compile_features(lclab2 PUBLIC cxx_std_14)
 

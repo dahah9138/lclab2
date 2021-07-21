@@ -65,6 +65,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup the GUI */
     setupGUI();
 
+    LC::Math::Test();
+
     /* Setup window and parameters */
     enableDepthTest();
     enableFaceCulling();

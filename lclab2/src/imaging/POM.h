@@ -13,7 +13,7 @@ typedef std::size_t (*t4_2indFunc)(int, int, int, int, const std::array<std::siz
 typedef std::size_t (*t2_2indFunc)(int, int, const std::size_t&);
 typedef void (*ColorDataFunc)(void *, const std::array<float, 4>&, std::size_t);
 
-struct LC_API POM {
+struct POM {
     enum class Waveplate {
 		None = 0,
 		Full530nm = 1,

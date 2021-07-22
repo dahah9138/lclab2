@@ -21,7 +21,7 @@
 
 namespace LC {
 
-struct LC_API SphereArray {
+struct SphereArray {
 	
     struct SphereInstanceData {
         Magnum::Matrix4 transformationMatrix;

@@ -6,7 +6,7 @@
 
 namespace LC {
 
-struct LC_API Torus: public Sheet {
+struct Torus: public Sheet {
 
 
     void Init() override;

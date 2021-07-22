@@ -1,3 +1,6 @@
-add_library(lc2Math test.cpp)
-target_include_directories(lc2Math PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-set_property(TARGET lc2Math PROPERTY POSITION_INDEPENDENT_CODE 1)
+add_library(lclab2_math RangePair.cpp RangePair.h)
+target_include_directories(lclab2_math PUBLIC
+${CMAKE_CURRENT_SOURCE_DIR}
+${CMAKE_SOURCE_DIR}/external/eigen
+${CMAKE_SOURCE_DIR}/external/eigen/unsupported)
+set_property(TARGET lclab2_math PROPERTY POSITION_INDEPENDENT_CODE 1)

@@ -18,13 +18,13 @@ namespace LC { namespace FrankOseen {
 	*/
 
 	// Supported types
-	enum class LC_API LC_TYPE {
+	enum class LC_TYPE {
 		_5CB = 0,
 		ZLI2806 = 1
 	};
 	
 	// Return an enum, string map of supported Frank-Oseen LC types
-	struct LC_API LiquidCrystal {
+	struct LiquidCrystal {
 		static std::map<LC_TYPE, std::string> Map() {
 			std::map<LC_TYPE, std::string> m{{ LC_TYPE::_5CB, "5CB" }, { LC_TYPE::ZLI2806, "ZLI-2806" }};
 			return m;
@@ -32,7 +32,7 @@ namespace LC { namespace FrankOseen {
 	};
 
 
-	struct LC_API ElasticConstants {
+	struct ElasticConstants {
 
 		enum class Constant { k11 = 0, k22 = 1, k33 = 2 };
 
@@ -113,18 +113,18 @@ namespace LC { namespace FrankOseen {
 	};
 
 	// Not configured yet
-	struct LC_API ElectricConstants {
+	struct ElectricConstants {
 		SIscalar epar{ 0.0, "NOINIT" };
 		SIscalar eper{ 0.0, "NOINIT" };
 	};
 
-	struct LC_API MagneticConstants {
+	struct MagneticConstants {
 		SIscalar chi_par{ 0.0, "NOINIT" };
 		SIscalar chi_per{ 0.0, "NOINIT" };
 	};
 
 	// Dimensionless
-	struct LC_API OpticalConstants {
+	struct OpticalConstants {
 
 		enum class Constant { n_o = 0, n_e = 1 };
 

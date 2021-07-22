@@ -32,6 +32,7 @@ namespace LC {
 		
 		void readBody();
 		void writeBody();
+		void clean();
 
 		void sortHeaderObjects();
 		bool ValidateHeaderObjects();
@@ -39,9 +40,15 @@ namespace LC {
 		// Iterates through the data using the starting index passed.
 		// The index is incremented by one each time.
 		void* passData(std::size_t &index);
+		// Set location to position in headerObjects vector
 		Header& addObject(const std::pair<HeaderObject, void*> &obj);
+		// Set location to position in headerObjects vector
+		Header& addObject(HeaderObject hobj, void* ptr);
 		Header& addObject(HeaderObject hobj, void *ptr, std::size_t& id);
 		Header& setData(void *ptr, std::size_t index);
+
+		// Feed object, data pairs to header
+		Header& operator << (const std::pair<HeaderObject, void*>& obj);
 
 		// Need to store read file in case user specifies 'save'
 		// instead of 'save as'
@@ -51,6 +58,8 @@ namespace LC {
 		std::vector<std::pair<HeaderObject, void*>> headerObjects;
 		Version version = Version::V1;
 	};
+
+	typedef std::pair<Header::HeaderObject, void*> HeaderPair;
 
 
 	

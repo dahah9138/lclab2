@@ -51,18 +51,17 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 		header.headerObjects.reserve(10);
 
-		// Add objects via function chaining
-
-		header.addObject({ "Scalar size", sizeof(std::size_t) }, &size_of_scalar, iter)
-			.addObject({ "LC type", sizeof(LC_TYPE) }, &lc_type, iter)
-			.addObject({ "Relax kind", sizeof(Dataset::RelaxKind) }, &relaxKind, iter)
-			.addObject({ "Iterations", sizeof(std::size_t) }, &numIterations, iter)
-			.addObject({ "Voxels", 3 * sizeof(int) }, &voxels[0], iter)
-			.addObject({ "Boundaries", 3 * sizeof(bool) }, &bc[0], iter)
-			.addObject({ "Cell dims", 3 * sizeof(LC::scalar) }, &cell_dims[0], iter)
-			.addObject({ "Chirality", sizeof(LC::scalar) }, &chirality, iter)
-			.addObject({ "Relax rate", sizeof(LC::scalar) }, &rate, iter)
-			.addObject({ "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors, iter);
+		// Add objects
+		header << HeaderPair{ { "Scalar size", sizeof(std::size_t) }, &size_of_scalar }
+			<< HeaderPair{ { "LC type", sizeof(LC_TYPE) }, &lc_type }
+			<< HeaderPair{ { "Relax kind", sizeof(Dataset::RelaxKind) }, &relaxKind }
+			<< HeaderPair{ { "Iterations", sizeof(std::size_t) }, &numIterations }
+			<< HeaderPair{ { "Voxels", 3 * sizeof(int) }, &voxels[0] }
+			<< HeaderPair{ { "Boundaries", 3 * sizeof(bool) }, &bc[0] }
+			<< HeaderPair{ { "Cell dims", 3 * sizeof(LC::scalar) }, &cell_dims[0] }
+			<< HeaderPair{ { "Chirality", sizeof(LC::scalar) }, &chirality }
+			<< HeaderPair{ { "Relax rate", sizeof(LC::scalar) }, &rate }
+			<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors };
 
 	}
 
@@ -77,10 +76,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		// Clear header objects. It is assumed that any dynamic data has been
 		// freed at this point
-		{
-			Header tmp{};
-			header.headerObjects.swap(tmp.headerObjects);
-		}
+		header.clean();
 
 		header.read();
 		header.readBody();

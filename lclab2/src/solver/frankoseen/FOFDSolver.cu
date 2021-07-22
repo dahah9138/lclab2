@@ -1,5 +1,5 @@
 #include "CudaContext.cuh"
-#include "base/scalar.h"
+#include "scalar.h"
 
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {

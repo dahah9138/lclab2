@@ -29,8 +29,6 @@ namespace LC {
 
             vertices[i].position = pos(CX * (-0.5f + x), CY * (-0.5f + y), offset);
 
-            Float r = vertices[i].position.length();
-
             vertices[i].color = Color4{ 1.0f, 1.0f, 1.0f, 0.5f };
 
             if (ii < NX - 1 && jj < NY - 1)

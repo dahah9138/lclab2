@@ -7,7 +7,7 @@
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
-	struct LC_API RBFFDSolver : public Solver {
+	struct RBFFDSolver : public Solver {
 		struct Dataset : public ElasticConstants {
 
 		};

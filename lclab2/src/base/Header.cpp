@@ -275,8 +275,10 @@ namespace LC {
 		return *this;
 	}
 
-	Header& Header::addObject(const std::pair<HeaderObject, void*>& obj) {
-		headerObjects.emplace_back(obj);
+	Header& Header::addObject(const HeaderPair& obj) {
+		std::pair<HeaderObject, void*> o = obj;
+		o.first.location = headerObjects.size();
+		headerObjects.emplace_back(o);
 		return *this;
 	}
 
@@ -284,10 +286,26 @@ namespace LC {
 
 		hobj.location = loc++;
 
-		headerObjects.emplace_back(std::pair<HeaderObject, void*>(hobj, ptr));
+		headerObjects.emplace_back(HeaderPair(hobj, ptr));
 		return *this;
 	}
 
+	Header& Header::addObject(HeaderObject hobj, void* ptr) {
+
+		hobj.location = headerObjects.size();
+
+		headerObjects.emplace_back(HeaderPair(hobj, ptr));
+		return *this;
+	}
+
+	Header& Header::operator << (const HeaderPair& obj) {
+		return addObject(obj);
+	}
+
+	void Header::clean() {
+		Header tmp{};
+		headerObjects.swap(tmp.headerObjects);
+	}
 
 	void Header::read() {
 		read(readFile);

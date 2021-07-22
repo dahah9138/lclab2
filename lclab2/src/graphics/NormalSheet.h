@@ -23,7 +23,7 @@
 
 namespace LC {
 
-struct LC_API NormalSheet {
+struct NormalSheet {
 	struct Vertex {
 		Magnum::Vector3 position;
 		Magnum::Vector3 normal;

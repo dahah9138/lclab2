@@ -9,7 +9,7 @@
 
 namespace LC {
 	
-	struct LC_API Solver {
+	struct Solver {
 
 		enum class Error {
 			None = 0,

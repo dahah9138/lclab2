@@ -12,7 +12,7 @@
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
-	struct LC_API FOFDSolver : public Solver {
+	struct FOFDSolver : public Solver {
 		
 		typedef Eigen::TensorMap<Eigen::Tensor<scalar, 4>> Tensor4;
 
@@ -26,7 +26,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			};
 			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
 
-			typedef std::function<void(Tensor4, int, int, int, int*)> Config;
+			typedef std::function<void(Tensor4&, int, int, int, int*)> Config;
 
 			std::size_t size_of_scalar = SIZE_OF_SCALAR;
 			LC_TYPE lc_type = LC_TYPE::_5CB;
@@ -99,12 +99,22 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				};
 			}
 
-			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135) {
+			static Config Planar(int layers, scalar lambda = 1.0) {
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					scalar z = (scalar)k / (scalar)voxels[2];
+					scalar omega = 2 * M_PI * layers * z / lambda;
+					n(i, j, k, 0) = -sin(omega);
+					n(i, j, k, 1) = cos(omega);
+					n(i, j, k, 2) = 0.0;
+				};
+			}
+
+			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{0.0, 0.0, 0.0}, bool background = true) {
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 
 					scalar layersscale = ceil(2 * Q * lim);
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)voxels[0] - 0.5, (scalar)j / (scalar)voxels[1] - 0.5, (scalar)k / (scalar)voxels[2] - 0.5 };
-					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords;
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * (coords + translation);
 
 					scalar phi = atan2(p[1], p[0]);
 					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
@@ -155,12 +165,32 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 						for (int d = 0; d < 3; d++)
 							n(i, j, k, d) = nn[d];
 					}
-					else {
+					else if (background) {
 						n(i, j, k, 0) = -sin(omega);
 						n(i, j, k, 1) = cos(omega);
 						n(i, j, k, 2) = 0.0;
 					}
-					
+				};
+			}
+
+			static Config Heliknoton(int Q, const std::vector<Eigen::Matrix<scalar, 3, 1>> &translations, scalar factor) {
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					// Generate several heliknotons
+					std::vector<Config> cfgs;
+					cfgs.resize(translations.size());
+
+					// Construct the heliknoton configurations
+					for (int i = 0; i < cfgs.size(); i++) {
+						cfgs[i] = Heliknoton(Q, factor, 1.135, translations[i], false);
+					}
+
+					// First make a uniform background
+					Config pl = Planar(ceil(2 * Q * 1.135), factor);
+					pl(n, i, j, k, voxels);
+
+					// Apply the configurations
+					for (const auto& cfg : cfgs)
+						cfg(n, i, j, k, voxels);
 				};
 			}
 

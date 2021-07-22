@@ -42,7 +42,7 @@ namespace Magnum {
 
 /* Implementation of Ken Shoemake's arcball camera with smooth navigation
    feature: https://www.talisman.org/~erlkonig/misc/shoemake92-arcball.pdf */
-    class LC_API ArcBall {
+    class ArcBall {
 
         public:
             ArcBall(const Vector3& cameraPosition, const Vector3& viewCenter,

@@ -71,8 +71,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     enableDepthTest();
     enableFaceCulling();
 
-    /* Loop at 60 Hz max */
-    setSwapInterval(1);
+    /* Loop at 60 Hz max - setSwapInterval(1) sets maximum to monitor frame rate */
+    setSwapInterval(0);
     setMinimalLoopPeriod(16);
 
     setupCamera(2.0f, CameraType::Group);
@@ -82,11 +82,16 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data using function chaining */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    (*data).Voxels(64, 64, 64)
+    // Create 2 heliknotons
+    std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
+    translations.push_back({ -0.2, -0.2, 0.0 });
+    translations.push_back({ 0.2, 0.2, 0.0 });
+
+    (*data).Voxels(100, 100, 100)
         .Boundaries(1, 1, 0)
-        .Cell(2.5, 2.5, 2.5)
+        .Cell(4, 4, 4)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Configuration(Dataset::Heliknoton(1));
+        .Configuration(Dataset::Heliknoton(1, translations, 0.65));
 
     _solver->Init();
     _relaxFuture.second = false;

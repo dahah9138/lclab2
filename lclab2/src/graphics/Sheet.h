@@ -23,7 +23,7 @@
 
 namespace LC {
 
-struct LC_API Sheet {
+struct Sheet {
 	struct Vertex {
 		Magnum::Vector3 position;
 		Magnum::Color3 color;

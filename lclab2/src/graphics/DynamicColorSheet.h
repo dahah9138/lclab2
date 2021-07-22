@@ -37,7 +37,7 @@ namespace LC {
 
     using namespace Magnum;
 
-    struct LC_API DynamicColorSheet {
+    struct DynamicColorSheet {
 
         typedef Magnum::Vector3(*PositionFunction)(Magnum::Float, Magnum::Float, Magnum::Float);
 

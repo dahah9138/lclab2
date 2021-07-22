@@ -29,6 +29,7 @@
 
 // Gives std::function
 #include <functional>
+#include <vector>
 
 #include "portable-file-dialogs.h"
 

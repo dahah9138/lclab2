@@ -25,6 +25,9 @@ struct Widget {
 	// Num cycles before next draw call
 	int cycle = 10;
 
+	std::array<int, 3> iPlane;
+	bool midplane = true;
+
 	bool updateImage = false;
 	bool nonlinear = false;
 	bool POM = false;

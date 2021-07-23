@@ -1,6 +1,5 @@
 #include <lclab2.h>
 #include "Widget.h"
-
 using namespace Magnum;
 using namespace Math::Literals;
 using FOFDSolver = LC::FrankOseen::ElasticOnly::FOFDSolver;
@@ -84,27 +83,28 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data using function chaining */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    // Create 2 heliknotons
-    //std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
-    //translations.push_back({ -0.8, -0.8, 0.0 });
-    //translations.push_back({ 0.8, 0.8, 0.0 });
-
-    Dataset::Config plan = Dataset::Planar(8);
-    Dataset::Config heli = Dataset::Heliknoton(3, 0.7, 1.135, { 0.0, 0.0, 0.0 }, false);
+    // Create heliknotons
+    std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
+    translations.push_back({ 0.0, 0.9, 0.0 });
+    translations.push_back({ 0.9, 0.0, 0.0 });
 
 
-    Dataset::Config custom_cfg = [plan, heli](FOFDSolver::Tensor4& nn, int i, int j, int k, int* voxels) {
-        plan(nn, i, j, k, voxels);
-        heli(nn, i, j, k, voxels);
-    };
+    //Dataset::Config plan = Dataset::Planar(6);
+    //Dataset::Config heli = Dataset::Heliknoton(2, 0.7, 1.135, { 0.0, 0.0, 0.0 }, false);
 
 
-    (*data).Voxels(200, 200, 200)
+    //Dataset::Config custom_cfg = [plan, heli](FOFDSolver::Tensor4& nn, int i, int j, int k, int* voxels) {
+    //    plan(nn, i, j, k, voxels);
+    //    heli(nn, i, j, k, voxels);
+    //};
+
+
+    (*data).Voxels(100, 100, 100)
         .Boundaries(1, 1, 0)
-        .Cell(8, 8, 8)
+        .Cell(10, 10, 4)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        //.Configuration(Dataset::Heliknoton(1, translations, 0.65));
-        .Configuration(custom_cfg);
+        .Configuration(Dataset::Heliknoton(1, translations, 0.2, 3));
+        //.Configuration(custom_cfg);
     _solver->Init();
 
     _relaxFuture.second = false;
@@ -200,10 +200,32 @@ void Sandbox::drawEvent() {
                     ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
                     ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
                     ImGui::InputFloat("Gamma", &_pomImager.gamma);
+                    ImGui::InputInt("Additional Layers", &_pomImager.additional_layers);
 
                     ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
 
                     ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
+                }
+
+                {
+                    bool prior = _widget.midplane;
+                    ImGui::Checkbox("Midplane", &_widget.midplane);
+                    if (!_widget.midplane)
+                    {
+                        // Initialize iplane
+                        if (prior) 
+                            for (int d = 0; d < 3; d++)
+                                _widget.iPlane[d] = data->voxels[d] / 2;
+
+                        ImGui::SliderInt3("Image plane", &_widget.iPlane[0], 0, 
+                            *std::max_element(data->voxels.begin(), data->voxels.end()));
+
+                        // Clamp within bounds
+                        for (int d = 0; d < 3; d++) {
+                            _widget.iPlane[d] = (_widget.iPlane[d] > data->voxels[d] - 1) ? data->voxels[d] - 1 : _widget.iPlane[d];
+                            _widget.iPlane[d] = (_widget.iPlane[d] < 0) ? 0 : _widget.iPlane[d];
+                        }
+                    }
                 }
 
                 if (ImGui::Button("Plane Selector"))
@@ -223,6 +245,17 @@ void Sandbox::drawEvent() {
                     ImGui::EndPopup();
                 }
             }
+
+            ImGui::Text("Go to");
+            ImGui::SameLine();
+            if (ImGui::Button("xy"))
+                _manipulator->setTransformation(Matrix4::rotationZ(Rad(M_PI)));
+            ImGui::SameLine();
+            if (ImGui::Button("xz"))
+                _manipulator->setTransformation(Matrix4::rotationY(Rad(-M_PI)) * Matrix4::rotationX(Rad(-M_PI/2.0f)));
+            ImGui::SameLine();
+            if (ImGui::Button("yz"))
+                _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(-M_PI / 2.0f)));
 
             _widget.updateImage = ImGui::Button("Update Image") || _widget.updateImageFromLoad;
 
@@ -380,7 +413,9 @@ void Sandbox::updateColor() {
             return permutedSlice * j + i;
         };
 
-        int hvox = data->voxels[id] / 2;
+        int hvox;
+        if (_widget.midplane) hvox = data->voxels[id] / 2;
+        else hvox = _widget.iPlane[id];
 
         LC::scalar theta, phi, nx, ny, nz;
         for (int i = 0; i < data->voxels[xx]; i++) {
@@ -388,29 +423,53 @@ void Sandbox::updateColor() {
 
                 // Take an average
                 if (ax == Axis::z) {
-                    nx = (nn(i, j, hvox + 1, 0) + nn(i, j, hvox - 1, 0)) / 2.0;
-                    ny = (nn(i, j, hvox + 1, 1) + nn(i, j, hvox - 1, 1)) / 2.0;
-                    nz = (nn(i, j, hvox + 1, 2) + nn(i, j, hvox - 1, 2)) / 2.0;
+                    if (_widget.midplane) {
+                        nx = (nn(i, j, hvox + 1, 0) + nn(i, j, hvox - 1, 0)) / 2.0;
+                        ny = (nn(i, j, hvox + 1, 1) + nn(i, j, hvox - 1, 1)) / 2.0;
+                        nz = (nn(i, j, hvox + 1, 2) + nn(i, j, hvox - 1, 2)) / 2.0;
+                    }
+                    else {
+                        nx = nn(i, j, hvox, 0);
+                        ny = nn(i, j, hvox, 1);
+                        nz = nn(i, j, hvox, 2);
+                    }
                 }
                 else if (ax == Axis::y) {
-                    nx = (nn(i, hvox + 1, j, 0) + nn(i, hvox - 1, j, 0)) / 2.0;
-                    ny = (nn(i, hvox + 1, j, 1) + nn(i, hvox - 1, j, 1)) / 2.0;
-                    nz = (nn(i, hvox + 1, j, 2) + nn(i, hvox - 1, j, 2)) / 2.0;
+                    if (_widget.midplane) {
+                        nx = (nn(i, hvox + 1, j, 0) + nn(i, hvox - 1, j, 0)) / 2.0;
+                        ny = (nn(i, hvox + 1, j, 1) + nn(i, hvox - 1, j, 1)) / 2.0;
+                        nz = (nn(i, hvox + 1, j, 2) + nn(i, hvox - 1, j, 2)) / 2.0;
+                    }
+                    else {
+                        nx = nn(i, hvox, j, 0);
+                        ny = nn(i, hvox, j, 1);
+                        nz = nn(i, hvox, j, 2);
+                    }
                 }
                 else if (ax == Axis::x) {
-                    nx = (nn(hvox + 1, i, j, 0) + nn(hvox - 1, i, j, 0)) / 2.0;
-                    ny = (nn(hvox + 1, i, j, 1) + nn(hvox - 1, i, j, 1)) / 2.0;
-                    nz = (nn(hvox + 1, i, j, 2) + nn(hvox - 1, i, j, 2)) / 2.0;
+                    if (_widget.midplane) {
+                        nx = (nn(hvox + 1, i, j, 0) + nn(hvox - 1, i, j, 0)) / 2.0;
+                        ny = (nn(hvox + 1, i, j, 1) + nn(hvox - 1, i, j, 1)) / 2.0;
+                        nz = (nn(hvox + 1, i, j, 2) + nn(hvox - 1, i, j, 2)) / 2.0;
+                    }
+                    else {
+                        nx = nn(hvox, i, j, 0);
+                        ny = nn(hvox, i, j, 1);
+                        nz = nn(hvox, i, j, 2);
+                    }
                 }
                 // Compute theta and phi
                 theta = acos(nz);
                 phi = M_PI + atan2(ny, nx);
 
-                
-                if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
-                // Green 3 photon nonlinear imaging
-                else _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx,6.0f) }), alpha };
+                std::size_t cidx = cross_idx(i, j);
 
+                if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cidx].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
+                // Green 3 photon nonlinear imaging
+                else _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx,6.0f) }), alpha };
+
+                _crossSections[id].section.second->vertices[cidx].position[id] = data->cell_dims[id] * ((float)hvox / float(data->voxels[id] - 1) - 0.5f);
+                
                 //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
             }
         }
@@ -438,8 +497,9 @@ void Sandbox::POM() {
     _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
     _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
 
-    _pomImager.thickness = pitch.first * dop;
-    _pomImager.dz = _pomImager.thickness * 1e-6 / data->voxels[2]; // meters
+    _pomImager.dop = dop;
+    _pomImager.thickness = pitch.first * (dop + _pomImager.additional_layers);
+    _pomImager.dz = pitch.first * dop * 1e-6 / (data->voxels[2]-1); // meters
 
     _pomImager.Compute(data->directors, data->voxels, (void*)(&_crossSections[i].section.second->vertices), [](void* data, const std::array<float, 4>& color, std::size_t idx) {
         Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
@@ -464,10 +524,9 @@ void Sandbox::initVisuals() {
     // Create a new manipulator and set its parent
     _manipulator = std::make_unique<LC::Drawable::Object3D>();
     _manipulator->setParent(&_scene);
-    
     // Set the distance from the plane
     _cameraObject.setTransformation(Matrix4::translation(Vector3::zAxis(2.2 * (std::max)(cdims[0], cdims[1]))));
-
+    _manipulator->setTransformation(Matrix4::rotationZ(Rad(M_PI)));
     // Manipulator rotation can be set here as well
     _crossSections = Containers::Array<CrossX>{ 3 };
 

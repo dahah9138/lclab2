@@ -47,6 +47,9 @@ struct POM {
     double dz = 0.0;
     float gamma = 1.0f;
 
+    int additional_layers = 0;
+    int dop = 0;
+
     double n0 = 0.0;
     double ne = 0.0;
 

@@ -22,15 +22,41 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
     for (int i = 0; i < 3; i++)
         cumVoxProdSlice[i] = cumVoxProdSlice[indexOrder[i]];
 
+    scalar nodes_in_layer = voxels[2] / dop;
+    scalar nodes_in_layers = nodes_in_layer * additional_layers;
+    scalar dPhi = 1.0 / scalar(nodes_in_layer - 1);
 
+    Eigen::Vector2cd Eo_plane[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
+    // Add the additional layers if they exist
+    if (additional_layers) {
+        for (int rgb = 0; rgb < 3; rgb++) {
+            for (int t = 0; t < nodes_in_layers - 1; t++) {
+                const scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
+                const scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne;
+                scalar phi = 2.0 * M_PI * dPhi * t + M_PI / 2.0;
+                const std::complex<scalar> eidE = std::exp(ii * deltaE);
+                const std::complex<scalar> eid0 = std::exp(ii * delta0);
+                const scalar cp = cos(phi);
+                const scalar sp = sin(phi);
+
+                M(0, 0) = cp * cp * eidE + sp * sp * eid0;
+                M(0, 1) = sp * cp * (eidE - eid0);
+                M(1, 0) = M(0, 1);
+                M(1, 1) = sp * sp * eidE + cp * cp * eid0;
+
+                Eo_plane[rgb] = M * Eo_plane[rgb];
+            }
+        }
+    }
 
     scalar theta, phi, nx, ny, nz;
         for (int i = 0; i < voxels[0]; i++) {
             for (int j = 0; j < voxels[1]; j++) {
 
                 // Polarization states for rgb colors
-                Eigen::Vector2cd Eo[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
+                Eigen::Vector2cd Eo[] = { Eo_plane[0], Eo_plane[1], Eo_plane[2] };
 
+                
                 for (int k = 0; k < voxels[2]; k++) {
 
                     nx = nn[dir2ind(i, j, k, 0, cumVoxProdSlice)];

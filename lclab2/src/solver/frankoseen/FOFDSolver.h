@@ -114,7 +114,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 					scalar layersscale = ceil(2 * Q * lim);
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)voxels[0] - 0.5, (scalar)j / (scalar)voxels[1] - 0.5, (scalar)k / (scalar)voxels[2] - 0.5 };
-					Eigen::Matrix<scalar, 3, 1> p = 2.0 * (coords + translation);
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords + 0.5 * translation;
 
 					scalar phi = atan2(p[1], p[0]);
 					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
@@ -173,22 +173,27 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				};
 			}
 
-			static Config Heliknoton(int Q, const std::vector<Eigen::Matrix<scalar, 3, 1>> &translations, scalar factor) {
+			static Config Heliknoton(int Q, const std::vector<Eigen::Matrix<scalar, 3, 1>>& translations, scalar factor, int layers = -1, scalar lim = 1.135) {
+
+				if (layers == -1) layers = ceil(2 * Q * lim);
+
+				// Generate several heliknotons
+				std::vector<Config> cfgs;
+				cfgs.resize(translations.size());
+
+				// Construct the heliknoton configurations
+				for (int i = 0; i < cfgs.size(); i++) {
+					cfgs[i] = Heliknoton(Q, factor, lim, translations[i], false);
+				}
+
+				// Helical background
+				Config pl = Planar(layers);
+
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
-					// Generate several heliknotons
-					std::vector<Config> cfgs;
-					cfgs.resize(translations.size());
-
-					// Construct the heliknoton configurations
-					for (int i = 0; i < cfgs.size(); i++) {
-						cfgs[i] = Heliknoton(Q, factor, 1.135, translations[i], false);
-					}
-
-					// First make a uniform background
-					Config pl = Planar(ceil(2 * Q * 1.135), factor);
-					pl(n, i, j, k, voxels);
 
 					// Apply the configurations
+					pl(n, i, j, k, voxels);
+
 					for (const auto& cfg : cfgs)
 						cfg(n, i, j, k, voxels);
 				};

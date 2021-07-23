@@ -2,7 +2,7 @@
 #include "scalar.h"
 
 
-namespace LC { namespace FrankOseen { namespace ElasticOnly {
+namespace LC { namespace FrankOseen { namespace ElasticOnly { namespace FD {
 
 	typedef void(*vFunction_t)(void* data, unsigned int);
 
@@ -18,12 +18,31 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 	HEMI_DEV_CALLABLE
-	void HandleBoundaryConditionsOrder2_Device(scalar *nn, unsigned int idx, const int * vXi, const bool *bc, unsigned int N) {
+		void HandleBoundaryConditionsOrder2_Device(scalar* nn, unsigned int idx, const int* vXi, const bool* bc, unsigned int N) {
 		using namespace LC::Cuda;
 
 		int r[3];
 		ind2sub(idx, vXi, r);
-		
+
+		for (int d = 0; d < 3; d++) {
+			if (bc[0] && r[0] == 0) nn[idx + N * d] = nn[sub2ind(vXi[0] - 2, r[1], r[2], vXi) + N * d];
+			else if (bc[0] && r[0] == vXi[0] - 1) nn[idx + N * d] = nn[sub2ind(1, r[1], r[2], vXi) + N * d];
+
+			if (bc[1] && r[1] == 0) nn[idx + N * d] = nn[sub2ind(r[0], vXi[1] - 2, r[2], vXi) + N * d];
+			else if (bc[1] && r[1] == vXi[1] - 1) nn[idx + N * d] = nn[sub2ind(r[0], 1, r[2], vXi) + N * d];
+
+			if (bc[2] && r[2] == 0) nn[idx + N * d] = nn[sub2ind(r[0], r[1], vXi[2] - 2, vXi) + N * d];
+			else if (bc[2] && r[2] == vXi[2] - 1) nn[idx + N * d] = nn[sub2ind(r[0], r[1], 1, vXi) + N * d];
+		}
+	}
+
+	HEMI_DEV_CALLABLE
+		void HandleBoundaryConditionsOrder4_Device(scalar* nn, unsigned int idx, const int* vXi, const bool* bc, unsigned int N) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
 		for (int d = 0; d < 3; d++) {
 			if (bc[0] && r[0] == 0) nn[idx + N * d] = nn[sub2ind(vXi[0] - 4, r[1], r[2], vXi) + N * d];
 			else if (bc[0] && r[0] == 1) nn[idx + N * d] = nn[sub2ind(vXi[0] - 3, r[1], r[2], vXi) + N * d];
@@ -76,14 +95,14 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			dir[2][d][0] = nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd * d];
 			dir[2][d][1] = nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd * d];
 
-			nD[0][d] = (dir[0][d][1] - dir[0][d][0]) / (2.0 * dr[d]);
-			nD[1][d] = (dir[1][d][1] - dir[1][d][0]) / (2.0 * dr[d]);
-			nD[2][d] = (dir[2][d][1] - dir[2][d][0]) / (2.0 * dr[d]);
+			nD[0][d] = (dir[0][d][1] - dir[0][d][0]) / (2.0 * dr[0]);
+			nD[1][d] = (dir[1][d][1] - dir[1][d][0]) / (2.0 * dr[1]);
+			nD[2][d] = (dir[2][d][1] - dir[2][d][0]) / (2.0 * dr[2]);
 		}
 
 		__syncthreads();
 
-		scalar c = (1 + rate) * 1.0 / (2.0 * denom);
+		scalar c = (1.0 + rate) / (2.0 * denom);
 
 		for (int d = 0; d < 3; d++) {
 
@@ -100,6 +119,70 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 	}
 
+	HEMI_DEV_CALLABLE
+		void OneConstAlgebraicO4_Device(scalar* nn, unsigned int idx, unsigned int Nd, const int* vXi, const scalar* dr, const scalar* dr2, scalar rate, scalar chirality) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] < 2 || r[d] > vXi[d] - 3) return;
+
+		constexpr scalar c1 = 1.0 / 12.0;
+		constexpr scalar c2 = 2.0 / 3.0;
+		constexpr scalar c3 = 4.0 / 3.0;
+
+		scalar N, curl;
+		// [position][director]
+		scalar nAvg[3][3];
+		// [derivative][director]
+		scalar nD[3][3];
+		// [position][director][--, -, +, ++]
+		scalar dir[3][3][4];
+
+		for (int d = 0; d < 3; d++) {
+
+			// Fill
+			dir[0][d][0] = nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][1] = nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][2] = nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][3] = nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd * d];
+
+			dir[1][d][0] = nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd * d];
+			dir[1][d][1] = nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd * d];
+			dir[1][d][2] = nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd * d];
+			dir[1][d][3] = nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd * d];
+
+			dir[2][d][0] = nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd * d];
+			dir[2][d][1] = nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd * d];
+			dir[2][d][2] = nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd * d];
+			dir[2][d][3] = nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd * d];
+
+			for (int i = 0; i < 3; i++) {
+				nD[i][d] = (-c1 * dir[i][d][3] + c2 * dir[i][d][2] - c2 * dir[i][d][1] + c1 * dir[i][d][0]) / dr[i];
+				nAvg[i][d] = (c3 * (dir[i][d][1] + dir[i][d][2]) - c1 * (dir[i][d][0] + dir[i][d][3])) / dr2[i];
+			}
+
+		}
+
+		__syncthreads();
+
+		scalar drinv = 5.0 / 2.0 * (1.0 / dr2[0] + 1.0 / dr2[1] + 1.0 / dr2[2]);
+
+		for (int d = 0; d < 3; d++) {
+
+			N = nAvg[0][d] + nAvg[1][d] + nAvg[2][d];
+
+			const int a = (d + 1) % 3;
+			const int b = (d + 2) % 3;
+			curl = nD[a][b] - nD[b][a];
+
+			nn[idx + Nd * d] = (1.0 + rate) * (N - 4.0 * PI * chirality * curl) / drinv - rate * nn[idx + Nd * d];
+		}
+	}
+
+
 	void OneConstAlgebraicO2(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, const scalar *dr, const scalar *dr2, scalar chirality, scalar rate, unsigned int N) {
 		
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
@@ -109,8 +192,26 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		});
 	}
 
-	// Add relax flag types somehow...
-	void RelaxGPU(scalar* directors, const int *vXi, const bool *bc, const scalar *cXi, scalar chirality, scalar rate, unsigned int iterations) {
+	void OneConstAlgebraicO4(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, idx, vXi, bc, N);
+			OneConstAlgebraicO4_Device(directors, idx, N, vXi, dr, dr2, rate, chirality);
+			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	/* routine
+		0 - FullFunctionalO2
+		1 - OneConstFunctionalO2
+		2 - FullAlgebraicO2
+		3 - OneConstAlgebraicO2
+		4 - FullFunctionalO4
+		5 - OneConstFunctionalO4
+		6 - FullAlgebraicO4
+		7 - OneConstAlgebraicO4
+	*/
+	void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int routine) {
 		unsigned int N = vXi[0] * vXi[1] * vXi[2];
 
 		hemi::Array<scalar> dirs(N * 3);
@@ -133,17 +234,36 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			}
 		}
 
-		for (unsigned int i = 0; i < iterations; i++)
-			OneConstAlgebraicO2(dirs.devicePtr(),
-				vX.readOnlyDevicePtr(),
-				BC.readOnlyDevicePtr(),
-				cX.readOnlyDevicePtr(),
-				dr.readOnlyDevicePtr(),
-				dr2.readOnlyDevicePtr(),
-				chirality, rate, N);
+		// Flipped algebraic bit
+		if (routine & 0x02) {
+			// Flipped one const bit
+			if (routine & 0x01) {
+				typedef void(*method_t)(scalar*, const int*, const bool*, const scalar*, const scalar*, const scalar*, scalar, scalar, unsigned int);
+				method_t method;
+				// Flipped order4 bit
+				if (routine & 0x04) method = OneConstAlgebraicO4;
+				else method = OneConstAlgebraicO2;
+
+				for (unsigned int i = 0; i < iterations; i++)
+					method(dirs.devicePtr(),
+						vX.readOnlyDevicePtr(),
+						BC.readOnlyDevicePtr(),
+						cX.readOnlyDevicePtr(),
+						dr.readOnlyDevicePtr(),
+						dr2.readOnlyDevicePtr(),
+						chirality, rate, N);
+			}
+			else {
+				return;
+			}
+
+		}
+		else {
+			return;
+		}
 		hemi::synchronize();
 		cudaMemcpy(directors, dirs.readOnlyHostPtr(), 3 * sizeof(scalar) * N, cudaMemcpyDeviceToHost);
 	}
 
 
-}}}
+}}}}

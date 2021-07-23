@@ -5,8 +5,9 @@
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
 	#ifdef LCLAB2_CUDA_AVAIL
-
-	extern void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations);
+	namespace FD {
+		extern void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method);
+	}
 	#endif
 
 	bool FOFDSolver::Dataset::chkErrors() {
@@ -214,6 +215,13 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		}
 
 		/* Relax routine */
+#ifdef LCLAB2_CUDA_AVAIL
+		if (GPU) {
+			FD::RelaxGPU(data.directors, &data.voxels[0], &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations, static_cast<int>(data.relaxKind));
+			data.numIterations += iterations;
+			return;
+		}
+#endif
 
 		typedef void (FOFDSolver::*FunctionPtr)(Tensor4&, int, int, int);
 		bool oneConst = static_cast<int>(data.relaxKind) & static_cast<int>(Dataset::RelaxKind::OneConst);
@@ -233,14 +241,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		
 		if (order4) boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder4;
 		else boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder2;
-
-#ifdef LCLAB2_CUDA_AVAIL
-		if (GPU) {
-			RelaxGPU(data.directors, &data.voxels[0], &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations);
-			data.numIterations += iterations;
-			return;
-		}
-#endif
 
 
 		/* Create tensor map */
@@ -288,7 +288,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		constexpr scalar c1 = 1.0/12.0;
 		constexpr scalar c2 = 2.0/3.0;
 
-		// currently assumes dr = dx = dy = dz
 		std::array<scalar, 3> dr;
 		std::array<scalar, 3> dr2;
 		scalar vol = 1.0, denom = 0.0;
@@ -296,17 +295,19 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		scalar nD[3][3];
 
-		// Central second order accuracy finite difference first derivatives
 		for (int d = 0; d < 3; d++) {
-
 			dr[d] = data.cell_dims[d] / (data.voxels[d] - 1);
 			dr2[d] = dr[d] * dr[d];
 			vol *= dr2[d];
+		}
+
+		// Central fourth order accuracy finite difference first derivatives
+		for (int d = 0; d < 3; d++) {
 			denom += dr2[d] * dr2[(d + 1) % 3];
 
-			nD[0][d] = (-c1 * nn(i + 2, j, k, d) + c2 * nn(i + 1, j, k, d) - c2 * nn(i - 1, j, k, d) + c1 * nn(i - 2, j, k, d)) / dr[d];
-			nD[1][d] = (-c1 * nn(i, j + 2, k, d) + c2 * nn(i, j + 1, k, d) - c2 * nn(i, j - 1, k, d) + c1 * nn(i, j - 2, k, d)) / dr[d];
-			nD[2][d] = (-c1 * nn(i, j, k + 2, d) + c2 * nn(i, j, k + 1, d) - c2 * nn(i, j, k - 1, d) + c1 * nn(i, j, k - 2, d)) / dr[d];
+			nD[0][d] = (-c1 * nn(i + 2, j, k, d) + c2 * nn(i + 1, j, k, d) - c2 * nn(i - 1, j, k, d) + c1 * nn(i - 2, j, k, d)) / dr[0];
+			nD[1][d] = (-c1 * nn(i, j + 2, k, d) + c2 * nn(i, j + 1, k, d) - c2 * nn(i, j - 1, k, d) + c1 * nn(i, j - 2, k, d)) / dr[1];
+			nD[2][d] = (-c1 * nn(i, j, k + 2, d) + c2 * nn(i, j, k + 1, d) - c2 * nn(i, j, k - 1, d) + c1 * nn(i, j, k - 2, d)) / dr[2];
 		}
 
 		scalar c = (1 + data.rate) * 2.0 / (5.0 * denom);
@@ -347,15 +348,18 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		scalar vol = 1.0, denom = 0.0;
 
 
-		// Central second order accuracy finite difference first derivatives
 		for (int d = 0; d < 3; d++) {
 			dr[d] = data.cell_dims[d] / (data.voxels[d] - 1);
 			dr2[d] = dr[d] * dr[d];
 			vol *= dr2[d];
+		}
+
+		// Central second order accuracy finite difference first derivatives
+		for (int d = 0; d < 3; d++) {
 			denom += dr2[d] * dr2[(d + 1) % 3];
-			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / (2.0 * dr[d]);
-			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / (2.0 * dr[d]);
-			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / (2.0 * dr[d]);
+			nD[0][d] = (nn(i + 1, j, k, d) - nn(i - 1, j, k, d)) / (2.0 * dr[0]);
+			nD[1][d] = (nn(i, j + 1, k, d) - nn(i, j - 1, k, d)) / (2.0 * dr[1]);
+			nD[2][d] = (nn(i, j, k + 1, d) - nn(i, j, k - 1, d)) / (2.0 * dr[2]);
 		}
 
 		scalar c = (1 + data.rate) * 1.0 / (2.0 * denom);
@@ -405,7 +409,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			nn(i, j, k, d) /= len;
 	}
 
-	void FOFDSolver::HandleBoundaryConditionsOrder2(Tensor4& nn, int i, int j, int k) {
+	void FOFDSolver::HandleBoundaryConditionsOrder4(Tensor4& nn, int i, int j, int k) {
 
 		for (int d = 0; d < 3; d++) {
 
@@ -427,7 +431,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	}
 
-	void FOFDSolver::HandleBoundaryConditionsOrder4(Tensor4& nn, int i, int j, int k) {
+	void FOFDSolver::HandleBoundaryConditionsOrder2(Tensor4& nn, int i, int j, int k) {
 
 		for (int d = 0; d < 3; d++) {
 

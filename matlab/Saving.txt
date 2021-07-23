@@ -1,0 +1,5 @@
+How to export directors
+
+data = fread_ElasticOnly('../data/FILE.lmt')
+nn = cell2mat(data(4,2));
+save('file_name', 'nn');

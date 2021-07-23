@@ -75,7 +75,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     setSwapInterval(0);
     setMinimalLoopPeriod(16);
 
-    setupCamera(2.0f, CameraType::Group);
 
     _solver = std::make_unique<FOFDSolver>();
 
@@ -84,16 +83,19 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     // Create 2 heliknotons
     std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
-    translations.push_back({ -0.2, -0.2, 0.0 });
-    translations.push_back({ 0.2, 0.2, 0.0 });
+    translations.push_back({ -0.8, -0.8, 0.0 });
+    translations.push_back({ 0.8, 0.8, 0.0 });
 
-    (*data).Voxels(100, 100, 100)
+    (*data).Voxels(120, 120, 120)
         .Boundaries(1, 1, 0)
-        .Cell(4, 4, 4)
+        .Cell(5, 5, 5)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Configuration(Dataset::Heliknoton(1, translations, 0.65));
-
+        //.Configuration(Dataset::Heliknoton(1, translations, 0.65));
+        .Configuration(Dataset::Heliknoton(2));
     _solver->Init();
+
+    setupCamera(2.2 * (*data).cell_dims[2], CameraType::Group);
+
     _relaxFuture.second = false;
 
     initVisuals();

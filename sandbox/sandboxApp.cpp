@@ -71,6 +71,9 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     enableDepthTest();
     enableFaceCulling();
 
+    /* Setup the camera */
+    setupCamera(1.0f, CameraType::Group);
+
     /* Loop at 60 Hz max - setSwapInterval(1) sets maximum to monitor frame rate */
     setSwapInterval(0);
     setMinimalLoopPeriod(16);
@@ -82,19 +85,27 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
     // Create 2 heliknotons
-    std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
-    translations.push_back({ -0.8, -0.8, 0.0 });
-    translations.push_back({ 0.8, 0.8, 0.0 });
+    //std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
+    //translations.push_back({ -0.8, -0.8, 0.0 });
+    //translations.push_back({ 0.8, 0.8, 0.0 });
 
-    (*data).Voxels(120, 120, 120)
+    Dataset::Config plan = Dataset::Planar(8);
+    Dataset::Config heli = Dataset::Heliknoton(3, 0.7, 1.135, { 0.0, 0.0, 0.0 }, false);
+
+
+    Dataset::Config custom_cfg = [plan, heli](FOFDSolver::Tensor4& nn, int i, int j, int k, int* voxels) {
+        plan(nn, i, j, k, voxels);
+        heli(nn, i, j, k, voxels);
+    };
+
+
+    (*data).Voxels(200, 200, 200)
         .Boundaries(1, 1, 0)
-        .Cell(5, 5, 5)
+        .Cell(8, 8, 8)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
         //.Configuration(Dataset::Heliknoton(1, translations, 0.65));
-        .Configuration(Dataset::Heliknoton(2));
+        .Configuration(custom_cfg);
     _solver->Init();
-
-    setupCamera(2.2 * (*data).cell_dims[2], CameraType::Group);
 
     _relaxFuture.second = false;
 
@@ -375,24 +386,25 @@ void Sandbox::updateColor() {
         for (int i = 0; i < data->voxels[xx]; i++) {
             for (int j = 0; j < data->voxels[yy]; j++) {
 
+                // Take an average
                 if (ax == Axis::z) {
-                    nx = nn(i, j, hvox, 0);
-                    ny = nn(i, j, hvox, 1);
-                    nz = nn(i, j, hvox, 2);
+                    nx = (nn(i, j, hvox + 1, 0) + nn(i, j, hvox - 1, 0)) / 2.0;
+                    ny = (nn(i, j, hvox + 1, 1) + nn(i, j, hvox - 1, 1)) / 2.0;
+                    nz = (nn(i, j, hvox + 1, 2) + nn(i, j, hvox - 1, 2)) / 2.0;
                 }
                 else if (ax == Axis::y) {
-                    nx = nn(i, hvox, j, 0);
-                    ny = nn(i, hvox, j, 1);
-                    nz = nn(i, hvox, j, 2);
+                    nx = (nn(i, hvox + 1, j, 0) + nn(i, hvox - 1, j, 0)) / 2.0;
+                    ny = (nn(i, hvox + 1, j, 1) + nn(i, hvox - 1, j, 1)) / 2.0;
+                    nz = (nn(i, hvox + 1, j, 2) + nn(i, hvox - 1, j, 2)) / 2.0;
                 }
                 else if (ax == Axis::x) {
-                    nx = nn(hvox, i, j, 0);
-                    ny = nn(hvox, i, j, 1);
-                    nz = nn(hvox, i, j, 2);
+                    nx = (nn(hvox + 1, i, j, 0) + nn(hvox - 1, i, j, 0)) / 2.0;
+                    ny = (nn(hvox + 1, i, j, 1) + nn(hvox - 1, i, j, 1)) / 2.0;
+                    nz = (nn(hvox + 1, i, j, 2) + nn(hvox - 1, i, j, 2)) / 2.0;
                 }
                 // Compute theta and phi
                 theta = acos(nz);
-                phi = M_PI / 2.0f - atan2(ny, nx);
+                phi = M_PI + atan2(ny, nx);
 
                 
                 if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cross_idx(i, j)].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
@@ -452,6 +464,9 @@ void Sandbox::initVisuals() {
     // Create a new manipulator and set its parent
     _manipulator = std::make_unique<LC::Drawable::Object3D>();
     _manipulator->setParent(&_scene);
+    
+    // Set the distance from the plane
+    _cameraObject.setTransformation(Matrix4::translation(Vector3::zAxis(2.2 * (std::max)(cdims[0], cdims[1]))));
 
     // Manipulator rotation can be set here as well
     _crossSections = Containers::Array<CrossX>{ 3 };

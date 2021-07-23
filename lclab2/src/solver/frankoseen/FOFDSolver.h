@@ -101,7 +101,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 			static Config Planar(int layers, scalar lambda = 1.0) {
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
-					scalar z = (scalar)k / (scalar)voxels[2];
+					scalar z = (scalar)k / (scalar)(voxels[2]-1);
 					scalar omega = 2 * M_PI * layers * z / lambda;
 					n(i, j, k, 0) = -sin(omega);
 					n(i, j, k, 1) = cos(omega);
@@ -113,7 +113,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 
 					scalar layersscale = ceil(2 * Q * lim);
-					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)voxels[0] - 0.5, (scalar)j / (scalar)voxels[1] - 0.5, (scalar)k / (scalar)voxels[2] - 0.5 };
+					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0]-1) - 0.5, (scalar)j / (scalar)(voxels[1]-1) - 0.5, (scalar)k / (scalar)(voxels[2]-1) - 0.5 };
 					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords + 0.5 * translation;
 
 					scalar phi = atan2(p[1], p[0]);
@@ -147,7 +147,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 						scalar nytemp = nn[1];
 						nn[1] = nn[2];
-						nn[2] = -nn[1];
+						nn[2] = -nytemp;
 
 
 						// Rotate directors

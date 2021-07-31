@@ -89,21 +89,23 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     translations.push_back({ 0.9, 0.0, 0.0 });
 
 
-    //Dataset::Config plan = Dataset::Planar(6);
-    //Dataset::Config heli = Dataset::Heliknoton(2, 0.7, 1.135, { 0.0, 0.0, 0.0 }, false);
+    //Dataset::Config plan = Dataset::Planar(2);
+    //Dataset::Config heli = Dataset::Heliknoton(1, 0.6666, 1.135, { 0.0, 0.0, 0.0 }, false);
 
 
-    //Dataset::Config custom_cfg = [plan, heli](FOFDSolver::Tensor4& nn, int i, int j, int k, int* voxels) {
-    //    plan(nn, i, j, k, voxels);
+    ///Dataset::Config custom_cfg = [plan, heli](FOFDSolver::Tensor4& nn, int i, int j, int k, int* voxels) {
+    ///    plan(nn, i, j, k, voxels);
     //    heli(nn, i, j, k, voxels);
     //};
 
 
-    (*data).Voxels(100, 100, 100)
+
+    (*data).Voxels(60, 60, 60)
         .Boundaries(1, 1, 0)
-        .Cell(10, 10, 4)
+        .Cell(2, 2, 2)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Configuration(Dataset::Heliknoton(1, translations, 0.2, 3));
+        //.Configuration(Dataset::Heliknoton(1, translations, 0.2, 3));
+        .Configuration(Dataset::Heliknoton(1));
         //.Configuration(custom_cfg);
     _solver->Init();
 
@@ -200,7 +202,8 @@ void Sandbox::drawEvent() {
                     ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
                     ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
                     ImGui::InputFloat("Gamma", &_pomImager.gamma);
-                    ImGui::InputInt("Additional Layers", &_pomImager.additional_layers);
+                    ImGui::InputFloat("z-depth", &_pomImager.z_scan_ratio);
+                    ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers);
 
                     ImGui::Checkbox("Crossed polarizer", &_pomImager.polarizers);
 
@@ -249,13 +252,13 @@ void Sandbox::drawEvent() {
             ImGui::Text("Go to");
             ImGui::SameLine();
             if (ImGui::Button("xy"))
-                _manipulator->setTransformation(Matrix4::rotationZ(Rad(M_PI)));
+                _manipulator->setTransformation(Matrix4{});
             ImGui::SameLine();
             if (ImGui::Button("xz"))
                 _manipulator->setTransformation(Matrix4::rotationY(Rad(-M_PI)) * Matrix4::rotationX(Rad(-M_PI/2.0f)));
             ImGui::SameLine();
             if (ImGui::Button("yz"))
-                _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(-M_PI / 2.0f)));
+                _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(M_PI / 2.0f)));
 
             _widget.updateImage = ImGui::Button("Update Image") || _widget.updateImageFromLoad;
 
@@ -526,7 +529,7 @@ void Sandbox::initVisuals() {
     _manipulator->setParent(&_scene);
     // Set the distance from the plane
     _cameraObject.setTransformation(Matrix4::translation(Vector3::zAxis(2.2 * (std::max)(cdims[0], cdims[1]))));
-    _manipulator->setTransformation(Matrix4::rotationZ(Rad(M_PI)));
+    _manipulator->setTransformation(Matrix4{});
     // Manipulator rotation can be set here as well
     _crossSections = Containers::Array<CrossX>{ 3 };
 

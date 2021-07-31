@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.4)
 project(lclab2)
 
+
+set(CONSOLE_ONLY OFF CACHE BOOL "" FORCE) 
+
+
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules/" ${CMAKE_MODULE_PATH})
 
 # Add Corrade as a subproject
@@ -15,28 +19,32 @@ if (WIN32)
 	# 	sudo pacman -S sdl2             # on ArchLinux
 	# 	sudo apt install libsdl2-dev    # on Ubuntu / Debian
 	# 	brew install sdl2               # on macOS (via Homebrew)
-
-	set(CMAKE_PREFIX_PATH ${PROJECT_SOURCE_DIR}/external/SDL2-2.0.10 ${CMAKE_PREFIX_PATH})
+	if (NOT CONSOLE_ONLY)
+		set(CMAKE_PREFIX_PATH ${PROJECT_SOURCE_DIR}/external/SDL2-2.0.10 ${CMAKE_PREFIX_PATH})
+	endif()
 elseif(UNIX)
 	add_definitions(-DLC_PLATFORM_UNIX)
 elseif(APPLE)
 	add_definitions(-DLC_PLATFORM_MACOS)
 endif()
 
-# Add Magnum as a subproject, enable Sdl2Application
-set(WITH_SDL2APPLICATION ON CACHE BOOL "" FORCE)
+if (NOT CONSOLE_ONLY)
 
-# Introduced/used in tutorial 3
-#set(WITH_TGAIMPORTER ON CACHE BOOL "" FORCE)
-set(WITH_ANYIMAGEIMPORTER ON CACHE BOOL "" FORCE)
-set(WITH_STBIMAGEIMPORTER ON CACHE BOOL "" FORCE)
+	# Add Magnum as a subproject, enable Sdl2Application
+	set(WITH_SDL2APPLICATION ON CACHE BOOL "" FORCE)
 
-#set(WITH_IMGUI ON CACHE BOOL "" FORCE)
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
-set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/implot)
+	# Introduced/used in tutorial 3
+	#set(WITH_TGAIMPORTER ON CACHE BOOL "" FORCE)
+	set(WITH_ANYIMAGEIMPORTER ON CACHE BOOL "" FORCE)
+	set(WITH_STBIMAGEIMPORTER ON CACHE BOOL "" FORCE)
 
-add_subdirectory(external/magnum EXCLUDE_FROM_ALL)
-add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
+	#set(WITH_IMGUI ON CACHE BOOL "" FORCE)
+	set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
+	set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/implot)
+
+	add_subdirectory(external/magnum EXCLUDE_FROM_ALL)
+	add_subdirectory(external/magnum-plugins EXCLUDE_FROM_ALL)
+endif()
 
 #add_subdirectory(external/mahi-gui)
 
@@ -57,7 +65,11 @@ endif()
 add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")
 
 add_subdirectory(lclab2/src)
-# Test
-add_subdirectory(sandbox)
+
+# Test directory
+if (NOT CONSOLE_ONLY)
+	add_subdirectory(sandbox)
+endif()
+
 # This is the folder where all user projects can go
 add_subdirectory(projects)

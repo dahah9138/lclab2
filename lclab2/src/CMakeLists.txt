@@ -1,27 +1,41 @@
-find_package(Magnum REQUIRED 
-			GL 
-			MeshTools
-			Primitives
-			SceneGraph
-			Shaders 
-			Sdl2Application)
+if (NOT CONSOLE_ONLY)
+	find_package(Magnum REQUIRED 
+				GL 
+				MeshTools
+				Primitives
+				SceneGraph
+				Shaders 
+				Sdl2Application)
+endif()
 
 #find_package(MagnumIntegration REQUIRED ImGui)
 
-set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
+if (NOT CONSOLE_ONLY)
+	set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS ON)
+endif()
 
 # To get rid of the console specify WIN32 in add_executable as add_executable(... WIN32 ...)
 # and link to CORRADE::MAIN (need to call find_package(Corrade REQUIRED Main)
 
 #find_package(Corrade REQUIRED Main)
 
-add_subdirectory(implementation)
+if (NOT CONSOLE_ONLY)
+	add_subdirectory(implementation)
+endif()
 
 set (baselib		base/entrypoint.h
-					base/Application.h base/Application.cpp
 					base/logger.h base/logger.cpp
 					base/scalar.h
+					base/Argument.h
+					base/Arguments.h
 					base/Header.h base/Header.cpp)
+					
+if (NOT CONSOLE_ONLY)
+	# Append application if not console application
+	set (baselib	${baselib} base/Application.h base/Application.cpp)
+else()
+	set (baselib	${baselib} base/ConsoleApplication.h base/ConsoleApplication.cpp)
+endif()
 
 # GPU files to pass to cuda subdirectory
 # ---
@@ -30,8 +44,12 @@ set (lclab2_cuda_global_list ${frankoseenlib_gpu})
 # ---
 add_subdirectory(cuda)
 add_subdirectory(math)
-add_subdirectory(graphics)
-add_subdirectory(imaging)
+
+if (NOT CONSOLE_ONLY)
+	add_subdirectory(graphics)
+	add_subdirectory(imaging)
+endif()
+
 add_subdirectory(solver)
 			
 set (lclab2_src_list  ${baselib})
@@ -47,18 +65,24 @@ if (MSVC)
 endif()
 
 target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_definitions(lclab2 PRIVATE LC_BUILD_DLL)
 
-target_link_libraries(lclab2
-	PUBLIC
-	#   Corrade::Main
-		Magnum::Application
-		LCLAB2ImGuiIntegration
-		Threads::Threads
+set(lclab2_libs Threads::Threads
 		lclab2_math
-		lclab2_imaging
-		lclab2_solver
-		)
+		lclab2_solver)
+
+if (CONSOLE_ONLY)
+	target_compile_definitions(lclab2 PRIVATE LC_BUILD_DLL PUBLIC LC_CONSOLE_APP)
+else()
+	target_compile_definitions(lclab2 PRIVATE LC_BUILD_DLL)
+	set (lclab2_libs ${lclab2_libs} #   Corrade::Main
+									Magnum::Application
+									LCLAB2ImGuiIntegration
+									lclab2_imaging)
+endif()
+
+
+
+target_link_libraries(lclab2 PUBLIC ${lclab2_libs})
 target_compile_features(lclab2 PUBLIC cxx_std_14)
 
 # Make the executable a default target to build & run in Visual Studio

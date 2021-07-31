@@ -22,9 +22,11 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
     for (int i = 0; i < 3; i++)
         cumVoxProdSlice[i] = cumVoxProdSlice[indexOrder[i]];
 
-    scalar nodes_in_layer = voxels[2] / dop;
+    scalar nodes_in_layer = voxels[2] / (dop * 2);
     scalar nodes_in_layers = nodes_in_layer * additional_layers;
     scalar dPhi = 1.0 / scalar(nodes_in_layer - 1);
+
+    int scan_layer_depth = z_scan_ratio * voxels[2];
 
     Eigen::Vector2cd Eo_plane[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
     // Add the additional layers if they exist
@@ -33,7 +35,7 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
             for (int t = 0; t < nodes_in_layers - 1; t++) {
                 const scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
                 const scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne;
-                scalar phi = 2.0 * M_PI * dPhi * t + M_PI / 2.0;
+                scalar phi = M_PI * dPhi * t + M_PI / 2.0;
                 const std::complex<scalar> eidE = std::exp(ii * deltaE);
                 const std::complex<scalar> eid0 = std::exp(ii * delta0);
                 const scalar cp = cos(phi);
@@ -57,7 +59,7 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                 Eigen::Vector2cd Eo[] = { Eo_plane[0], Eo_plane[1], Eo_plane[2] };
 
                 
-                for (int k = 0; k < voxels[2]; k++) {
+                for (int k = 0; k < scan_layer_depth; k++) {
 
                     nx = nn[dir2ind(i, j, k, 0, cumVoxProdSlice)];
                     ny = nn[dir2ind(i, j, k, 1, cumVoxProdSlice)];

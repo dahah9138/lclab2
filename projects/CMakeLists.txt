@@ -1,2 +1,9 @@
 # Personal projects to add
-add_subdirectory(rbf-fd-e)
+
+
+if (CONSOLE_ONLY)
+	add_subdirectory(c-elastic)
+else()
+	add_subdirectory(rbf-fd-e)
+endif()
+	

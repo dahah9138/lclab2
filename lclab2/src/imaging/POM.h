@@ -47,6 +47,7 @@ struct POM {
     double dz = 0.0;
     float gamma = 1.0f;
 
+    float z_scan_ratio = 1.0f;
     int additional_layers = 0;
     int dop = 0;
 

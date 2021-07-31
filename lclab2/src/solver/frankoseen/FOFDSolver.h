@@ -114,7 +114,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 					scalar layersscale = ceil(2 * Q * lim);
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0]-1) - 0.5, (scalar)j / (scalar)(voxels[1]-1) - 0.5, (scalar)k / (scalar)(voxels[2]-1) - 0.5 };
-					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords + 0.5 * translation;
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
 
 					scalar phi = atan2(p[1], p[0]);
 					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);

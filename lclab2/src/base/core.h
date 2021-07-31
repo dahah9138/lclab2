@@ -31,8 +31,11 @@
 // Gives std::function
 #include <functional>
 #include <vector>
+#include <map>
 
-#include "portable-file-dialogs.h"
+#ifndef LC_CONSOLE_APP
+	#include "portable-file-dialogs.h"
+#endif
 
 #define BIT(X) (1 << X)
 
@@ -54,5 +57,5 @@
 		#define LC_API
 	#endif
 #else
-	#error LCLAB2 only supports windows and unix!
+	#error This operating system is not supported!
 #endif

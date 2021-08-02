@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LCLAB2_H
+#define LCLAB2_H
 
 // Base
 #ifndef LC_CONSOLE_APP
@@ -30,6 +31,11 @@
 #include "src/math/poly_spline.h"
 #include "src/math/powi.h"
 #include "src/math/Metric.h"
+#include "src/math/AdvancingFront.h"
+#include "src/math/StencilWeights.h"
+
+// Algorithms
+#include "src/algorithm/cpuknn.h"
 
 #ifndef LC_CONSOLE_APP
 	// Graphics
@@ -57,3 +63,5 @@
 
 // ENTRY POINT
 #include "src/base/entrypoint.h"
+
+#endif

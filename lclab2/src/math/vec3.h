@@ -1,11 +1,10 @@
 #pragma once
 
-#include "core.h"
 #include "scalar.h"
 
 namespace LC { namespace Math {
 	
-	class LC_API vec3
+	class vec3
 	{
 	public:
 		

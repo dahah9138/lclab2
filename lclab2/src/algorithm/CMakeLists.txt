@@ -1,0 +1,5 @@
+add_library(lclab2_algorithm cpuknn.h cpuknn.cpp)
+target_include_directories(lclab2_algorithm PUBLIC
+${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(lclab2_algorithm PUBLIC lclab2_math)
+set_property(TARGET lclab2_algorithm PROPERTY POSITION_INDEPENDENT_CODE 1)

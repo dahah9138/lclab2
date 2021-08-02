@@ -57,7 +57,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data */
     // TODO
 
-
     /* Init visuals */
 
     // TODO
@@ -73,8 +72,7 @@ Sandbox::~Sandbox() {
     Main simulation loop + gui
 */
 void Sandbox::drawEvent() {
-    GL::defaultFramebuffer.clear(
-        GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
+    GL::defaultFramebuffer.clear(GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
     _imgui.newFrame();
 

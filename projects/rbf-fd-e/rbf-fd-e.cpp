@@ -36,9 +36,7 @@ private:
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                 Configuration{}.setTitle("FOFD Elastic Simulation")
-                                                                               .setWindowFlags(Configuration::WindowFlag::Resizable)
-
-} {
+                                                                               .setWindowFlags(Configuration::WindowFlag::Resizable) } {
     _transparentShader = Shaders::VertexColorGL3D{};
 
     /* Setup the GUI */
@@ -58,6 +56,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     /* Setup data */
     // TODO
+
+
     /* Init visuals */
 
     // TODO

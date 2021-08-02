@@ -1,4 +1,10 @@
-add_library(lclab2_math RangePair.cpp RangePair.h)
+add_library(lclab2_math Choose.h Choose.cpp 
+						rng.h rng.cpp 
+						subset.h subset.cpp 
+						rbf.h 
+						poly_spline.h poly_spline.cpp 
+						powi.h powi.cpp
+						Metric.h Metric.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}
 ${CMAKE_SOURCE_DIR}/external/eigen

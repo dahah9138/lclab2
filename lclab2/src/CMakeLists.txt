@@ -43,6 +43,7 @@ set (frankoseenlib_gpu solver/frankoseen/FOFDSolver.cu)
 set (lclab2_cuda_global_list ${frankoseenlib_gpu})
 # ---
 add_subdirectory(cuda)
+add_subdirectory(utility)
 add_subdirectory(math)
 
 if (NOT CONSOLE_ONLY)
@@ -67,6 +68,7 @@ endif()
 target_include_directories(lclab2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(lclab2_libs Threads::Threads
+		lclab2_utility
 		lclab2_math
 		lclab2_solver)
 

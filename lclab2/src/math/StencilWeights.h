@@ -9,6 +9,8 @@
 #include "Choose.h"
 #include "subset.h"
 #include "Metric.h"
+#include "Header.h"
+#include <utility>
 
 #define UGLY_METHOD 0
 
@@ -40,7 +42,7 @@ namespace LC { namespace Math {
 				return;
 
 			unsigned int sz = N * k;
-			data.resize(sz);
+			data = std::unique_ptr<T[]>(new T[sz]);
 		}
 
 		void Print() const {
@@ -56,14 +58,77 @@ namespace LC { namespace Math {
 			}
 		}
 
-		std::vector<T> data;
+		void Write(std::ofstream &ofile) {
+			ofile.write((char*)&N, sizeof(unsigned int));
+			ofile.write((char*)&k, sizeof(unsigned int));
+			ofile.write((char*)&data.get(), sizeof(T) * N * k);
+			ofile.write((char*)&Id, sizeof(WeightTag));
+		}
+
+		void Read(std::ifstream& ifile) {
+			ifile.read((char*)&N, sizeof(unsigned int));
+			ifile.read((char*)&k, sizeof(unsigned int));
+			ifile.read((char*)&data.get(), sizeof(T) * N * k);
+			ifile.read((char*)&Id, sizeof(WeightTag));
+		}
+
+		friend Header& operator << (Header& header, const Weight& wt) {
+			// Format
+			std::string name("Weight");
+			name += "(" + std::to_string(static_cast<int>(wt.Id)) + ")";
+
+			// Data members
+			header << HeaderPair{ {name + "-WeightTag", sizeof(WeightTag)}, (void*)&wt.Id }
+				<< HeaderPair{ { name + "-Data", sizeof(T) * wt.k * wt.N }, (void*)wt.data.get() }
+				<< HeaderPair{ { name + "-N", sizeof(std::size_t) }, (void*)&wt.N }
+				<< HeaderPair{ { name + "-k", sizeof(std::size_t) }, (void*)&wt.k };
+
+			return header;
+		}
+
+		friend Header& operator >> (Header& header, Weight& wt) {
+		
+
+			std::string name("Weight");
+			name += "(" + std::to_string(static_cast<int>(wt.Id)) + ")";
+
+			std::size_t iter = 0;
+
+			// Search headerObjects
+			for (auto& elem : header.headerObjects) {
+
+				if (elem.first.variable == name + "-WeightTag") {
+					std::unique_ptr<WeightTag> info(reinterpret_cast<WeightTag*>(header.passData(iter)));
+					wt.Id = *info;
+				}
+				else if (elem.first.variable == name + "-Data") {
+					wt.data = std::unique_ptr<T[]>(reinterpret_cast<T*>(header.passData(iter)));
+				}
+				else if (elem.first.variable == name + "-N") {
+					std::unique_ptr<std::size_t> sz(reinterpret_cast<std::size_t*>(header.passData(iter)));
+					wt.N = *sz;
+				}
+				else if (elem.first.variable == name + "-k") {
+					std::unique_ptr<std::size_t> sz(reinterpret_cast<std::size_t*>(header.passData(iter)));
+					wt.k = *sz;
+				}
+				else {
+					++iter;
+				}
+
+			}
+
+
+			return header;
+		}
+
+		std::unique_ptr<T[]> data;
 		WeightTag Id;
 		// Number of nodes
 		unsigned int N;
 		// number of nearest neighbors
 		unsigned int k;
 	};
-
 
 	template <typename T>
 	class StencilWeights {
@@ -91,6 +156,20 @@ namespace LC { namespace Math {
 			return 0;
 		}
 
+
+		friend Header& operator << (Header& header, const StencilWeights& swts) {
+			for (const Weight<T>& w : swts.weights) {
+				header << w;
+			}
+			return header;
+		}
+
+		friend Header& operator >> (Header& header, StencilWeights& swts) {
+			for (Weight<T>& w : swts.weights) {
+				header >> w;
+			}
+			return header;
+		}
 		
 		void ComputeWeights(std::vector<T>& position, std::vector<unsigned int>& neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
 

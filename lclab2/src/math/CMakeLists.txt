@@ -9,7 +9,9 @@ add_library(lclab2_math Choose.h Choose.cpp
 						StencilWeights.h StencilWeights.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}
+${CMAKE_SOURCE_DIR}/lclab2/src/base
 ${CMAKE_SOURCE_DIR}/external/eigen
+${CMAKE_SOURCE_DIR}/external/portable-file-dialogs
 ${CMAKE_SOURCE_DIR}/external/eigen/unsupported)
 target_link_libraries(lclab2_math PUBLIC lclab2_utility)
 set_property(TARGET lclab2_math PROPERTY POSITION_INDEPENDENT_CODE 1)

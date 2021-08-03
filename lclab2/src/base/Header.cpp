@@ -2,6 +2,15 @@
 
 namespace LC {
 
+	Header::~Header() {
+		for (auto& elem : headerObjects) {
+			if (elem.second) {
+				delete[] elem.second;
+				elem.second = 0;
+			}
+		}
+	}
+
 	void Header::write(const std::string& file) {
 
 		writeFile = file;
@@ -215,13 +224,13 @@ namespace LC {
 			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", writeFile.c_str());
 		}
 
-		// Read body information
+		// Write body information
 		for (int i = 0; i < headerObjects.size(); i++) {
 
-			// Read data
-
-			if (headerObjects[i].second)
+			// Write data
+			if (headerObjects[i].second) {
 				ofile.write((char*)headerObjects[i].second, headerObjects[i].first.size_in_bytes);
+			}
 			else {
 				LC_CORE_WARN("Abort: Invalid header object when writing body to file <{0}>", writeFile.c_str());
 				return;

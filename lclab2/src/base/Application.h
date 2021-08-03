@@ -67,7 +67,7 @@ namespace LC
 
 
 		virtual void setupCamera(const Float& param, CameraType cameraType);
-		virtual void saveMenu(bool& loaded, void (*loadAction)() = 0);
+		virtual void saveMenu(bool& loaded, std::function<void()> loadAction = 0);
 
 		virtual void save();
 		virtual void saveAs();

@@ -18,7 +18,7 @@ namespace LC { namespace Math {
 	void get_min(T& min, int& ix, int& iy, const T* data, int dimy, std::vector<Y>& xsearch, std::vector<Y>& ysearch, bool startfrom1);
 
 	template <typename T>
-	std::vector<T> AdvancingFront(unsigned int& numnodes, int npp, const Metric<T>& metric, Radius<T> exclusion_rad) {
+	std::unique_ptr<T[]> AdvancingFront(unsigned int& numnodes, int npp, const Metric<T>& metric, Radius<T> exclusion_rad) {
 
 		auto fmin = [](T& min, int& ix, int& iy, T* data, int dimy, std::vector<unsigned int>& xsearch, std::vector<unsigned int>& ysearch, bool sf1 = true) {
 			get_min<T, unsigned int>(min, ix, iy, data, dimy, xsearch, ysearch, sf1);
@@ -259,13 +259,13 @@ namespace LC { namespace Math {
 			}
 		}
 
-		std::vector<T> nodes;
+		std::unique_ptr<T[]> nodes;
 
 		// Copy over the components of xyz that were accepted
 
 		numnodes = numvalid;
 
-		nodes.resize(3 * numnodes);
+		nodes = std::unique_ptr<T[]>(new T[3 * numnodes]);
 
 		// Reformat nodes to proper format
 		for (size_t ii = 0; ii < numvalid; ii++) {

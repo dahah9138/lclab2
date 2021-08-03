@@ -22,7 +22,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 				Directors = BIT(0),
 				Voxels = BIT(1),
 				CellDims = BIT(2),
-				Elastic = BIT(3)
+				Elastic = BIT(3),
+				Scalar = BIT(4)
 			};
 			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
 
@@ -35,7 +36,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			std::array<scalar, 3> cell_dims = { 0.0, 0.0, 0.0 };
 			std::array<bool, 3> bc = { 0, 0, 0 };
 			scalar chirality = 1.0;
-			scalar* directors = 0;
+			std::unique_ptr<scalar[]> directors = 0;
 			Config config = 0;
 			// Relaxation rate
 			scalar rate = 0.0;

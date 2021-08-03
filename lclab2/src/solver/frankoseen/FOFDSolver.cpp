@@ -19,14 +19,12 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		if (!numDirectors) {
 			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
 
-			return 1;
 		}
 
 		// Failed cell dim check
 		if (vol == 0.0) {
 
 			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
-			return 1;
 		}
 
 		// Failed elastic constant check
@@ -34,9 +32,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		    !k11.second.compare("NOINIT") || !k22.second.compare("NOINIT") || !k33.second.compare("NOINIT")) {
 
 			errors = static_cast<DataError>(static_cast<int>(DataError::Elastic) | static_cast<int>(errors));
-
-			return 1;
 		}
+
+		if (errors != DataError::None)
+			return 1;
 
 		// No errors
 		return 0;
@@ -45,7 +44,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	void FOFDSolver::Dataset::configureHeader(Header &header) {
 		// Specify format to save data
-		std::size_t iter = 0;
 		{
 			Header tmp{};
 			header.headerObjects.swap(tmp.headerObjects);
@@ -62,82 +60,67 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			<< HeaderPair{ { "Cell dims", 3 * sizeof(LC::scalar) }, &cell_dims[0] }
 			<< HeaderPair{ { "Chirality", sizeof(LC::scalar) }, &chirality }
 			<< HeaderPair{ { "Relax rate", sizeof(LC::scalar) }, &rate }
-			<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors };
+			<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors.get() };
 
 	}
 
 
 	void FOFDSolver::Dataset::readDataFromHeader(Header& header) {
 
-		// Free directors if there
-		if (directors)
-			delete[] directors;
-
-		directors = 0;
-
-		// Clear header objects. It is assumed that any dynamic data has been
+		// Clear header objects. It is assumed that any raw dynamic data has been
 		// freed at this point
 		header.clean();
 
 		header.read();
 		header.readBody();
 
-		// Extract data
-		{
-			std::size_t iter = 0;
-			LC::scalar* p_cell, *p_chir, *p_rate;
+		// Import data
+		
+		// Iterator
+		std::size_t iter = 0;
+		std::unique_ptr<LC::scalar> p_chir, p_rate;
+		std::unique_ptr<LC::scalar[]> p_cell;
+		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData(iter)));
+		std::unique_ptr<LC_TYPE> p_type(reinterpret_cast<LC_TYPE*>(header.passData(iter)));
+		std::unique_ptr<Dataset::RelaxKind> p_relaxKind(reinterpret_cast<Dataset::RelaxKind*>(header.passData(iter)));
+		std::unique_ptr<std::size_t> p_iter(reinterpret_cast<std::size_t*>(header.passData(iter)));
+		std::unique_ptr<int[]> p_vox(reinterpret_cast<int*>(header.passData(iter)));
+		std::unique_ptr<bool[]> p_bc(reinterpret_cast<bool*>(header.passData(iter)));
 
-			std::size_t* p_size_of_scalar = reinterpret_cast<std::size_t*>(header.passData(iter));
-			LC_TYPE* p_type = reinterpret_cast<LC_TYPE*>(header.passData(iter));
-			Dataset::RelaxKind* p_relaxKind = reinterpret_cast<Dataset::RelaxKind*>(header.passData(iter));
-			std::size_t* p_iter = reinterpret_cast<std::size_t*>(header.passData(iter));
-			int* p_vox = reinterpret_cast<int*>(header.passData(iter));
-			bool* p_bc = reinterpret_cast<bool*>(header.passData(iter));
+		if (*p_size_of_scalar == SIZE_OF_SCALAR) {
+			p_cell = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
+			p_chir = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
+			p_rate = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
 
-			if (*p_size_of_scalar == SIZE_OF_SCALAR) {
+			directors = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
 
-				p_cell = reinterpret_cast<LC::scalar*>(header.passData(iter));
-				p_chir = reinterpret_cast<LC::scalar*>(header.passData(iter));
-				p_rate = reinterpret_cast<LC::scalar*>(header.passData(iter));
-				directors = reinterpret_cast<LC::scalar*>(header.passData(iter));
-				lc_type = *p_type;
-				relaxKind = *p_relaxKind;
-				numIterations = *p_iter;
-				voxels = { p_vox[0], p_vox[1], p_vox[2] };
-				cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
-				bc = { p_bc[0], p_bc[1], p_bc[2] };
-				chirality = *p_chir;
-				rate = *p_rate;
-			}
-			else {
-				LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
-				// Todo read loaded scalar into the scalar being used
-			}
+			size_of_scalar = *p_size_of_scalar;
 
-			// Clean up
-			delete p_size_of_scalar;
-			delete p_type;
-			delete p_relaxKind;
-			delete p_iter;
-			delete[] p_vox;
-			delete[] p_cell;
-			delete[] p_bc;
-			delete p_chir;
-			delete p_rate;
+			lc_type = *p_type;
+			relaxKind = *p_relaxKind;
+			numIterations = *p_iter;
+			voxels = { p_vox[0], p_vox[1], p_vox[2] };
+			cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
+			bc = { p_bc[0], p_bc[1], p_bc[2] };
+			chirality = *p_chir;
+			rate = *p_rate;
 		}
+		else {
+			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
+			errors = static_cast<DataError>(static_cast<int>(errors) | static_cast<int>(DataError::Scalar));
+		}
+
+		
 
 	}
 
 
 	FOFDSolver::FOFDSolver() {
-
+		version = Version::FOFDElasticSolver;
 	}
 
 	FOFDSolver::~FOFDSolver() {
-		if (data.directors) {
-			delete[] data.directors;
-			data.directors = 0;
-		}
+
 	}
 
 
@@ -146,11 +129,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		// This will become more complicated when GPU operations are added!
 
 
-		/* Allocate directors */
-		if (data.directors) {
-			delete[] data.directors;
-			data.directors = 0;
-		}
 
 		// Valid data check
 		bool invalidData = data.chkErrors();
@@ -176,9 +154,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		/* Initialize data */
 		std::size_t numDirectors = data.voxels[0] * data.voxels[1] * data.voxels[2];
-		data.directors = new scalar[3 * numDirectors];
+		data.directors = std::unique_ptr<scalar[]>(new scalar[3 * numDirectors]);
 
-		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
+		Tensor4 nn(data.directors.get(), data.voxels[0], data.voxels[1], data.voxels[2], 3);
 
 		for (int i = 0; i < data.voxels[0]; i++) {
 			for (int j = 0; j < data.voxels[1]; j++) {
@@ -193,7 +171,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	void FOFDSolver::Print() {
 
-		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
+		Tensor4 nn(data.directors.get(), data.voxels[0], data.voxels[1], data.voxels[2], 3);
 
 		for (int i = 0; i < data.voxels[0]; i++) {
 			for (int j = 0; j < data.voxels[1]; j++) {
@@ -217,7 +195,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		/* Relax routine */
 #ifdef LCLAB2_CUDA_AVAIL
 		if (GPU) {
-			FD::RelaxGPU(data.directors, &data.voxels[0], &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations, static_cast<int>(data.relaxKind));
+			FD::RelaxGPU(data.directors.get(), &data.voxels[0], &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations, static_cast<int>(data.relaxKind));
 			data.numIterations += iterations;
 			return;
 		}
@@ -244,7 +222,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 
 		/* Create tensor map */
-		Tensor4 nn(data.directors, data.voxels[0], data.voxels[1], data.voxels[2], 3);
+		Tensor4 nn(data.directors.get(), data.voxels[0], data.voxels[1], data.voxels[2], 3);
 
 
 		for (std::size_t it = 0; it < iterations; it++) {

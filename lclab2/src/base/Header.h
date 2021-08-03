@@ -20,6 +20,8 @@ namespace LC {
 		enum class Version { V1 = 1 };
 		enum class Option { None = 0, Read = BIT(1), Write = BIT(2) };
 
+		~Header();
+
 		void read(const std::string& file);
 
 		// Reads from readFile

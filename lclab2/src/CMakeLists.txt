@@ -26,6 +26,7 @@ endif()
 set (baselib		base/entrypoint.h
 					base/logger.h base/logger.cpp
 					base/scalar.h
+					base/core.h
 					base/Argument.h
 					base/Arguments.h
 					base/Header.h base/Header.cpp)

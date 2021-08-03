@@ -55,7 +55,19 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _solver = std::make_unique<AppSolver>();
 
     /* Setup data */
-    // TODO
+    Dataset* data = (Dataset*)_solver->GetDataPtr();
+    (*data).ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+        .Cell(1.0, 1.0, 1.0)
+        .Boundaries(0, 0, 0)
+        .Neighbors(16);
+
+    // Things to add:
+    // - Exclusion radius function presets
+    // - Director configuration presets
+
+    _solver->Init();
+
+    LC_INFO("Number of nodes = {0}", (*data).nodes);
 
     /* Init visuals */
 

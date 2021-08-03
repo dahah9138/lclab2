@@ -141,9 +141,9 @@ void Sandbox::drawEvent() {
             ImGui::Begin("lclab2", 0, window_flags);
 
             {
-                typedef void(*FuncPtr)();
-                FuncPtr p;
-                GET_METHOD_PTR(Sandbox, initVisuals, PACK(), p);
+                std::function<void()> p = [this]() {
+                    initVisuals();
+                };
                 saveMenu(_widget.updateImageFromLoad, p);
             }
 
@@ -393,7 +393,7 @@ void Sandbox::updateColor() {
     std::size_t slice = data->voxels[0];
     std::size_t cross_slice = data->voxels[1] * slice;
     std::size_t volslice = data->voxels[2] * cross_slice;
-    T4 nn(data->directors, data->voxels[0], data->voxels[1], data->voxels[2], 3);
+    T4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
     Float alpha = _widget.alpha;
 
     for (int id = 0; id < 3; id++) {
@@ -502,7 +502,7 @@ void Sandbox::POM() {
     _pomImager.thickness = pitch.first * (dop + _pomImager.additional_layers);
     _pomImager.dz = pitch.first * dop * 1e-6 / (data->voxels[2]-1); // meters
 
-    _pomImager.Compute(data->directors, data->voxels, (void*)(&_crossSections[i].section.second->vertices), [](void* data, const std::array<float, 4>& color, std::size_t idx) {
+    _pomImager.Compute(data->directors.get(), data->voxels, (void*)(&_crossSections[i].section.second->vertices), [](void* data, const std::array<float, 4>& color, std::size_t idx) {
         Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
         for (int id = 0; id < 4; id++)
             (*dataPtr)[idx].color[id] = color[id];

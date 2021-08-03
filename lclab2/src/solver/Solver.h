@@ -19,6 +19,14 @@ namespace LC {
 			Export = BIT(3)
 		};
 
+		enum class Version {
+			Undefined = 0,
+			FOFDElasticSolver = 1,
+			FOFDSolver = 2, // Full solver
+			RBFElasticSolver = 3,
+			RBFSolver = 4
+		};
+
 		// Returns the future of RelaxAsync
 		// Can optionally use a difference launch policy if so desired...
 		static std::future<void> RelaxAsync(Solver* solver, const std::size_t& iterations, const std::launch &policy = std::launch::async, bool GPU = false) {
@@ -34,6 +42,7 @@ namespace LC {
 		virtual void Export(Header& header) = 0;
 		virtual void Print() {}
 		Error errors = Error::None;
+		Version version = Version::Undefined;
 
 		virtual void* GetDataPtr() = 0;
 

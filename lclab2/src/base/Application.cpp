@@ -244,7 +244,7 @@ namespace LC
 			});
 	}
 
-	void Application::saveMenu(bool& loaded, void (*loadAction)()) {
+	void Application::saveMenu(bool& loaded, std::function<void()> loadAction) {
 		if (ImGui::BeginMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
 

@@ -25,7 +25,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		ExclusionRadius exrad = [](scalar x, scalar y, scalar z) {
 			return (scalar)0.1;
 		};
-		LC_INFO("{0} {1} {2}", data.cell_dims[0], data.cell_dims[1], data.cell_dims[2]);
+
 		unsigned int nodes_generated;
 
 		// Generate nodes

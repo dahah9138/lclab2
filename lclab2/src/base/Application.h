@@ -2,6 +2,9 @@
 #define APPLICATION_H
 
 
+#include <Corrade/Containers/GrowableArray.h>
+#include <Corrade/Containers/Array.h>
+
 #include <Magnum/GL/Buffer.h>
 #include <Magnum/GL/DefaultFramebuffer.h>
 #include <Magnum/GL/Mesh.h>
@@ -12,10 +15,11 @@
 #include <Magnum/MeshTools/CompressIndices.h>
 #include <Magnum/MeshTools/Compile.h>
 #include <Magnum/Shaders/VertexColor.h>
+#include <Magnum/Shaders/PhongGL.h>
+#include <Magnum/Shaders/FlatGL.h>
 #include <Magnum/Platform/Sdl2Application.h>
 #include <Magnum/Primitives/Cube.h>
 #include <Magnum/Primitives/Icosphere.h>
-#include <Magnum/Shaders/PhongGL.h>
 #include <Magnum/Trade/MeshData.h>
 #include <Magnum/SceneGraph/Camera.h>
 

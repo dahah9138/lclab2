@@ -29,7 +29,7 @@ struct SphereArray {
         Magnum::Color3 color;
     };
 
-    void Init(void* positions, const Magnum::Vector3& (*Access)(void* data, std::size_t i), std::size_t size, int subdivisions = 2);
+    void Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions = 2);
     void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4 &projection);
 
     Magnum::UnsignedInt numObjects;

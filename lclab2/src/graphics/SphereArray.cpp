@@ -5,9 +5,9 @@ using namespace Magnum;
 
 namespace LC {
     
-void SphereArray::Init(void* positions, const Vector3& (*Access)(void* data, std::size_t i), std::size_t size, int subdivisions) {
+void SphereArray::Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions) {
     numObjects = size;
-    sphereRadius = 0.5f / (Float)pow(numObjects, 1.0f/3.0f);
+    sphereRadius = 0.25f / (Float)pow(numObjects, 1.0f/3.0f);
     spherePositions = Containers::Array<Vector3>{ NoInit, numObjects };
     sphereInstanceData = Containers::Array<SphereInstanceData>{ NoInit, numObjects };
 

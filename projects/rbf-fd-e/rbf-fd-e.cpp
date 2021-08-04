@@ -6,6 +6,11 @@ using namespace Math::Literals;
 using AppSolver = LC::FrankOseen::ElasticOnly::RBFFDSolver;
 using Dataset = AppSolver::Dataset;
 
+struct BoxInstanceData {
+    Matrix4 transformationMatrix;
+    Color3 color;
+};
+
 class Sandbox : public LC::Application
 {
 public:
@@ -30,6 +35,11 @@ private:
 
     std::unique_ptr<LC::SphereArray> _sarray;
 
+    GL::Mesh _boxMesh{ NoCreate };
+    GL::Buffer _boxInstanceBuffer{ NoCreate };
+    Shaders::FlatGL3D _boxShader{ NoCreate };
+    Containers::Array<BoxInstanceData> _boxInstanceData;
+
     Widget _widget;
     LC::Imaging::UniformGrid::POM _pomImager;
 };
@@ -50,7 +60,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     setSwapInterval(1);
     setMinimalLoopPeriod(16);
 
-    setupCamera(2.0f, CameraType::Group);
+    setupCamera(0.1f, CameraType::ArcBall);
 
     _solver = std::make_unique<AppSolver>();
 
@@ -68,8 +78,33 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _solver->Init();
 
     LC_INFO("Number of nodes = {0}", (*data).nodes);
-
     /* Init visuals */
+
+    // Spheres
+    std::size_t Nspheres = (*data).nodes;
+    std::function<Vector3(void*,std::size_t)> Identity = [Nspheres](void* data, std::size_t i) {
+        LC::scalar* scalar_data = (LC::scalar*)data;
+        return Vector3{(float)scalar_data[i], (float)scalar_data[i + Nspheres],  (float)scalar_data[i + 2 * Nspheres] };
+    };
+
+    _sarray = std::unique_ptr <LC::SphereArray>(new LC::SphereArray);
+
+    _sarray->Init((void*)(*data).position.get(), Identity, (*data).nodes, 2);
+
+
+    _boxShader = Shaders::FlatGL3D{
+                    Shaders::FlatGL3D::Flag::VertexColor |
+                    Shaders::FlatGL3D::Flag::InstancedTransformation };
+    _boxInstanceBuffer = GL::Buffer{};
+    _boxMesh = MeshTools::compile(Primitives::cubeWireframe());
+    _boxMesh.addVertexBufferInstanced(_boxInstanceBuffer, 1, 0,
+        Shaders::FlatGL3D::TransformationMatrix{},
+        Shaders::FlatGL3D::Color3{});
+
+
+    arrayAppend(_boxInstanceData, InPlaceInit,
+        _arcballCamera->viewMatrix()*
+        Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0], (float)data->cell_dims[1], (float)data->cell_dims[2] }), 0x00ffff_rgbf);
 
     // TODO
     //_sarray.Init();
@@ -85,6 +120,7 @@ Sandbox::~Sandbox() {
 */
 void Sandbox::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
+    Dataset* data = (Dataset*)_solver->GetDataPtr();
 
     _imgui.newFrame();
 
@@ -138,18 +174,26 @@ void Sandbox::drawEvent() {
     _imgui.updateApplicationCursor(*this);
 
     /* Update camera */
-    if (_cameraType == CameraType::ArcBall)
+    if (_cameraType == CameraType::ArcBall) {
         _arcballCamera->updateTransformation();
 
-    /* Reset state. Only needed if you want to draw something else with
-        different state after. */
+        _boxInstanceData[0].transformationMatrix = _arcballCamera->viewMatrix() *
+            Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0], (float)data->cell_dims[1], (float)data->cell_dims[2] });
+
+        _boxInstanceBuffer.setData(_boxInstanceData, GL::BufferUsage::DynamicDraw);
+        _boxMesh.setInstanceCount(_boxInstanceData.size());
+        _boxShader.setTransformationProjectionMatrix(_projectionMatrix)
+            .draw(_boxMesh);
+    }
 
     polyRenderer();
+    _sarray->Draw(_arcballCamera, _projectionMatrix);
+
 
     // Sort objects to draw in correct order
-    sortObjects(_transparentDrawables);
 
-    _camera->draw(_transparentDrawables);
+    //sortObjects(_transparentDrawables);
+    //_camera->draw(_transparentDrawables);
     {
         guiRenderer();
         _imgui.drawFrame();

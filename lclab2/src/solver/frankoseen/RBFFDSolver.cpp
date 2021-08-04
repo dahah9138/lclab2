@@ -17,27 +17,103 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		// 2. Initialize the data
 
+		if (static_cast<int>(data.kind) | static_cast<int>(Dataset::RelaxKind::OneConst)) {
+			data.derivative = LC::Math::StencilWeightOneConstant<scalar>{};
+		}
+
 		LC::Math::Metric<scalar> metric;
 		metric.Bcs = data.bc;
 		metric.SetBox(data.cell_dims[0], data.cell_dims[1], data.cell_dims[2]);
 
+		if (data.excl_rad == 0) {
+			data.excl_rad = [](scalar x, scalar y, scalar z) {
+				return (scalar)0.1;
+			};
+		}
 
-		ExclusionRadius exrad = [](scalar x, scalar y, scalar z) {
-			return (scalar)0.1;
-		};
+		if (data.is_active == 0) {
+			std::array<scalar, 3> cell = data.cell_dims;
+			data.is_active = [cell](scalar x, scalar y, scalar z) {
+				bool active = true;
+
+				if (abs(x) >= cell[0] / 2.0) active = false;
+				if (abs(y) >= cell[1] / 2.0) active = false;
+				if (abs(z) >= cell[2] / 2.0) active = false;
+
+				return active;
+			};
+		}
+
+		if (data.dir_field == 0) {
+			data.dir_field = [](scalar x, scalar y, scalar z) {
+				std::array<scalar, 3> v = { 0.0, 0.0, 1.0 };
+				return v;
+			};
+		}
 
 		unsigned int nodes_generated;
 
 		// Generate nodes
-		data.position = AdvancingFront(nodes_generated, 30, metric, exrad);
+		data.position = AdvancingFront(nodes_generated, 20, metric, data.excl_rad);
 		data.nodes = nodes_generated;
+		data.directors = std::unique_ptr<scalar[]>(new scalar[3 * data.nodes]);
 
 		// Query active nodes
+		// 1. Count active
+
+		{
+			unsigned int count = 0;
+
+			for (auto i = 0; i < data.nodes; i++) {
+				scalar x = data.position[i];
+				scalar y = data.position[i + data.nodes];
+				scalar z = data.position[i + 2*data.nodes];
+
+				if (data.is_active(x, y, z)) ++count;
+			}
+
+			data.subnodes = count;
+		}
+
+		// 2. Append
+
+		{
+			data.active_nodes = std::unique_ptr<std::size_t[]>(new std::size_t[data.subnodes]);
+			unsigned int count = 0;
+
+			for (auto i = 0; i < data.nodes; i++) {
+				scalar x = data.position[i];
+				scalar y = data.position[i + data.nodes];
+				scalar z = data.position[i + 2 * data.nodes];
+
+				if (data.is_active(x, y, z)) data.active_nodes[count++] = i;
+			}
+		}
+
+		data.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[data.subnodes * data.knn]);
 
 		// Find nearest neighbors
 
+		Algorithm::knn_c(data.position.get(), data.nodes, data.active_nodes.get(), data.subnodes, metric, data.knn, (scalar*)0, data.neighbors.get());
+
 		// Compute derivative weights
-		
+
+		data.derivative.ComputeWeights(data.position.get(), data.neighbors.get(), *(data.RBF.get()), metric, data.subnodes, data.nodes, data.knn);
+
+		// Director configuration
+		for (auto i = 0; i < data.nodes; i++) {
+			scalar x = data.position[i];
+			scalar y = data.position[i + data.nodes];
+			scalar z = data.position[i + 2 * data.nodes];
+
+			auto nn = data.dir_field(x, y, z);
+			data.directors[i] = nn[0];
+			data.directors[i + data.nodes] = nn[1];
+			data.directors[i + 2 * data.nodes] = nn[2];
+
+			// Normalize director at index i
+			Normalize(i);
+		}
 	}
 
 	void RBFFDSolver::Relax(const std::size_t& iterations, bool GPU) {
@@ -64,6 +140,16 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	
 	void* RBFFDSolver::GetDataPtr() {
 		return (void*)&data;
+	}
+
+	void RBFFDSolver::Normalize(std::size_t i) {
+		scalar x = data.directors[i];
+		scalar y = data.directors[i + data.nodes];
+		scalar z = data.directors[i + 2 * data.nodes];
+		scalar nsq = x * x + y * y + z * z;
+		scalar nmag = sqrt(nsq);
+		for (int d = 0; d < 3; d++)
+			data.directors[i + d * data.nodes] /= nmag;
 	}
 
 	void RBFFDSolver::Dataset::configureHeader(Header& header) {

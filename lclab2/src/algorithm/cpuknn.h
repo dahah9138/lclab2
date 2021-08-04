@@ -3,6 +3,7 @@
 
 #include "Metric.h"
 #include <stdio.h>
+#include <cstddef>
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -27,7 +28,7 @@ namespace LC { namespace Algorithm {
 
     namespace CPUKNN {
         // Used for multithreading
-        static const unsigned int kNumThreads = 1;// std::thread::hardware_concurrency();
+        static const std::size_t kNumThreads = 4;// std::thread::hardware_concurrency();
         static int numQueriesProcessed;
         static std::mutex queryLock;
     }
@@ -37,11 +38,11 @@ namespace LC { namespace Algorithm {
     void modified_insertion_sort(T* dist, int* index, int length, int k);
     template <typename T>
     T compute_distance(const T* ref,
-        unsigned int           ref_nb,
-        const unsigned int* query,
+        std::size_t           ref_nb,
+        const std::size_t* query,
         const Metric<T>& metric,
-        unsigned int           ref_index,
-        unsigned int           query_index);
+        std::size_t           ref_index,
+        std::size_t           query_index);
     // ==============================================================
 
     /**
@@ -58,13 +59,12 @@ namespace LC { namespace Algorithm {
         */
     template <typename T>
     T compute_distance(const T* ref,
-        unsigned int           ref_nb,
-        const unsigned int* query,
+        std::size_t           ref_nb,
+        const std::size_t* query,
         const Metric<T>& metric,
-        unsigned int           ref_index,
-        unsigned int           query_index) {
-        T r1[3];
-        T r2[3];
+        std::size_t           ref_index,
+        std::size_t           query_index) {
+        std::array<T, 3> r1, r2;
 
         for (size_t d = 0; d < 3; d++)
         {
@@ -123,9 +123,9 @@ namespace LC { namespace Algorithm {
     }
 
     template <typename T>
-    static void knnThread(int start, int end, const T L[], const bool B[], 
-        unsigned int k, const T* ref, unsigned int ref_nb, const unsigned int* query, unsigned int query_nb, 
-        const Metric<T>& metric, T* knn_dist, unsigned int* knn_index) {
+    static void knnThread(int start, int end, std::array<bool, 3> B,
+        std::size_t k, const T* ref, std::size_t ref_nb, const std::size_t* query, std::size_t query_nb, 
+        const Metric<T>& metric, T* knn_dist, std::size_t* knn_index) {
 
         T* dist = new T[ref_nb];
         int* index = new int[ref_nb];
@@ -173,14 +173,8 @@ namespace LC { namespace Algorithm {
 
             }
 
-
             ++CPUKNN::numQueriesProcessed;
-            if (CPUKNN::numQueriesProcessed % refreshRate == 0) {
-                //printf("\r        ");
-                std::cout << "\r        ";
-                std::cout << "\r" << 100.0 * (double)CPUKNN::numQueriesProcessed / query_nb << "%";
-                //printf("\r%f%%", 100.0 * (double)numQueriesProcessed / q_sz);
-            }
+
             CPUKNN::queryLock.unlock();
 
         }
@@ -203,16 +197,15 @@ namespace LC { namespace Algorithm {
         */
     template <typename T>
     bool knn_c(const T* ref,
-        unsigned int           ref_nb,
-        const unsigned int* query,
-        unsigned int           query_nb,
+        std::size_t           ref_nb,
+        const std::size_t* query,
+        std::size_t           query_nb,
         const Metric<T>& metric,
-        unsigned int           k,
+        std::size_t           k,
         T* knn_dist,
-        unsigned int* knn_index) {
+        std::size_t* knn_index) {
 
-        const T L[] = { metric.Lx, metric.Ly, metric.Lz };
-        const bool B[] = { metric.Bcs.Periodic(0), metric.Bcs.Periodic(1), metric.Bcs.Periodic(2) };
+        std::array<bool, 3> B = metric.Bcs;
 
         CPUKNN::numQueriesProcessed = 0;
 
@@ -224,11 +217,9 @@ namespace LC { namespace Algorithm {
         for (int i = 0; i < CPUKNN::kNumThreads; i++) {
             int start = i * queriesPerThread;
             int end = (i == CPUKNN::kNumThreads - 1) ? query_nb : start + queriesPerThread;
-            threads.emplace_back(std::thread(knnThread<T>, start, end, L, B, k, ref, ref_nb, query, query_nb, std::ref(metric), knn_dist, knn_index));
+            threads.push_back(std::thread(knnThread<T>, start, end, B, k, ref, ref_nb, query, query_nb, std::ref(metric), knn_dist, knn_index));
         }
         for (std::thread& t : threads) t.join();
-
-        std::cout << std::endl;
 
         return true;
 

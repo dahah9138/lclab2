@@ -17,8 +17,7 @@ void SphereArray::Init(void* positions, std::function<Magnum::Vector3(void*, std
         /* Fill in the instance data. Most of this stays the same, except
            for the translation */
         sphereInstanceData[i].transformationMatrix =
-            Matrix4::translation(spherePositions[i]) *
-            Matrix4::scaling(Vector3{ sphereRadius });
+            Matrix4::translation(spherePositions[i]) * Matrix4::scaling(Vector3{ sphereRadius });
         sphereInstanceData[i].normalMatrix =
             sphereInstanceData[i].transformationMatrix.normalMatrix();
         sphereInstanceData[i].color = Color3{1.0f, 1.0f, 1.0f};

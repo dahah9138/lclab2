@@ -7,5 +7,5 @@ target_include_directories(lclab2_solver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 										 ${CMAKE_SOURCE_DIR}/external/spdlog/include
 										 ${CMAKE_SOURCE_DIR}/external)
 target_compile_definitions(lclab2_solver PUBLIC LCLAB2_CUDA_AVAIL)
-target_link_libraries(lclab2_solver PUBLIC lclab2_math lclab2_cuda)
+target_link_libraries(lclab2_solver PUBLIC lclab2_algorithm lclab2_math lclab2_cuda)
 set_property(TARGET lclab2_solver PROPERTY POSITION_INDEPENDENT_CODE 1)

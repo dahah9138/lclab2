@@ -32,17 +32,24 @@ namespace LC { namespace Math {
 
 	template <typename T>
 	struct Weight {
-		Weight() : N(0), k(0), Id("") {}
-		Weight(WeightTag id) : N(0), k(0), Id(id) {}
-		Weight(unsigned int n, unsigned int nbs, WeightTag id) : N(n), k(nbs), Id(id) {}
-		Weight(const Weight& w) : N(w.N), k(w.k), data(w.data), Id(w.Id) {}
+		Weight() : N(0), k(0), Id(""), data(0), copy(false) {}
+		Weight(WeightTag id) : N(0), k(0), Id(id), data(0), copy(false) {}
+		Weight(unsigned int n, unsigned int nbs, WeightTag id) : N(n), k(nbs), Id(id), data(0), copy(false) {}
+		Weight(const Weight& w) : N(w.N), k(w.k), data(w.data), Id(w.Id), copy(true) {}
+
+		~Weight() {
+			if (data && !copy) delete[] data;
+			data = 0;
+		}
 
 		void Allocate() {
 			if (N == 0 || k == 0)
 				return;
 
 			unsigned int sz = N * k;
-			data = std::unique_ptr<T[]>(new T[sz]);
+			data = new T[sz];
+
+			copy = false;
 		}
 
 		void Print() const {
@@ -79,7 +86,7 @@ namespace LC { namespace Math {
 
 			// Data members
 			header << HeaderPair{ {name + "-WeightTag", sizeof(WeightTag)}, (void*)&wt.Id }
-				<< HeaderPair{ { name + "-Data", sizeof(T) * wt.k * wt.N }, (void*)wt.data.get() }
+				<< HeaderPair{ { name + "-Data", sizeof(T) * wt.k * wt.N }, (void*)wt.data }
 				<< HeaderPair{ { name + "-N", sizeof(std::size_t) }, (void*)&wt.N }
 				<< HeaderPair{ { name + "-k", sizeof(std::size_t) }, (void*)&wt.k };
 
@@ -102,7 +109,8 @@ namespace LC { namespace Math {
 					wt.Id = *info;
 				}
 				else if (elem.first.variable == name + "-Data") {
-					wt.data = std::unique_ptr<T[]>(reinterpret_cast<T*>(header.passData(iter)));
+					wt.data = reinterpret_cast<T*>(header.passData(iter));
+					wt.copy = false;
 				}
 				else if (elem.first.variable == name + "-N") {
 					std::unique_ptr<std::size_t> sz(reinterpret_cast<std::size_t*>(header.passData(iter)));
@@ -118,11 +126,11 @@ namespace LC { namespace Math {
 
 			}
 
-
 			return header;
 		}
 
-		std::unique_ptr<T[]> data;
+		T* data;
+		bool copy;
 		WeightTag Id;
 		// Number of nodes
 		unsigned int N;
@@ -171,7 +179,7 @@ namespace LC { namespace Math {
 			return header;
 		}
 		
-		void ComputeWeights(std::vector<T>& position, std::vector<unsigned int>& neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+		void ComputeWeights(T* position, std::size_t* neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
 
 			// Number of nodes to process
 			unsigned int sz = subNodes;
@@ -179,7 +187,7 @@ namespace LC { namespace Math {
 			unsigned int pos_sz = totalNodes;
 			const unsigned int d = 2;
 			// Number of polynomial basis terms
-			constexpr unsigned int np = nChoosek(3 + d, 3);
+			unsigned int np = nChoosek(3 + d, 3);
 
 			for (Weight<T>& w : weights) {
 				w.N = sz;
@@ -187,11 +195,9 @@ namespace LC { namespace Math {
 				w.Allocate();
 			}
 
-
 			// Initializes helper variables (e.g. Eigen Maps and Derivatives)
 
 			InitHelpers(k, np);
-
 
 			const size_t mod = 100;
 			size_t ct = 1;
@@ -205,7 +211,7 @@ namespace LC { namespace Math {
 				// Step 2 - Compute A matrix and specified derivatives for current node
 				c1 = std::clock();
 
-				unsigned int node = neighbors.Get(idx);
+				unsigned int node = neighbors[idx];
 				{
 
 					T dx, dy, dz, dr;
@@ -325,12 +331,12 @@ namespace LC { namespace Math {
 						size_t ii = 1 << i;
 
 						for (size_t l = 0; l < k; l++) {
-							unsigned int node2 = neighbors.Get(l * sz + idx);
+							unsigned int node2 = neighbors[l * sz + idx];
 
 							P(l, col) = 1.0;
 
-							T r1[] = { position.Get(node2), position.Get(node2 + pos_sz), position.Get(node2 + 2 * pos_sz) };
-							T r2[] = { position.Get(node), position.Get(node + pos_sz), position.Get(node + 2 * pos_sz) };
+							T r1[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
+							T r2[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
 
 							T px = metric.CompDisplacement(r1[0], r2[0], 0);
 							T py = metric.CompDisplacement(r1[1], r2[1], 1);
@@ -357,12 +363,12 @@ namespace LC { namespace Math {
 
 
 							for (int l = 0; l < k; l++) {
-								size_t node2 = neighbors.Get(l * sz + idx);
+								size_t node2 = neighbors[l * sz + idx];
 
 								P(l, col) = 1.0;
 
-								T r1[] = { position.Get(node2), position.Get(node2 + pos_sz), position.Get(node2 + 2 * pos_sz) };
-								T r2[] = { position.Get(node), position.Get(node + pos_sz), position.Get(node + 2 * pos_sz) };
+								T r1[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
+								T r2[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
 
 								T px = metric.CompDisplacement(r1[0], r2[0], 0);
 								T py = metric.CompDisplacement(r1[1], r2[1], 1);
@@ -611,7 +617,8 @@ namespace LC { namespace Math {
 		inline void ExtractWeights(unsigned int idx, unsigned int k) {
 			// Fill maps
 			const unsigned int mapoffset = k * idx;
-			Eigen::PartialPivLU Solver = H.lu();
+			Eigen::PartialPivLU<Matrix> Solver = H.lu();
+			
 
 	#if UGLY_METHOD
 			if (weights.size() == 4) {
@@ -647,7 +654,7 @@ namespace LC { namespace Math {
 			}
 	#else
 			for (size_t it = 0; it < weights.size(); it++) {
-				Map map(weights[it].data.data + mapoffset, k);
+				Map map(weights[it].data + mapoffset, k);
 				map = (Solver.solve(B[it])).head(k);
 			}
 	#endif

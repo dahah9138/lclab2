@@ -43,7 +43,7 @@ namespace LC { namespace Math {
 		else Lx /= padding;
 
 		if (!metric.Bcs[1]) Ly *= padding;
-		else Lx /= padding;
+		else Ly /= padding;
 
 		if (!metric.Bcs[2]) Lz *= padding;
 		else Lz /= padding;
@@ -109,15 +109,14 @@ namespace LC { namespace Math {
 				T cposy = idx2cellcomp(iy, Ly, dy);
 				T cposz = -0.5 * Lz;
 
-				if (ix <= xxsize && iy <= yysize)
-				{
+				if (ix <= xxsize && iy <= yysize) {
 
 					*l_grid(ix, iy, 0) = cposx;
 					*l_grid(ix, iy, 1) = cposy;
 				}
 
 
-				*l_pdp(ix, iy) = -0.5 * Lz + pertz * exclusion_rad(cposx, cposy, cposz) * randpert;
+				*l_pdp(ix, iy) = -(0.5 + excess_height / 2.0) * Lz + pertz * exclusion_rad(cposx, cposy, cposz) * randpert;
 			}
 		}
 
@@ -137,11 +136,11 @@ namespace LC { namespace Math {
 		}
 
 
-		while (zm <= (1.0f + excess_height) * 0.5f * Lz && dotnr < maxnodes) {
+		while (zm <= (1.0 + excess_height) * 0.5 * Lz && dotnr < maxnodes) {
 			// x
-			xyz[3 * dotnr] = -0.5f * Lz + dx * (i1 - 1);
+			xyz[3 * dotnr] = -0.5 * Lx + dx * (i1 - 1);
 			// y
-			xyz[3 * dotnr + 1] = -0.5f * Ly + dy * (i2 - 1);
+			xyz[3 * dotnr + 1] = -0.5 * Ly + dy * (i2 - 1);
 			// z
 			xyz[3 * dotnr + 2] = zm;
 
@@ -249,12 +248,12 @@ namespace LC { namespace Math {
 			}
 		}
 
-		// Remove nodes that went over the box
+		// Remove excess nodes
 		unsigned int* valid = new unsigned int[dotnr];
 		unsigned int numvalid = 0;
 
 		for (size_t i = 0; i < dotnr; i++) {
-			if (xyz[3 * i + 2] <= 0.5 * Lz) {
+			if (xyz[3 * i + 2] <= (0.5 + excess_height/2.0) * Lz) {
 				valid[numvalid++] = i;
 			}
 		}

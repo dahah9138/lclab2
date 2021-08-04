@@ -1,7 +1,7 @@
 #include "Choose.h"
 
 namespace LC { namespace Math {
-	constexpr unsigned int nChoosek(unsigned int n, unsigned int k) {
+	unsigned int nChoosek(unsigned int n, unsigned int k) {
 		if (k > n) return 0;
 		if (k * 2 > n) k = n-k;
 		if (k == 0) return 1;

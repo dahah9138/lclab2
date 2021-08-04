@@ -10,11 +10,13 @@ namespace LC {
 	struct LC_API Header {
 		struct HeaderObject {
 			HeaderObject() = default;
-			HeaderObject(const std::string& var, const std::size_t& sz, const std::size_t& loc) : variable(var), size_in_bytes(sz), location(loc) {}
-			HeaderObject(const std::string& var, const std::size_t& sz) : variable(var), size_in_bytes(sz), location(0) {}
+			HeaderObject(const std::string& var, const std::size_t& sz, const std::size_t& loc) : variable(var), size_in_bytes(sz), location(loc), copy(true) {}
+			HeaderObject(const std::string& var, const std::size_t& sz) : variable(var), size_in_bytes(sz), location(0), copy(true) {}
 			std::string variable;
 			std::size_t size_in_bytes;
 			std::size_t location;
+			// true -> External data was passed to the HeaderObject
+			bool copy;
 		};
 
 		enum class Version { V1 = 1 };

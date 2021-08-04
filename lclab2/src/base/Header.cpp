@@ -4,10 +4,10 @@ namespace LC {
 
 	Header::~Header() {
 		for (auto& elem : headerObjects) {
-			if (elem.second) {
+			if (elem.second && !elem.first.copy) {
 				delete[] elem.second;
-				elem.second = 0;
 			}
+			elem.second = 0;
 		}
 	}
 
@@ -189,6 +189,7 @@ namespace LC {
 
 			// Allocate data
 			headerObjects[i].second = new char[headerObjects[i].first.size_in_bytes];
+			headerObjects[i].first.copy = false;
 
 			// Read data
 			ifile.read((char*)headerObjects[i].second, headerObjects[i].first.size_in_bytes);
@@ -232,7 +233,8 @@ namespace LC {
 				ofile.write((char*)headerObjects[i].second, headerObjects[i].first.size_in_bytes);
 			}
 			else {
-				LC_CORE_WARN("Abort: Invalid header object when writing body to file <{0}>", writeFile.c_str());
+				LC_CORE_WARN("Abort: Invalid header object <{1}> when writing body to file <{0}>", writeFile.c_str(), 
+					headerObjects[i].first.variable.c_str());
 				return;
 			}
 		}
@@ -269,7 +271,7 @@ namespace LC {
 	void* Header::passData(std::size_t &index) {
 		// return data at that index and set to null
 		if (headerObjects.size() > index) {
-
+			headerObjects[index].first.copy = true;
 			void *tmp = headerObjects[index].second;
 			headerObjects[index++].second = 0;
 			return tmp;

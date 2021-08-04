@@ -190,6 +190,19 @@ namespace LC
 		if (_imgui.handleMouseReleaseEvent(event)) _ioUpdate = true;
 	}
 
+	void Application::keyPressEvent(KeyEvent& event) {
+		// Check if Ctrl + S or Ctrl + O is pressed
+		if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { save(); }
+		else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { open(); }
+		if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
+	}
+
+	void Application::keyReleaseEvent(KeyEvent& event) {
+		if ((event.key() == KeyEvent::Key::S)) {}
+		else if ((event.key() == KeyEvent::Key::O)) {}
+		if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
+	}
+
 	void Application::textInputEvent(TextInputEvent& event) {
 		_imgui.handleTextInputEvent(event);
 	}

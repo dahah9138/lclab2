@@ -68,7 +68,8 @@ namespace LC
 		virtual void mousePressEvent(MouseEvent& event) override;
 		virtual void mouseReleaseEvent(MouseEvent& event) override;
 		virtual void textInputEvent(TextInputEvent& event) override;
-
+		virtual void keyPressEvent(KeyEvent& event) override;
+		virtual void keyReleaseEvent(KeyEvent& event) override;
 
 		virtual void setupCamera(const Float& param, CameraType cameraType);
 		virtual void saveMenu(bool& loaded, std::function<void()> loadAction = 0);

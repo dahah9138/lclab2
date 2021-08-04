@@ -17,17 +17,16 @@ public:
     explicit Sandbox(const Arguments& arguments);
     ~Sandbox();
 
+    void keyPressEvent(KeyEvent& event) override;
+
+    void initSpheres();
+
+
 private:
     virtual void drawEvent() override;
-    void keyPressEvent(KeyEvent& event) override;
-    void keyReleaseEvent(KeyEvent& event) override;
 
     template <typename T>
     void dropDownMenu(const char* menuName, T& currentSelectable, std::map<T, std::string>& map);
-
-    void save();
-    bool open();
-    void saveAs();
 
     // Used to draw CrossX mesh
     Shaders::VertexColorGL3D _transparentShader;
@@ -77,20 +76,23 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     _solver->Init();
 
+    //LC::Math::Weight<LC::scalar>* weight = data->derivative.GetWeight(LC::Math::WeightTag::x);
+
+    //for (int i = 0; i < data->subnodes; i++) {
+
+    //    std::string line;
+
+    //    for (int k = 0; k < data->knn; k++) {
+    //        line += std::to_string(weight->data[data->knn * i + k]) + " ";
+     //   }
+    //    LC_INFO("{0}", line.c_str());
+    //}
+
     LC_INFO("Number of nodes = {0}", (*data).nodes);
+
     /* Init visuals */
 
-    // Spheres
-    std::size_t Nspheres = (*data).nodes;
-    std::function<Vector3(void*,std::size_t)> Identity = [Nspheres](void* data, std::size_t i) {
-        LC::scalar* scalar_data = (LC::scalar*)data;
-        return Vector3{(float)scalar_data[i], (float)scalar_data[i + Nspheres],  (float)scalar_data[i + 2 * Nspheres] };
-    };
-
-    _sarray = std::unique_ptr <LC::SphereArray>(new LC::SphereArray);
-
-    _sarray->Init((void*)(*data).position.get(), Identity, (*data).nodes, 2);
-
+    initSpheres();
 
     _boxShader = Shaders::FlatGL3D{
                     Shaders::FlatGL3D::Flag::VertexColor |
@@ -132,6 +134,18 @@ void Sandbox::drawEvent() {
 
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::Begin("lclab2", 0, window_flags);
+
+            {
+                std::function<void()> menuFunc = [this]() {
+                    initSpheres();
+                };
+
+                bool loaded = false;
+
+                saveMenu(loaded, menuFunc);
+            }
+
+
 
             // Demo widgets for fast prototyping
             if (ImGui::Button("Demo ImGui"))
@@ -184,10 +198,11 @@ void Sandbox::drawEvent() {
         _boxMesh.setInstanceCount(_boxInstanceData.size());
         _boxShader.setTransformationProjectionMatrix(_projectionMatrix)
             .draw(_boxMesh);
-    }
+    
+        polyRenderer();
+        _sarray->Draw(_arcballCamera, _projectionMatrix);
 
-    polyRenderer();
-    _sarray->Draw(_arcballCamera, _projectionMatrix);
+    }
 
 
     // Sort objects to draw in correct order
@@ -203,105 +218,31 @@ void Sandbox::drawEvent() {
     redraw();
 }
 
-// Todo: inherit all these events through Application
-
 void Sandbox::keyPressEvent(KeyEvent& event) {
-
     // Check if Ctrl + S or Ctrl + O is pressed
-
-
-    if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { /* ctrl + S action */}
-    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { /* ctrl + O action */ }
+    if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { save(); }
+    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { 
+        if (open()) {
+            initSpheres();
+        }
+    }
     if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 }
 
-void Sandbox::keyReleaseEvent(KeyEvent& event) {
+void Sandbox::initSpheres() {
+    // Spheres
+    Dataset* data = (Dataset*)_solver->GetDataPtr();
+    std::size_t Nspheres = (*data).nodes;
+    std::function<Vector3(void*, std::size_t)> Identity = [Nspheres](void* data, std::size_t i) {
+        LC::scalar* scalar_data = (LC::scalar*)data;
+        return Vector3{ (float)scalar_data[i], (float)scalar_data[i + Nspheres],  (float)scalar_data[i + 2 * Nspheres] };
+    };
 
-    if ((event.key() == KeyEvent::Key::S)) {}
-    else if ((event.key() == KeyEvent::Key::O)) {}
-    if (_imgui.handleKeyReleaseEvent(event)) _ioUpdate = true;
-}
+    _sarray = std::unique_ptr <LC::SphereArray>(new LC::SphereArray);
+    _sarray->Init((void*)(*data).position.get(), Identity, (*data).nodes, 2);
 
-void Sandbox::save() {
-
-    bool ready = checkRelax();
-    if (!ready) return;
-
-    // Check if file exists (was loaded)
-
-    std::string res;
-
-
-    if (!_widget.loadedFromFile) {
-        res = saveDialog();
-    }
-    else {
-        res = _header.readFile;
-    }
-
-    if (!res.empty()) {
-        AppSolver* solver = (AppSolver*)_solver.get();
-
-        // Write ConfigureHeader in RBFFDSolver::Dataset
-        //solver->ConfigureHeader(_header);
-
-        _header.write(res);
-        _header.writeBody();
-        LC_INFO("Saved to file {0}", res.c_str());
-        // If the file was saved, then it is now technically the same state
-        // as 'loadedFromFile'
-        _widget.loadedFromFile = true;
-        _header.readFile = res;
-    }
-
-}
-
-bool Sandbox::open() {
-
-    bool ready = checkRelax();
-    if (!ready) return false;
-    bool updateImageFromLoad = false;
-
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
-
-    auto res = openDialog();
-
-    if (!res.empty()) {
-        AppSolver* solver = (AppSolver*)_solver.get();
-
-        _header.readFile = res[0];
-
-        // Write ReadDataFromHeader in RBFFDSolver::Dataset
-        //solver->ReadDataFromHeader(_header);
-
-        updateImageFromLoad = true;
-
-        // Tells program to save to readFile if "Save" is pressed
-        _widget.loadedFromFile = true;
-        LC_INFO("Loaded file {0}", res[0].c_str());
-
-    }
-
-    return updateImageFromLoad;
-}
-
-void Sandbox::saveAs() {
-
-    bool ready = checkRelax();
-    if (!ready) return;
-
-    // Pass file to header to be written
-    auto res = saveDialog();
-
-    if (!res.empty()) {
-        AppSolver* solver = (AppSolver*)_solver.get();
-        
-        // Write ConfigureHeader in RBFFDSolver::Dataset
-        //solver->ConfigureHeader(_header);
-
-        _header.write(res);
-        _header.writeBody();
-        LC_INFO("Saved to file {0}", res.c_str());
+    for (int i = 0; i < data->subnodes; i++) {
+        _sarray->sphereInstanceData[data->active_nodes[i]].color = Color3::red();
     }
 }
 

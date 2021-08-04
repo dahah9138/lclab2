@@ -6,6 +6,9 @@
 #include "Header.h"
 #include "StencilWeights.h"
 #include "AdvancingFront.h"
+#include "cpuknn.h"
+#include "poly_spline.h"
+#include "Configuration.h"
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
@@ -13,7 +16,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 	struct RBFFDSolver : public Solver {
 
-		typedef std::function<scalar(scalar, scalar, scalar)> ExclusionRadius;
 
 		struct Dataset : public ElasticConstants {
 			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1) };
@@ -34,8 +36,16 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			std::unique_ptr<scalar[]> directors;
 			std::unique_ptr<std::size_t[]> active_nodes;
 			std::unique_ptr<std::size_t[]> neighbors;
+
+			std::unique_ptr<LC::Math::rbf<scalar>> RBF = std::unique_ptr<LC::Math::poly_spline<scalar>>(new LC::Math::poly_spline<scalar>);
+
 			// Relaxation rate
 			scalar rate = 0.0;
+
+			// Configuration Functions
+			Configuration::ScalarField excl_rad = 0;
+			Configuration::IsActive is_active = 0;
+			Configuration::VectorField dir_field = 0;
 
 			void configureHeader(Header& header);
 			void readDataFromHeader(Header& header);
@@ -59,6 +69,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		void Print() override;
 		Dataset* GetData();
 		void* GetDataPtr() override;
+
+
+		void Normalize(std::size_t i);
 	};
 
 }}}

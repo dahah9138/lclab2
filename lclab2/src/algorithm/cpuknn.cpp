@@ -5,21 +5,21 @@ namespace LC { namespace Algorithm {
 
     // Templated functions
     template<> bool knn_c(const float* ref,
-        unsigned int           ref_nb,
-        const unsigned int* query,
-        unsigned int           query_nb,
+        std::size_t           ref_nb,
+        const std::size_t* query,
+        std::size_t           query_nb,
         const Metric<float>& metric,
-        unsigned int           k,
+        std::size_t           k,
         float* knn_dist,
-        unsigned int* knn_index);
+        std::size_t* knn_index);
 
     template<> bool knn_c(const double* ref,
-        unsigned int           ref_nb,
-        const unsigned int* query,
-        unsigned int           query_nb,
+        std::size_t           ref_nb,
+        const std::size_t* query,
+        std::size_t           query_nb,
         const Metric<double>& metric,
-        unsigned int           k,
+        std::size_t           k,
         double* knn_dist,
-        unsigned int* knn_index);
+        std::size_t* knn_index);
 
 }}

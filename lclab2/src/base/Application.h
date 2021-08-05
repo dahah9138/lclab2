@@ -57,7 +57,7 @@ namespace LC
     public:
 
 		// Not a flag
-		enum class CameraType { ArcBall, Group };
+		enum class CameraType { None = 0, ArcBall = BIT(0), Group = BIT(1) };
 		
         explicit Application(const Arguments& arguments);
 		explicit Application(const Arguments& arguments, const Configuration& configuration);

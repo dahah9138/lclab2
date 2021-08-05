@@ -27,7 +27,7 @@ namespace LC { namespace Math {
 		zx = 6,
 		yz = 7,
 		zz = 8,
-		lap = 9
+		lap = 9,
 	};
 
 	template <typename T>
@@ -261,26 +261,16 @@ namespace LC { namespace Math {
 						// Orders B with same order as weights list
 						for (const Weight<T>& w : weights) {
 
-							if (w.Id == WeightTag::x)
-								derivative = rbf.Diff1(dr, dx);
-							else if (w.Id == WeightTag::y)
-								derivative = rbf.Diff1(dr, dy);
-							else if (w.Id == WeightTag::z)
-								derivative = rbf.Diff1(dr, dz);
-							else if (w.Id == WeightTag::xx)
-								derivative = rbf.Diff2(dr, dx);
-							else if (w.Id == WeightTag::yy)
-								derivative = rbf.Diff2(dr, dy);
-							else if (w.Id == WeightTag::zz)
-								derivative = rbf.Diff2(dr, dz);
-							else if (w.Id == WeightTag::xy)
-								derivative = rbf.DiffMixed(dr, dx, dy);
-							else if (w.Id == WeightTag::yz)
-								derivative = rbf.DiffMixed(dr, dy, dz);
-							else if (w.Id == WeightTag::zx)
-								derivative = rbf.DiffMixed(dr, dz, dx);
-							else if (w.Id == WeightTag::lap)
-								derivative = rbf.Laplacian(dr);
+							if (w.Id == WeightTag::x) derivative = rbf.Diff1(dr, dx);
+							else if (w.Id == WeightTag::y) derivative = rbf.Diff1(dr, dy);
+							else if (w.Id == WeightTag::z) derivative = rbf.Diff1(dr, dz);
+							else if (w.Id == WeightTag::xx) derivative = rbf.Diff2(dr, dx);
+							else if (w.Id == WeightTag::yy) derivative = rbf.Diff2(dr, dy);
+							else if (w.Id == WeightTag::zz) derivative = rbf.Diff2(dr, dz);
+							else if (w.Id == WeightTag::xy) derivative = rbf.DiffMixed(dr, dx, dy);
+							else if (w.Id == WeightTag::yz) derivative = rbf.DiffMixed(dr, dy, dz);
+							else if (w.Id == WeightTag::zx) derivative = rbf.DiffMixed(dr, dz, dx);
+							else if (w.Id == WeightTag::lap) derivative = rbf.Laplacian(dr);
 
 							Vector *b = &B[it++];
 
@@ -701,6 +691,133 @@ namespace LC { namespace Math {
 			weights.emplace_back(WeightTag::lap);
 		}
 
+	};
+
+
+	template <typename T>
+	class Interpolant {
+		using Matrix = Eigen::Matrix<T, -1, -1>;
+		using Vector = Eigen::Matrix<T, -1, 1>;
+		using Map = Eigen::Map<Vector>;
+		using Array = Eigen::Array<T, -1, -1>;
+		//using PartialPivLU = Eigen::PartialPivLU;
+	public:
+		Interpolant() {}
+
+		Eigen::PartialPivLU<Matrix>& GetFactorization(std::size_t index) {
+			return LUMatrices[index];
+		}
+
+		void ComputeFactorization(const T* position, const std::size_t* neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+
+			// Number of nodes to process
+			unsigned int sz = subNodes;
+			numPoints = subNodes;
+			// Total number of nodes everywhere
+			unsigned int pos_sz = totalNodes;
+
+			LUMatrices = std::unique_ptr<Eigen::PartialPivLU<Matrix>[]>(new Eigen::PartialPivLU<Matrix>[sz]);
+			xWeights = std::unique_ptr<Vector[]>(new Vector[sz]);
+			yWeights = std::unique_ptr<Vector[]>(new Vector[sz]);
+			zWeights = std::unique_ptr<Vector[]>(new Vector[sz]);
+		
+			H = Matrix(k, k);
+
+			// Step 1 - iterate through each node on the update list
+			for (size_t idx = 0; idx < subNodes; idx++) {
+				// Step 2 - Compute A matrix and specified derivatives for current node
+			
+				T dx, dy, dz, dr;
+
+				for (unsigned int i = 0; i < k; i++) {
+					unsigned int i_idx;
+					unsigned int j_idx;
+
+					// Compute A
+					i_idx = neighbors[i * sz + idx];
+
+					for (unsigned int j = 0; j < k; j++) {
+						j_idx = neighbors[j * sz + idx];
+
+						T ri[] = { position[i_idx], position[i_idx + pos_sz], position[i_idx + 2 * pos_sz] };
+						T rj[] = { position[j_idx], position[j_idx + pos_sz], position[j_idx + 2 * pos_sz] };
+
+						dx = metric.CompDisplacement(ri[0], rj[0], 0);
+						dy = metric.CompDisplacement(ri[1], rj[1], 1);
+						dz = metric.CompDisplacement(ri[2], rj[2], 2);
+
+						dr = sqrt(dx * dx + dy * dy + dz * dz);
+
+						H(i, j) = rbf.Evaluate(dr);
+					}
+				}
+				
+				LUMatrices[idx] = H.lu();
+
+				// Initialize weights to vector in R^k
+				xWeights[idx] = Vector(k);
+				yWeights[idx] = Vector(k);
+				zWeights[idx] = Vector(k);
+			}
+
+		}
+
+		void ComputeWeights(const T* field, const std::size_t* neighbors, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+			Vector fx(k), fy(k), fz(k);
+			// Evaluate the vector field
+
+			for (auto idx = 0; idx < subNodes; idx++) {
+
+				// Fill the interpolant solution vector
+				for (int i = 0; i < k; i++) {
+					std::size_t nbh = neighbors[i * subNodes + idx];
+					fx(i) = field[nbh];
+					fy(i) = field[nbh + totalNodes];
+					fz(i) = field[nbh + 2 * totalNodes];
+				}
+
+				// Solve the interpolant system for each component of the vector field
+				Eigen::PartialPivLU<Matrix> system = LUMatrices[idx];
+				xWeights[idx] = system.solve(fx);
+				yWeights[idx] = system.solve(fy);
+				zWeights[idx] = system.solve(fz);
+			}
+		}
+
+		std::array<T,3> Evaluate(unsigned int idx, const T *position, const T* qpoints, const std::size_t* neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+			T x = qpoints[idx];
+			T y = qpoints[idx + subNodes];
+			T z = qpoints[idx + 2 * subNodes];
+
+			std::array<T, 3> sf = { 0.0, 0.0, 0.0 };
+
+			for (int i = 0; i < k; i++) {
+
+				std::size_t nbh = neighbors[i * subNodes + idx];
+
+				T dx = metric.CompDisplacement(x, position[nbh], 0);
+				T dy = metric.CompDisplacement(y, position[nbh + totalNodes], 1);
+				T dz = metric.CompDisplacement(z, position[nbh + 2 * totalNodes], 2);
+				T dr = sqrt(dx * dx + dy * dy + dz * dz);
+
+				T phi = rbf.Evaluate(dr);
+
+				sf[0] += (xWeights[idx])(i) * phi;
+				sf[1] += (yWeights[idx])(i) * phi;
+				sf[2] += (zWeights[idx])(i) * phi;
+			}
+
+			return sf;
+		}
+
+		std::unique_ptr<Eigen::PartialPivLU<Matrix>[]> LUMatrices;
+		std::unique_ptr<Vector[]> xWeights;
+		std::unique_ptr<Vector[]> yWeights;
+		std::unique_ptr<Vector[]> zWeights;
+		std::size_t numPoints;
+
+	private:
+		Matrix H;
 	};
 
 }}

@@ -24,7 +24,7 @@ namespace LC
 
 		_cameraType = cameraType;
 
-		if (cameraType == CameraType::Group) {
+		if (static_cast<int>(cameraType) & static_cast<int>(CameraType::Group)) {
 			_cameraObject
 				.setParent(&_scene)
 				.translate(Vector3::zAxis(param));
@@ -37,8 +37,8 @@ namespace LC
 			/* Base object, parent of all (for easy manipulation) */
 			_manipulator->setParent(&_scene);
 		}
-		else if (cameraType == CameraType::ArcBall) {
-			const Vector3 eye = Vector3::zAxis(-5.0f);
+		if (static_cast<int>(cameraType) & static_cast<int>(CameraType::ArcBall)) {
+			const Vector3 eye = Vector3::zAxis(5.0f);
 			const Vector3 viewCenter;
 			const Vector3 up = Vector3::yAxis();
 			const Deg fov = 45.0_degf;
@@ -56,11 +56,11 @@ namespace LC
 		if (!_io->WantCaptureMouse) {
 
 
-			if (_cameraType == CameraType::ArcBall) {
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
 				const Float delta = event.offset().y();
 				if (Math::abs(delta) >= 1.0e-2f) _arcballCamera->zoom(delta);
 			}
-			else if (_cameraType == CameraType::Group) {
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group)) {
 
 				if (!event.offset().y()) return;
 
@@ -130,12 +130,12 @@ namespace LC
 	void Application::viewportEvent(ViewportEvent& event) {
 		GL::defaultFramebuffer.setViewport({ {}, event.framebufferSize() });
 
-		if (_cameraType == CameraType::ArcBall) {
+		if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
 			_arcballCamera->reshape(event.windowSize());
 			_projectionMatrix = Matrix4::perspectiveProjection(_arcballCamera->fov(),
 			Vector2{ event.framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
 		}
-		else if (_cameraType == CameraType::Group)
+		if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group))
 			_camera->setViewport(event.windowSize());
 
 		_imgui.relayout(Vector2{ event.windowSize() } / event.dpiScaling(),
@@ -150,7 +150,7 @@ namespace LC
 
 			if (!event.buttons()) return;
 
-			if (_cameraType == CameraType::Group) {
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group)) {
 
 				if (event.buttons() & MouseMoveEvent::Button::Left) {
 					const Vector3 currentPosition = positionOnSphere(event.position());
@@ -162,7 +162,7 @@ namespace LC
 					_previousPosition = currentPosition;
 				}
 			}
-			else if (_cameraType == CameraType::ArcBall) {
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
 				if (event.modifiers() & MouseMoveEvent::Modifier::Shift)
 					_arcballCamera->translate(event.position());
 				else _arcballCamera->rotate(event.position());
@@ -173,13 +173,13 @@ namespace LC
 
 	void Application::mousePressEvent(MouseEvent& event) {
 
-		if (_cameraType == CameraType::Group)
+		if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group))
 			if (event.button() == MouseEvent::Button::Left)
 				_previousPosition = positionOnSphere(event.position());
 
 		_imgui.handleMousePressEvent(event);
 
-		if (_cameraType == CameraType::ArcBall)
+		if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall))
 			if (!_io->WantCaptureMouse)
 				_arcballCamera->initTransformation(event.position());
 	}

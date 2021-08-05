@@ -1,13 +1,13 @@
-#include "SphereArray.h"
+#include "EllipsoidArray.h"
 #include <algorithm>
 
 using namespace Magnum;
 
 namespace LC {
     
-void SphereArray::Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions) {
+void EllipsoidArray::Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions) {
     numObjects = size;
-    polyRadius = 0.25f / (Float)pow(numObjects, 1.0f/3.0f);
+    Float polyRadius = scale / (Float)pow(numObjects, 1.0f/3.0f);
     polyPositions = Containers::Array<Vector3>{ NoInit, numObjects };
     polyInstanceData = Containers::Array<PolyInstanceData>{ NoInit, numObjects };
 
@@ -27,7 +27,8 @@ void SphereArray::Init(void* positions, std::function<Magnum::Vector3(void*, std
                 Shaders::PhongGL::Flag::VertexColor |
                 Shaders::PhongGL::Flag::InstancedTransformation };
     polyInstanceBuffer = GL::Buffer{};
-    polyMesh = MeshTools::compile(Primitives::icosphereSolid(subdivisions));
+
+    polyMesh = MeshTools::compile(Primitives::capsule3DSolid(4, 4, 12, hLength, Magnum::Primitives::CapsuleTextureCoords()));
     polyMesh.addVertexBufferInstanced(polyInstanceBuffer, 1, 0,
         Shaders::PhongGL::TransformationMatrix{},
         Shaders::PhongGL::NormalMatrix{},
@@ -35,7 +36,7 @@ void SphereArray::Init(void* positions, std::function<Magnum::Vector3(void*, std
     polyMesh.setInstanceCount(polyInstanceData.size());
 }
 
-void SphereArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
+void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
     using namespace Magnum;
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);

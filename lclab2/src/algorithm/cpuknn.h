@@ -36,13 +36,15 @@ namespace LC { namespace Algorithm {
     // Forward declaration of helpers
     template <typename T>
     void modified_insertion_sort(T* dist, int* index, int length, int k);
-    template <typename T>
+
+    template <typename T, typename Q_t>
     T compute_distance(const T* ref,
         std::size_t           ref_nb,
-        const std::size_t* query,
+        const Q_t* query,
         const Metric<T>& metric,
         std::size_t           ref_index,
         std::size_t           query_index);
+
     // ==============================================================
 
     /**
@@ -57,23 +59,19 @@ namespace LC { namespace Algorithm {
         * @param query_index  index to the query point to consider
         * @return computed distance
         */
-    template <typename T>
+    template <typename T, typename Q_t>
     T compute_distance(const T* ref,
         std::size_t           ref_nb,
-        const std::size_t* query,
+        const Q_t* query,
+        std::size_t query_nb,
         const Metric<T>& metric,
         std::size_t           ref_index,
         std::size_t           query_index) {
-        std::array<T, 3> r1, r2;
 
-        for (size_t d = 0; d < 3; d++)
-        {
-            r1[d] = ref[d * ref_nb + ref_index];
-            r2[d] = ref[d * ref_nb + query[query_index]];
-        }
-
-        return metric.distance(r1, r2);
+        return 0.0;
     }
+
+
 
     /**
         * Gathers at the beginning of the `dist` array the k smallest values and their
@@ -109,7 +107,7 @@ namespace LC { namespace Algorithm {
             }
 
             // Shift values (and indexes) higher that the current distance to the right
-            int j = std::min(i, k - 1);
+            int j = (std::min)(i, k - 1);
             while (j > 0 && dist[j - 1] > curr_dist) {
                 dist[j] = dist[j - 1];
                 index[j] = index[j - 1];
@@ -122,22 +120,13 @@ namespace LC { namespace Algorithm {
         }
     }
 
-    template <typename T>
+    template <typename T, typename Q_t>
     static void knnThread(int start, int end, std::array<bool, 3> B,
-        std::size_t k, const T* ref, std::size_t ref_nb, const std::size_t* query, std::size_t query_nb, 
+        std::size_t k, const T* ref, std::size_t ref_nb, const Q_t* query, std::size_t query_nb,
         const Metric<T>& metric, T* knn_dist, std::size_t* knn_index) {
 
         T* dist = new T[ref_nb];
         int* index = new int[ref_nb];
-        size_t refreshRate = 0.001 * query_nb;
-
-        // Lock and check
-        CPUKNN::queryLock.lock();
-        if (!dist || !index) {
-            printf("Memory allocation error\n");
-            return;
-        }
-        CPUKNN::queryLock.unlock();
 
         // If true then delete after check
         if (!dist || !index) {
@@ -148,12 +137,11 @@ namespace LC { namespace Algorithm {
         }
 
         for (size_t i = start; i < end; ++i) {
+
             for (size_t j = 0; j < ref_nb; ++j) {
-                dist[j] = compute_distance<T>(ref, ref_nb, query, metric, j, i);
+                dist[j] = compute_distance<T, Q_t>(ref, ref_nb, query, query_nb, metric, j, i);
                 index[j] = j;
             }
-
-
 
             // Sort distances / indexes
             // Consider replacing with a gpu parallelizable algorithm
@@ -163,6 +151,7 @@ namespace LC { namespace Algorithm {
             // No data race, because every thread writes to different pieces of knn_dist, knn_index
 
             CPUKNN::queryLock.lock();
+
             for (size_t j = 0; j < k; ++j) {
                 if (knn_dist)
                     knn_dist[j * query_nb + i] = dist[j];
@@ -195,10 +184,10 @@ namespace LC { namespace Algorithm {
         * @param knn_dist   output array containing the query_nb x k distances
         * @param knn_index  output array containing the query_nb x k indexes
         */
-    template <typename T>
+    template <typename T, typename Q_t>
     bool knn_c(const T* ref,
         std::size_t           ref_nb,
-        const std::size_t* query,
+        const Q_t* query,
         std::size_t           query_nb,
         const Metric<T>& metric,
         std::size_t           k,
@@ -217,7 +206,7 @@ namespace LC { namespace Algorithm {
         for (int i = 0; i < CPUKNN::kNumThreads; i++) {
             int start = i * queriesPerThread;
             int end = (i == CPUKNN::kNumThreads - 1) ? query_nb : start + queriesPerThread;
-            threads.push_back(std::thread(knnThread<T>, start, end, B, k, ref, ref_nb, query, query_nb, std::ref(metric), knn_dist, knn_index));
+            threads.push_back(std::thread(knnThread<T, Q_t>, start, end, B, k, ref, ref_nb, query, query_nb, std::ref(metric), knn_dist, knn_index));
         }
         for (std::thread& t : threads) t.join();
 

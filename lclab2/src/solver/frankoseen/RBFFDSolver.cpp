@@ -27,7 +27,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 		if (data.excl_rad == 0) {
 			data.excl_rad = [](scalar x, scalar y, scalar z) {
-				return (scalar)0.1;
+				return (scalar)0.075;
 			};
 		}
 
@@ -54,7 +54,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		unsigned int nodes_generated;
 
 		// Generate nodes
-		data.position = AdvancingFront(nodes_generated, 20, metric, data.excl_rad);
+		data.position = AdvancingFront(nodes_generated, 50, metric, data.excl_rad);
 		data.nodes = nodes_generated;
 		data.directors = std::unique_ptr<scalar[]>(new scalar[3 * data.nodes]);
 
@@ -262,6 +262,23 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 
+	RBFFDSolver::Dataset& RBFFDSolver::Dataset::DirectorConfiguration(Configuration::VectorField config) {
+		dir_field = config;
+		return *this;
+	}
 
+	Configuration::VectorField RBFFDSolver::Dataset::Planar(int layers, scalar cellZ) {
+		
+		scalar totalRad = 2.0 * M_PI * layers;
+		scalar hCellZ = cellZ / 2.0;
+		return [layers, totalRad, hCellZ](scalar x, scalar y, scalar z) {
+			
+			std::array<scalar, 3> nn = {0.0, 0.0, 0.0};
+			nn[0] = -sin(totalRad * (z + hCellZ));
+			nn[1] = cos(totalRad * (z + hCellZ));
+
+			return nn;
+		};
+	}
 
 }}}

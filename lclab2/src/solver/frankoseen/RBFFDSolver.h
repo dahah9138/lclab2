@@ -53,6 +53,9 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			Dataset& Boundaries(bool bX, bool bY, bool bZ);
 			Dataset& Cell(scalar cX, scalar cY, scalar cZ);
 			Dataset& Neighbors(std::size_t k);
+			Dataset& DirectorConfiguration(Configuration::VectorField config);
+
+			static Configuration::VectorField Planar(int layers, scalar cellZ);
 		};
 
 		RBFFDSolver();

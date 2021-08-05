@@ -1,5 +1,5 @@
-#ifndef SPHEREARRAY_H
-#define SPHEREARRAY_H
+#ifndef ELLIPSOIDARRAY_H
+#define ELLIPSOIDARRAY_H
 
 #include "core.h"
 
@@ -12,7 +12,7 @@
 #include <Magnum/MeshTools/CompressIndices.h>
 #include <Magnum/MeshTools/Compile.h>
 #include <Magnum/Shaders/PhongGL.h>
-#include <Magnum/Primitives/Icosphere.h>
+#include <Magnum/Primitives/Capsule.h>
 #include <Magnum/Trade/MeshData.h>
 #include <Corrade/Containers/Optional.h>
 
@@ -21,7 +21,7 @@
 
 namespace LC {
 
-struct SphereArray {
+struct EllipsoidArray {
 	
     struct PolyInstanceData {
         Magnum::Matrix4 transformationMatrix;
@@ -35,7 +35,7 @@ struct SphereArray {
     Magnum::UnsignedInt numObjects;
 
     Magnum::Containers::Array<Magnum::Vector3> polyPositions;
-    Magnum::Float polyRadius;
+    Magnum::Float scale = 0.125f, hLength = 2.0f;
     Magnum::GL::Mesh polyMesh{ Magnum::NoCreate };
     Magnum::GL::Buffer polyInstanceBuffer{ Magnum::NoCreate };
     Magnum::Shaders::PhongGL polyShader{ Magnum::NoCreate };

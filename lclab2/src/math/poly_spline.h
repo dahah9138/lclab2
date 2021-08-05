@@ -7,9 +7,10 @@
 namespace LC { namespace Math {
 
 	template <typename T>
-	class poly_spline : public rbf<T> {
-	public:
-		poly_spline(size_t m = 5, size_t d = 2) : m(m), d(d) { Id = rbf_type::poly_spline; }
+	struct poly_spline : public rbf<T> {
+		poly_spline(size_t m = 5, size_t d = 2) : m(m), d(d) { 
+			this->Id = rbf_type::poly_spline; 
+		}
 		
 		inline T Evaluate(const T& r) const {
 			return pow(r, (T)m);

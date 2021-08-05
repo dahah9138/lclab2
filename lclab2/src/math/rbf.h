@@ -1,19 +1,15 @@
-#ifndef RBF_H
-#define RBF_H
+#ifndef LC_RBF_H
+#define LC_RBF_H
 
 // Base RBF struct that is inherited by specialized RBFs
 
-// First order derivatives
-#define D1 0
-// Second order pure derivative
-#define D2 1
-
 namespace LC { namespace Math {
 
+	enum class rbf_type { poly_spline = 0, gaussian = 1 };
+	enum class derivative { d1 = 0, d2 = 1 };
+	
 	template <typename T>
 	struct rbf {
-		enum class rbf_type { poly_spline = 0, gaussian = 1 };
-		enum class derivative { d1 = 0, d2 = 1 };
 		rbf(rbf_type id = rbf_type::poly_spline) : Id(id) {}
 		
 		virtual inline T Evaluate(const T& r) const = 0;

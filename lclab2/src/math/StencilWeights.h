@@ -656,16 +656,16 @@ namespace LC { namespace Math {
 	struct StencilWeightGeneral : public StencilWeights<T> {
 		// Stencil Weights
 		StencilWeightGeneral() {
-			weights.reserve(9);
-			weights.emplace_back(WeightTag::x);
-			weights.emplace_back(WeightTag::y);
-			weights.emplace_back(WeightTag::z);
-			weights.emplace_back(WeightTag::xx);
-			weights.emplace_back(WeightTag::xy);
-			weights.emplace_back(WeightTag::yy);
-			weights.emplace_back(WeightTag::zx);
-			weights.emplace_back(WeightTag::yz);
-			weights.emplace_back(WeightTag::zz);
+			this->weights.reserve(9);
+			this->weights.emplace_back(WeightTag::x);
+			this->weights.emplace_back(WeightTag::y);
+			this->weights.emplace_back(WeightTag::z);
+			this->weights.emplace_back(WeightTag::xx);
+			this->weights.emplace_back(WeightTag::xy);
+			this->weights.emplace_back(WeightTag::yy);
+			this->weights.emplace_back(WeightTag::zx);
+			this->weights.emplace_back(WeightTag::yz);
+			this->weights.emplace_back(WeightTag::zz);
 		}
 	};
 
@@ -684,11 +684,11 @@ namespace LC { namespace Math {
 	struct StencilWeightOneConstant : public StencilWeights<T> {
 		// Stencil Weights
 		StencilWeightOneConstant() {
-			weights.reserve(4);
-			weights.emplace_back(WeightTag::x);
-			weights.emplace_back(WeightTag::y);
-			weights.emplace_back(WeightTag::z);
-			weights.emplace_back(WeightTag::lap);
+			this->weights.reserve(4);
+			this->weights.emplace_back(WeightTag::x);
+			this->weights.emplace_back(WeightTag::y);
+			this->weights.emplace_back(WeightTag::z);
+			this->weights.emplace_back(WeightTag::lap);
 		}
 
 	};

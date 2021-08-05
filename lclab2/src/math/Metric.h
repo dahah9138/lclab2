@@ -2,6 +2,7 @@
 #define METRIC_H
 
 #include <array>
+#include <math.h>
 
 namespace LC { namespace Math {
 

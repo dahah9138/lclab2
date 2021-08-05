@@ -8,7 +8,8 @@
 #include <iostream>
 #include <vector>
 // Gives std::thread::hardware_concurrency
-#include <ppl.h>
+#include <thread>
+#include <mutex>
 
 /*
  * For each input query point, locates the k-NN (indexes and distances) among the reference points.

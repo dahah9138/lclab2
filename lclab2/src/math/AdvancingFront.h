@@ -6,6 +6,8 @@
 #include "Metric.h"
 #include <algorithm>
 #include <functional>
+#include <memory>
+#include <math.h>
 
 namespace LC { namespace Math {
 

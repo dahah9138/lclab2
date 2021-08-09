@@ -67,10 +67,7 @@ namespace LC { namespace Algorithm {
         std::size_t query_nb,
         const Metric<T>& metric,
         std::size_t           ref_index,
-        std::size_t           query_index) {
-
-        return 0.0;
-    }
+        std::size_t           query_index);
 
 
 

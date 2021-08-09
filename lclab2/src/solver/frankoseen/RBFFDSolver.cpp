@@ -2,6 +2,15 @@
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
+#ifdef LCLAB2_CUDA_AVAIL
+	namespace RBF {
+
+		extern void RelaxGPUOneConst(scalar* directors, const std::size_t* active_nodes, const std::size_t* neighbors, const scalar* dx, const scalar* dy, const scalar* dz, const scalar* lap,
+			std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, std::size_t iterations);
+	}
+#endif
+
+
 	RBFFDSolver::RBFFDSolver() {
 		version = Version::RBFElasticSolver;
 	}
@@ -11,8 +20,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 	void RBFFDSolver::Init() {
-		/* TODO */
-
 		// 1. Check for dataset errors
 
 		// 2. Initialize the data
@@ -24,10 +31,10 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 		LC::Math::Metric<scalar> metric;
 		metric.Bcs = data.bc;
 		metric.SetBox(data.cell_dims[0], data.cell_dims[1], data.cell_dims[2]);
-
+		
 		if (data.excl_rad == 0) {
 			data.excl_rad = [](scalar x, scalar y, scalar z) {
-				return (scalar)0.075;
+				return (scalar)0.1;
 			};
 		}
 
@@ -117,7 +124,34 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 	}
 
 	void RBFFDSolver::Relax(const std::size_t& iterations, bool GPU) {
-		/* TODO */
+		if (GPU) {
+			Math::Weight<scalar> *w_x = data.derivative.GetWeight(Math::WeightTag::x);
+			Math::Weight<scalar>* w_y = data.derivative.GetWeight(Math::WeightTag::y);
+			Math::Weight<scalar>* w_z = data.derivative.GetWeight(Math::WeightTag::z);
+			Math::Weight<scalar>* w_lap = data.derivative.GetWeight(Math::WeightTag::lap);
+
+			if (!w_x || !w_y || !w_z || !w_lap) {
+				LC_CORE_ERROR("Abort! Failed to locate all weights.");
+				return;
+			}
+
+		//	std::size_t* nbs = data.neighbors.get();
+		//	std::size_t* active = data.active_nodes.get();
+
+			//for (int i = 0; i < data.subnodes; i++) {
+			//	std::string line = "<" + std::to_string(active[i]) + ">: ";
+			//	for (int k = 0; k < data.knn; k++) {
+			//		line += std::to_string(nbs[data.subnodes * k + i]) + " ";
+			//	}
+//
+			//	LC_CORE_INFO("{0}", line.c_str());
+			//}
+
+			RBF::RelaxGPUOneConst(data.directors.get(), data.active_nodes.get(), data.neighbors.get(), w_x->data, w_y->data, w_z->data, w_lap->data,
+				data.nodes, data.subnodes, data.knn, data.chirality, data.rate, iterations);
+
+			data.numIterations += iterations;
+		}
 	}
 
 	void RBFFDSolver::Export(Header& header) {
@@ -278,6 +312,69 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			nn[1] = cos(totalRad * (z + hCellZ));
 
 			return nn;
+		};
+	}
+
+	Configuration::VectorField RBFFDSolver::Dataset::Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda, scalar lim,
+		const Eigen::Matrix<scalar, 3, 1>& translation, bool background) {
+
+		return [=](scalar x, scalar y, scalar z) {
+
+			scalar layersscale = ceil(2 * Q * lim);
+			Eigen::Matrix<scalar, 3, 1> coords{ x / cell[0], y / cell[1], z / cell[2] };
+			Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
+
+			scalar phi = atan2(p[1], p[0]);
+			scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
+			scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
+
+			if (p.dot(p) == 0.0) p[2] = 1.0;
+
+			// Rescale
+			p = lim * p;
+
+			scalar rsq = p.dot(p);
+			scalar r = sqrt(rsq);
+
+			// Rotate each z - plane
+			p[0] = rrpolar * cos(phi - omega);
+			p[1] = p[2] / lim;
+			p[2] = rrpolar * sin(phi - omega);
+
+			if (r < lambda) {
+
+				scalar theta = 2 * M_PI * r * Q / lambda;
+
+				Eigen::Matrix<scalar, 3, 1> nn;
+
+				nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
+				nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
+				nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
+
+				// flip handedness
+
+				scalar nytemp = nn[1];
+				nn[1] = nn[2];
+				nn[2] = -nytemp;
+
+
+				// Rotate directors
+
+				scalar nxtemp = cos(omega) * nn[0] - sin(omega) * nn[1];
+				nytemp = sin(omega) * nn[0] + cos(omega) * nn[1];
+
+				nn[0] = nxtemp;
+				nn[1] = nytemp;
+
+				// Normalize
+
+				nn.normalize();
+
+				return std::array<scalar, 3> { nn[0], nn[1], nn[2] };
+			}
+			else if (background) {
+				return std::array<scalar, 3> { -sin(omega), cos(omega), 0.0 };
+			}
 		};
 	}
 

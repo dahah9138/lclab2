@@ -56,6 +56,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 			Dataset& DirectorConfiguration(Configuration::VectorField config);
 
 			static Configuration::VectorField Planar(int layers, scalar cellZ);
+			static Configuration::VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true);
 		};
 
 		RBFFDSolver();

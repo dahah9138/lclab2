@@ -24,7 +24,7 @@ namespace LC { namespace Math {
 			}
 			else if (D == derivative::d2)
 			{
-				der = m * pow(r, (T)(m-2)) + dr * dr * m * (m-2) * pow(r, (T)(m-4));
+				der = m * pow(r, (T)(m - 2)) + dr * dr * m * (m - 2) * pow(r, (T)(m - 4));
 			}
 			return der;
 		}

@@ -25,7 +25,7 @@ void EllipsoidArray::Init(void* positions, std::function<Magnum::Vector3(void*, 
 
     polyShader = Shaders::PhongGL{
                 Shaders::PhongGL::Flag::VertexColor |
-                Shaders::PhongGL::Flag::InstancedTransformation };
+                Shaders::PhongGL::Flag::InstancedTransformation, 6 };
     polyInstanceBuffer = GL::Buffer{};
 
     polyMesh = MeshTools::compile(Primitives::capsule3DSolid(4, 4, 12, hLength, Magnum::Primitives::CapsuleTextureCoords()));
@@ -41,6 +41,10 @@ void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& a
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
     polyShader
+        .setLightPositions({ Vector4{-20.0, 0.0f, 0.0f, 0.0f}, Vector4{20.0, 0.0f, 0.0f, 0.0f},
+            Vector4{0.0, -20.0f, 0.0f, 0.0f}, Vector4{0.0, 20.0f, 0.0f, 0.0f},
+            Vector4{0.0, 0.0f, -20.0f, 0.0f}, Vector4{0.0, 0.0f, 20.0f, 0.0f}
+            })
         .setProjectionMatrix(projection)
         .setTransformationMatrix(arcball->viewMatrix())
         .setNormalMatrix(arcball->viewMatrix().normalMatrix())

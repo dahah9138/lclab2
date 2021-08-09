@@ -41,7 +41,7 @@ endif()
 
 # GPU files to pass to cuda subdirectory
 # ---
-set (frankoseenlib_gpu solver/frankoseen/FOFDSolver.cu)
+set (frankoseenlib_gpu solver/frankoseen/FOFDSolver.cu solver/frankoseen/RBFFDSolver.cu)
 set (lclab2_cuda_global_list ${frankoseenlib_gpu})
 # ---
 add_subdirectory(cuda)

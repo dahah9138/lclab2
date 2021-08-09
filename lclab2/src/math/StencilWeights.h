@@ -4,7 +4,6 @@
 #include <Eigen/Core>
 #include <Eigen/LU>
 #include <cstdio>
-#include <ctime>
 #include "rbf.h"
 #include "Choose.h"
 #include "subset.h"
@@ -45,6 +44,9 @@ namespace LC { namespace Math {
 		void Allocate() {
 			if (N == 0 || k == 0)
 				return;
+
+			if (data && !copy)
+				delete[] data;
 
 			unsigned int sz = N * k;
 			data = new T[sz];
@@ -202,14 +204,9 @@ namespace LC { namespace Math {
 			const size_t mod = 100;
 			size_t ct = 1;
 
-			double duration[4];
-			double durationavg[] = { 0.0, 0.0, 0.0, 0.0 };
-			std::clock_t c1, c2;
-
 			// Step 1 - iterate through each node on the update list
 			for (size_t idx = 0; idx < sz; idx++) {
 				// Step 2 - Compute A matrix and specified derivatives for current node
-				c1 = std::clock();
 
 				unsigned int node = neighbors[idx];
 				{
@@ -226,17 +223,14 @@ namespace LC { namespace Math {
 						T r_node[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
 						T r_nbh[] = { position[nbh], position[nbh + pos_sz], position[nbh + 2 * pos_sz] };
 
-
 						// Displacements needed to compute derivatives
 						dx = metric.CompDisplacement(r_nbh[0], r_node[0], 0);
 						dy = metric.CompDisplacement(r_nbh[1], r_node[1], 1);
 						dz = metric.CompDisplacement(r_nbh[2], r_node[2], 2);
 						dr = sqrt(dx * dx + dy * dy + dz * dz);
 
-						size_t it = 0;
-						T derivative = 0.;
-
 	#if UGLY_METHOD
+
 
 						Lx(i) = rbf.Diff1(dr, dx);
 
@@ -258,6 +252,8 @@ namespace LC { namespace Math {
 						
 						Llap(i) = rbf.Laplacian(dr);
 	#else
+						size_t it = 0;
+						T derivative = 0.;
 						// Orders B with same order as weights list
 						for (const Weight<T>& w : weights) {
 
@@ -298,12 +294,7 @@ namespace LC { namespace Math {
 					}
 				}
 
-
-				c2 = std::clock();
-				duration[0] = (c2 - c1) / (double)CLOCKS_PER_SEC;
-
 				// Step 3 - Compute polynomial matrix P
-				c1 = std::clock();
 				{
 					P = Array::Zero(k, np);
 					int col = 0;
@@ -325,12 +316,12 @@ namespace LC { namespace Math {
 
 							P(l, col) = 1.0;
 
-							T r1[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
-							T r2[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
+							T r1[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
+							T r2[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
 
-							T px = metric.CompDisplacement(r1[0], r2[0], 0);
-							T py = metric.CompDisplacement(r1[1], r2[1], 1);
-							T pz = metric.CompDisplacement(r1[2], r2[2], 2);
+							T px = metric.CompDisplacement(r2[0], r1[0], 0);
+							T py = metric.CompDisplacement(r2[1], r1[1], 1);
+							T pz = metric.CompDisplacement(r2[2], r1[2], 2);
 
 
 							// 1 means x
@@ -357,12 +348,12 @@ namespace LC { namespace Math {
 
 								P(l, col) = 1.0;
 
-								T r1[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
-								T r2[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
+								T r1[] = { position[node], position[node + pos_sz], position[node + 2 * pos_sz] };
+								T r2[] = { position[node2], position[node2 + pos_sz], position[node2 + 2 * pos_sz] };
 
-								T px = metric.CompDisplacement(r1[0], r2[0], 0);
-								T py = metric.CompDisplacement(r1[1], r2[1], 1);
-								T pz = metric.CompDisplacement(r1[2], r2[2], 2);
+								T px = metric.CompDisplacement(r2[0], r1[0], 0);
+								T py = metric.CompDisplacement(r2[1], r1[1], 1);
+								T pz = metric.CompDisplacement(r2[2], r1[2], 2);
 
 								// 1 means x
 								// 2 means y
@@ -371,6 +362,7 @@ namespace LC { namespace Math {
 								P(l, col) *= (ii == 1) ? px : 1.0;
 								P(l, col) *= (ii == 2) ? py : 1.0;
 								P(l, col) *= (ii == 4) ? pz : 1.0;
+
 								P(l, col) *= (jj == 1) ? px : 1.0;
 								P(l, col) *= (jj == 2) ? py : 1.0;
 								P(l, col) *= (jj == 4) ? pz : 1.0;
@@ -380,34 +372,34 @@ namespace LC { namespace Math {
 						}
 					}
 				}
-				c2 = std::clock();
-				duration[1] = (c2 - c1) / (double)CLOCKS_PER_SEC;
 				// Step 4 - Fill H matrix
-				c1 = std::clock();
 
 				FillH(k, np);
-				c2 = std::clock();
-				duration[2] = (c2 - c1) / (double)CLOCKS_PER_SEC;
 				// Step 5 - Fill Maps and solve system of equations for weights and extract the first k weights...
-				c1 = std::clock();
 
 				ExtractWeights(idx, k);
-				c2 = std::clock();
-				duration[3] = (c2 - c1) / (double)CLOCKS_PER_SEC;
 
-				for (int di = 0; di < 4; di++)
-					durationavg[di] += duration[di] / (double)mod;
 
 				if (ct++ % mod == 0 || idx == sz - 1) {
 					printf("\r                                      \r");
 					LC_INFO("Weight Sets[{0}-{1}] Complete", 1, idx + 1);
 					std::cout << "\033[F";
 					ct = 1;
-					for (int di = 0; di < 4; di++)
-						durationavg[di] = 0.0;
 				}
 			}
 			std::cout << std::endl;
+
+			// Check laplacian
+
+			Weight<T>* w = GetWeight(WeightTag::lap);
+			scalar* data = w->data;
+
+			//for (int i = 0; i < subNodes; i++) {
+			//	for (int kk = 0; kk < k; kk++)
+			//		printf("%f ", data[kk * subNodes + i]);
+			//	printf("\n");
+			//}
+
 		}
 
 		void Print() const {
@@ -612,25 +604,25 @@ namespace LC { namespace Math {
 
 	#if UGLY_METHOD
 			if (weights.size() == 4) {
-				Map mapx(weights[0].data.data + mapoffset, k);
-				Map mapy(weights[1].data.data + mapoffset, k);
-				Map mapz(weights[2].data.data + mapoffset, k);
-				Map maplap(weights[3].data.data + mapoffset, k);
+				Map mapx(weights[0].data + mapoffset, k);
+				Map mapy(weights[1].data + mapoffset, k);
+				Map mapz(weights[2].data + mapoffset, k);
+				Map maplap(weights[3].data + mapoffset, k);
 				mapx = (Solver.solve(Lx)).head(k);
 				mapy = (Solver.solve(Ly)).head(k);
 				mapz = (Solver.solve(Lz)).head(k);
 				maplap = (Solver.solve(Llap)).head(k);
 			}
 			else if (weights.size() == 9) {
-				Map mapx(weights[0].data.data + mapoffset, k);
-				Map mapy(weights[1].data.data + mapoffset, k);
-				Map mapz(weights[2].data.data + mapoffset, k);
-				Map mapxx(weights[3].data.data + mapoffset, k);
-				Map mapxy(weights[4].data.data + mapoffset, k);
-				Map mapyy(weights[5].data.data + mapoffset, k);
-				Map mapzx(weights[6].data.data + mapoffset, k);
-				Map mapyz(weights[7].data.data + mapoffset, k);
-				Map mapzz(weights[8].data.data + mapoffset, k);
+				Map mapx(weights[0].data + mapoffset, k);
+				Map mapy(weights[1].data + mapoffset, k);
+				Map mapz(weights[2].data + mapoffset, k);
+				Map mapxx(weights[3].data + mapoffset, k);
+				Map mapxy(weights[4].data + mapoffset, k);
+				Map mapyy(weights[5].data + mapoffset, k);
+				Map mapzx(weights[6].data + mapoffset, k);
+				Map mapyz(weights[7].data + mapoffset, k);
+				Map mapzz(weights[8].data + mapoffset, k);
 
 				mapx = (Solver.solve(Lx)).head(k);
 				mapy = (Solver.solve(Ly)).head(k);
@@ -646,7 +638,12 @@ namespace LC { namespace Math {
 			for (size_t it = 0; it < weights.size(); it++) {
 				Map map(weights[it].data + mapoffset, k);
 				map = (Solver.solve(B[it])).head(k);
+
+				//for (int kk = 0; kk < k; kk++)
+				//	printf("%f ", map[kk]);
+
 			}
+
 	#endif
 		}
 
@@ -702,7 +699,7 @@ namespace LC { namespace Math {
 		using Array = Eigen::Array<T, -1, -1>;
 		//using PartialPivLU = Eigen::PartialPivLU;
 	public:
-		Interpolant() {}
+		Interpolant() : numPoints(0) {}
 
 		Eigen::PartialPivLU<Matrix>& GetFactorization(std::size_t index) {
 			return LUMatrices[index];

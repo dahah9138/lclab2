@@ -1,6 +1,8 @@
 #include <lclab2.h>
 #include "Widget.h"
 
+#define PLANE 0
+
 using namespace Magnum;
 using namespace Math::Literals;
 using AppSolver = LC::FrankOseen::ElasticOnly::RBFFDSolver;
@@ -13,7 +15,14 @@ struct Plane {
     std::unique_ptr<std::size_t[]> neighbors;
     std::unique_ptr<Geometry> geometry;
     std::size_t numNodes;
-    std::size_t knn = 4, xDensity = 20, yDensity = 20;
+    std::size_t knn = 6, xDensity = 20, yDensity = 20;
+};
+
+struct Region {
+    std::unique_ptr<Geometry> geometry;
+    std::vector<std::pair<std::size_t, std::array<float,3>>> nodes;
+    std::array<float, 3> interval = { 1.0f, 1.0f, 0.1f };
+
 };
 
 
@@ -46,9 +55,8 @@ private:
     // Used to draw CrossX mesh
     Shaders::VertexColorGL3D _transparentShader;
     SceneGraph::DrawableGroup3D _transparentDrawables;
-
-    std::unique_ptr<Geometry> _garray;
-
+    
+    Region _region;
 
     Plane _plane;
 
@@ -83,29 +91,17 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     /* Setup data */
     Dataset* data = (Dataset*)_solver->GetDataPtr();
-    (*data).ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Cell(1.0, 1.0, 1.0)
-        .Boundaries(1, 1, 0)
-        .Neighbors(16)
-        .DirectorConfiguration(Dataset::Planar(1, 1.0));
 
-    // Things to add:
-    // - Exclusion radius function presets
-    // - Director configuration presets
+    LC::scalar dop = 3.0;
+
+    (*data).ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+        .Cell(dop, dop, dop)
+        .Boundaries(0, 0, 0)
+        .Neighbors(16)
+        .DirectorConfiguration(Dataset::Heliknoton(1, { dop, dop, dop }));
+        //.DirectorConfiguration(Dataset::Planar(1, 1.0));
 
     _solver->Init();
-
-    //LC::Math::Weight<LC::scalar>* weight = data->derivative.GetWeight(LC::Math::WeightTag::x);
-
-    //for (int i = 0; i < data->subnodes; i++) {
-
-    //    std::string line;
-
-    //    for (int k = 0; k < data->knn; k++) {
-    //        line += std::to_string(weight->data[data->knn * i + k]) + " ";
-     //   }
-    //    LC_INFO("{0}", line.c_str());
-    //}
 
     LC_INFO("Number of nodes = {0}", (*data).nodes);
 
@@ -124,12 +120,21 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         Shaders::FlatGL3D::Color3{});
 
 
+#if PLANE
+    updatePlane();
+#else
+    updateGeometry();
+#endif
+
     arrayAppend(_boxInstanceData, InPlaceInit,
         _arcballCamera->viewMatrix()*
         Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0], (float)data->cell_dims[1], (float)data->cell_dims[2] }), 0x00ffff_rgbf);
 
-    
-    updatePlane();
+    arrayAppend(_boxInstanceData, InPlaceInit,
+        _arcballCamera->viewMatrix()*
+        Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0] * _region.interval[0],
+            (float)data->cell_dims[1] * _region.interval[1],
+            (float)data->cell_dims[2] * _region.interval[2] }), 0x00ffff_rgbf);
 
     LC_INFO("Created client application!");
 }
@@ -188,18 +193,55 @@ void Sandbox::drawEvent() {
                 ImGui::SliderFloat("Alpha", &_widget.alpha, 0.0f, 1.0f);
             }
 
+            {
+                ImGui::SliderFloat("X ratio", &_region.interval[0], 0.0f, 1.0f);
+                ImGui::SliderFloat("Y ratio", &_region.interval[1], 0.0f, 1.0f);
+                ImGui::SliderFloat("Z ratio", &_region.interval[2], 0.0f, 1.0f);
+            }
+
             // Pressed the relax button
+            ImGui::InputInt("Iterations/cycle", &_widget.cycle);
             _widget.relax = ImGui::Button("Relax");
+            if (_relaxFuture.second) {
+                ImGui::SameLine();
+                ImGui::Text("Relaxing...");
+            }
 
             if (ImGui::Button("Update visuals")) {
-                updateGeometry();
-                updatePlane();
+                initGeometry();
             }
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                 1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
 
             ImGui::End();
+
+        }
+
+
+        if (_widget.relax) {
+
+            const bool GPU = true;
+
+            // Try to relax asynchronously...
+            _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, GPU);
+            _relaxFuture.second = true;
+            _widget.updateImage = true;
+        }
+
+        if (_widget.updateImage || _relaxFuture.second) {
+
+            bool ready = checkRelax();
+
+            if (ready) {
+#if PLANE
+                updatePlane();
+#else
+                initGeometry();
+                _widget.updateImage = false;
+#endif
+            }
+
         }
     }
 
@@ -221,15 +263,22 @@ void Sandbox::drawEvent() {
         _boxInstanceData[0].transformationMatrix = _arcballCamera->viewMatrix() *
             Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0], (float)data->cell_dims[1], (float)data->cell_dims[2] });
 
+        _boxInstanceData[1].transformationMatrix = _arcballCamera->viewMatrix() *
+            Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0] * _region.interval[0],
+            (float)data->cell_dims[1] * _region.interval[1],
+            (float)data->cell_dims[2] * _region.interval[2] });
+
         _boxInstanceBuffer.setData(_boxInstanceData, GL::BufferUsage::DynamicDraw);
         _boxMesh.setInstanceCount(_boxInstanceData.size());
         _boxShader.setTransformationProjectionMatrix(_projectionMatrix)
             .draw(_boxMesh);
     
         polyRenderer();
-
-        //_garray->Draw(_arcballCamera, _projectionMatrix);
+#if PLANE
         _plane.geometry->Draw(_arcballCamera, _projectionMatrix);
+#else
+        _region.geometry->Draw(_arcballCamera, _projectionMatrix);
+#endif
 
     }
 
@@ -261,18 +310,41 @@ void Sandbox::keyPressEvent(KeyEvent& event) {
 void Sandbox::initGeometry() {
 
     Dataset* data = (Dataset*)_solver->GetDataPtr();
-    std::size_t Nspheres = (*data).nodes;
-    std::function<Vector3(void*, std::size_t)> Identity = [Nspheres](void* data, std::size_t i) {
-        LC::scalar* scalar_data = (LC::scalar*)data;
-        return Vector3{ (float)scalar_data[i], (float)scalar_data[i + Nspheres],  (float)scalar_data[i + 2 * Nspheres] };
+
+    
+    _region.nodes.swap(std::vector<std::pair<std::size_t, std::array<float, 3>>>{});
+    _region.nodes.reserve(data->nodes);
+    
+
+    // Add points within bounds
+    for (std::size_t i = 0; i < data->nodes; i++) {
+        for (int d = 0; d < 3; d++) {
+
+            float bound = _region.interval[d]  * data->cell_dims[d] * 0.5;
+
+            float pd = abs(data->position[i + data->nodes * d]);
+
+            if (pd > bound)
+                break;
+            
+            // valid node
+            if (d == 2) {
+                std::array<float, 3> pos{ data->position[i], data->position[i + data->nodes], data->position[i + 2 * data->nodes] };
+                _region.nodes.emplace_back(i, pos);
+            }
+        }
+    }
+
+    std::size_t Nshapes = _region.nodes.size();
+
+    std::function<Vector3(void*, std::size_t)> Identity = [Nshapes](void* data, std::size_t i) {
+        std::pair<std::size_t, std::array<float, 3>>* p_data = (std::pair<std::size_t, std::array<float, 3>>*)data;
+        return Vector3{ p_data[i].second[0], p_data[i].second[1], p_data[i].second[2] };
     };
 
-    _garray = std::unique_ptr <Geometry>(new Geometry);
-    _garray->Init((void*)(*data).position.get(), Identity, (*data).nodes, 2);
-
-    for (int i = 0; i < data->subnodes; i++) {
-        _garray->polyInstanceData[data->active_nodes[i]].color = Color3::red();
-    }
+    // Initialize the geometry
+    _region.geometry = std::unique_ptr <Geometry>(new Geometry);
+    _region.geometry->Init((void*)&_region.nodes[0], Identity, _region.nodes.size(), 2);
 
     updateGeometry();
 }
@@ -280,21 +352,24 @@ void Sandbox::initGeometry() {
 void Sandbox::updateGeometry() {
     Dataset* data = (Dataset*)_solver->GetDataPtr();
 
-    Float polyRadius = _garray->scale / (Float)pow(_garray->numObjects, 1.0f / 3.0f);
+    Float polyRadius = _region.geometry->scale / (Float)pow(data->nodes, 1.0f / 3.0f);
 
     Matrix4 rotation;
 
     Float theta, phi;
     Float hPi = M_PI / 2.0;
 
-    for (int i = 0; i < data->nodes; i++) {
+    for (std::size_t i = 0; i < _region.geometry->numObjects; i++) {
 
-        theta = acos(data->directors[i + 2 * data->nodes]);
-        phi = atan2(data->directors[i + data->nodes], data->directors[i]);
+        std::size_t idx = _region.nodes[i].first;
+
+        theta = acos(data->directors[idx + 2 * data->nodes]);
+        phi = atan2(data->directors[idx + data->nodes], data->directors[idx]);
 
         rotation = Matrix4::rotationZ(Rad{ -hPi + phi }) * Matrix4::rotationX(Rad{ hPi - theta });
 
-        _garray->polyInstanceData[i].transformationMatrix = Matrix4::translation(_garray->polyPositions[i]) * Matrix4::scaling(Vector3{ polyRadius }) * rotation;
+        _region.geometry->polyInstanceData[i].transformationMatrix = Matrix4::translation(_region.geometry->polyPositions[i]) * Matrix4::scaling(Vector3{ polyRadius }) * rotation;
+        _region.geometry->polyInstanceData[i].color = LC::Imaging::Colors::RungeSphere(theta, phi);
     }
 }
 
@@ -314,11 +389,11 @@ void Sandbox::updatePlane() {
     Matrix4 rotation;
     Float hPi = M_PI / 2.0;
 
-    Float polyRadius = _garray->scale / (Float)pow(_garray->numObjects, 1.0f / 3.0f);
+    Float polyRadius = _region.geometry->scale / (Float)pow(_region.geometry->numObjects, 1.0f / 3.0f);
 
     // Evaluate the interpolant for all points in plane
     for (int i = 0; i < iX; i++) {
-        for (int j = 0; j < iX; j++) {
+        for (int j = 0; j < iY; j++) {
 
             std::size_t idx = j * iX + i;
 
@@ -398,7 +473,8 @@ void Sandbox::generateInterpolant() {
 
 void Sandbox::updateInterpolant() {
     Dataset* data = (Dataset*)_solver->GetDataPtr();
-    _plane.interpolant.ComputeWeights(data->directors.get(), data->neighbors.get(), _plane.numNodes, data->nodes, _plane.knn);
+    // This is not correct, I need the neighbors relative to the node positions not the data
+    _plane.interpolant.ComputeWeights(data->position.get(), _plane.neighbors.get(), _plane.numNodes, data->nodes, _plane.knn);
 }
 
 template <typename T>

@@ -749,6 +749,7 @@ namespace LC { namespace Math {
 					}
 				}
 				
+				// LU matrix factorization
 				LUMatrices[idx] = H.lu();
 
 				// Initialize weights to vector in R^k
@@ -760,8 +761,9 @@ namespace LC { namespace Math {
 		}
 
 		void ComputeWeights(const T* field, const std::size_t* neighbors, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
-			Vector fx(k), fy(k), fz(k);
+
 			// Evaluate the vector field
+			Vector fx(k), fy(k), fz(k);
 
 			for (auto idx = 0; idx < subNodes; idx++) {
 

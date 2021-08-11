@@ -6,7 +6,8 @@ add_library(lclab2_math Choose.h Choose.cpp
 						powi.h powi.cpp
 						Metric.h Metric.cpp
 						AdvancingFront.h AdvancingFront.cpp
-						StencilWeights.h StencilWeights.cpp)
+						StencilWeights.h StencilWeights.cpp
+						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}
 ${CMAKE_SOURCE_DIR}/lclab2/src/base

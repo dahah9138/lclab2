@@ -3,7 +3,7 @@
 
 using namespace Magnum;
 using namespace Math::Literals;
-using AppSolver = LC::FrankOseen::ElasticOnly::RBFFDSolver;
+using AppSolver = LC::FrankOseen::Electric::RBFFDSolver;
 using Dataset = AppSolver::Dataset;
 using Geometry = LC::EllipsoidArray;
 
@@ -21,7 +21,7 @@ struct Plane {
 
 struct Region {
     std::unique_ptr<Geometry> geometry;
-    std::vector<std::pair<std::size_t, std::array<float,3>>> nodes;
+    std::vector<std::pair<std::size_t, std::array<float, 3>>> nodes;
     std::array<float, 3> interval = { 1.0f, 1.0f, 0.1f };
 };
 
@@ -56,7 +56,7 @@ private:
     // Used to draw CrossX mesh
     Shaders::VertexColorGL3D _transparentShader;
     SceneGraph::DrawableGroup3D _transparentDrawables;
-    
+
     Region _region;
 
     Plane _plane;
@@ -101,7 +101,11 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     LC::scalar padding = dop * 0.1;
     LC::scalar r_edge = dop / 2.0;
 
-    (*data).ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+    (*data)
+        .ElectricConstants(LC::FrankOseen::LC_TYPE::_5CB)
+        .VoltageConfiguration(LC::Math::VoltageZ(0.0, 26.0, dop))
+        .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+        .Rate(-.10)
         .Cell(dop, dop, dop)
         .Boundaries(0, 0, 0)
         .Neighbors(80)
@@ -109,8 +113,9 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         .ExclusionRadius(LC::Math::LinearSphere(0.2, 0.25, r_edge, active_rad + padding))
         //.ExclusionRadius(Dataset::UniformRadius(0.15))
         .DirectorConfiguration(LC::Math::Heliknoton(Q, { dop, dop, dop }, 1. / qRatio));
-        //.DirectorConfiguration(Dataset::Planar(2 * dop, dop));
-        //.DirectorConfiguration(Dataset::Uniform());
+    //.DirectorConfiguration(Dataset::Planar(2 * dop, dop));
+    //.DirectorConfiguration(Dataset::Uniform());
+
     _solver->Init();
 
     LC_INFO("Number of nodes = {0}", (*data).nodes);
@@ -277,7 +282,7 @@ void Sandbox::drawEvent() {
     if (_cameraType == CameraType::ArcBall) {
         _arcballCamera->updateTransformation();
 
-    
+
         polyRenderer();
 
         updateBoxes();
@@ -304,10 +309,10 @@ void Sandbox::drawEvent() {
 void Sandbox::keyPressEvent(KeyEvent& event) {
     // Check if Ctrl + S or Ctrl + O is pressed
     if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { save(); }
-    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { 
+    else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) {
         if (open()) {
             if (_widget.interpolant) {
-                generateInterpolant(); 
+                generateInterpolant();
                 updatePlane();
             }
             else initGeometry();
@@ -320,22 +325,22 @@ void Sandbox::initGeometry() {
 
     Dataset* data = (Dataset*)_solver->GetDataPtr();
 
-    
+
     _region.nodes.swap(std::vector<std::pair<std::size_t, std::array<float, 3>>>{});
     _region.nodes.reserve(data->nodes);
-    
+
 
     // Add points within bounds
     for (std::size_t i = 0; i < data->nodes; i++) {
         for (int d = 0; d < 3; d++) {
 
-            float bound = _region.interval[d]  * data->cell_dims[d] * 0.5;
+            float bound = _region.interval[d] * data->cell_dims[d] * 0.5;
 
             float pd = abs(data->position[i + data->nodes * d]);
 
             if (pd > bound)
                 break;
-            
+
             // valid node
             if (d == 2) {
                 std::array<float, 3> pos{ data->position[i], data->position[i + data->nodes], data->position[i + 2 * data->nodes] };
@@ -384,7 +389,7 @@ void Sandbox::updatePlane() {
 
     // Need to recompute weights
     updateInterpolant();
-    
+
     Dataset* data = (Dataset*)_solver->GetDataPtr();
     std::size_t iX = _plane.xDensity * data->cell_dims[0];
     std::size_t iY = _plane.yDensity * data->cell_dims[1];
@@ -439,7 +444,7 @@ void Sandbox::generateInterpolant() {
     _plane.numNodes = iX * iY;
     _plane.nodes = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * _plane.numNodes]);
     _plane.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[_plane.knn * _plane.numNodes]);
-    
+
     // Generate the xy midplane
     for (int i = 0; i < iX; i++) {
         for (int j = 0; j < iY; j++) {
@@ -489,7 +494,7 @@ void Sandbox::updateInterpolant() {
 
 void Sandbox::updateBoxes(bool first) {
     Dataset* data = (Dataset*)_solver->GetDataPtr();
-    
+
     if (!first) arrayResize(_boxInstanceData, 0);
 
     arrayAppend(_boxInstanceData, InPlaceInit,

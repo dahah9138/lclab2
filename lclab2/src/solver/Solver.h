@@ -4,7 +4,7 @@
 #include "core.h"
 #include "logger.h"
 #include "Header.h"
-#include <Eigen/Dense>
+#include "Fields.h"
 #include <Eigen/CXX11/Tensor>
 
 namespace LC {
@@ -24,7 +24,7 @@ namespace LC {
 			FOFDElasticSolver = 1,
 			FOFDSolver = 2, // Full solver
 			RBFElasticSolver = 3,
-			RBFSolver = 4
+			RBFElectricSolver = 4
 		};
 
 		// Returns the future of RelaxAsync

@@ -3,6 +3,7 @@
 
 #include <functional>
 #include "scalar.h"
+#include "core.h"
 
 namespace LC { namespace Configuration {
 	typedef std::function<scalar(scalar, scalar, scalar)> ScalarField;

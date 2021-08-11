@@ -2,7 +2,7 @@
 #define sandbox_WIDGET_H
 
 #include <lclab2.h>
-	
+
 using namespace Magnum;
 using namespace Math::Literals;
 
@@ -10,7 +10,7 @@ struct Widget {
 
 	// From example
 	bool showDemoWindow = false;
-    bool showAnotherWindow = false;
+	bool showAnotherWindow = false;
 
 	bool showSettings = true;
 

@@ -20,7 +20,7 @@ namespace LC
 	}
 
 	void Application::setupCamera(const Float& param, CameraType cameraType) {
-		using namespace Math::Literals;
+		using namespace Magnum::Math::Literals;
 
 		_cameraType = cameraType;
 
@@ -58,7 +58,7 @@ namespace LC
 
 			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
 				const Float delta = event.offset().y();
-				if (Math::abs(delta) >= 1.0e-2f) _arcballCamera->zoom(delta);
+				if (Magnum::Math::abs(delta) >= 1.0e-2f) _arcballCamera->zoom(delta);
 			}
 			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group)) {
 
@@ -154,11 +154,11 @@ namespace LC
 
 				if (event.buttons() & MouseMoveEvent::Button::Left) {
 					const Vector3 currentPosition = positionOnSphere(event.position());
-					const Vector3 axis = Math::cross(_previousPosition, currentPosition);
+					const Vector3 axis = Magnum::Math::cross(_previousPosition, currentPosition);
 
 					if (_previousPosition.length() < 0.001f || axis.length() < 0.001f) return;
 
-					_manipulator->rotate(Math::angle(_previousPosition, currentPosition), axis.normalized());
+					_manipulator->rotate(Magnum::Math::angle(_previousPosition, currentPosition), axis.normalized());
 					_previousPosition = currentPosition;
 				}
 			}

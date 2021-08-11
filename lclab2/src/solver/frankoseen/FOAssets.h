@@ -112,10 +112,70 @@ namespace LC { namespace FrankOseen {
 
 	};
 
-	// Not configured yet
 	struct ElectricConstants {
-		SIscalar epar{ 0.0, "NOINIT" };
+		enum class Constant { eper = 0, epar = 1 };
+
 		SIscalar eper{ 0.0, "NOINIT" };
+		SIscalar epar{ 0.0, "NOINIT" };
+
+		static SIscalar LC(const LC_TYPE& lc, const Constant& ep) {
+			if (lc == LC_TYPE::_5CB)
+				return _5CB(ep);
+			else if (lc == LC_TYPE::ZLI2806)
+				return ZLI2806(ep);
+		}
+
+		static SIscalar _5CB(const Constant& electricProperty) {
+			SIscalar ep;
+			ep.second = "DIMENSIONLESS";
+
+			if (electricProperty == Constant::eper) {
+				ep.first = 5.2;
+			}
+			else if (electricProperty == Constant::epar) {
+				ep.first = 19.0;
+			}
+			else {
+				ep.second = "ERROR";
+			}
+
+			return ep;
+		}
+
+		static SIscalar ZLI2806(const Constant& electricProperty) {
+			SIscalar ep;
+			ep.second = "DIMENSIONLESS";
+
+			if (electricProperty == Constant::eper) {
+				ep.first = 8.1;
+			}
+			else if (electricProperty == Constant::epar) {
+				ep.first = 3.3;
+			}
+			else {
+				ep.second = "ERROR";
+			}
+
+			return ep;
+		}
+
+		static SIscalar AMLC0010(const Constant& electricProperty) {
+			SIscalar ep;
+			ep.second = "DIMENSIONLESS";
+
+			if (electricProperty == Constant::eper) {
+				ep.first = 7.1;
+			}
+			else if (electricProperty == Constant::epar) {
+				ep.first = 3.4;
+			}
+			else {
+				ep.second = "ERROR";
+			}
+
+			return ep;
+		}
+
 	};
 
 	struct MagneticConstants {

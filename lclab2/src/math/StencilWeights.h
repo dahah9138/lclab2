@@ -10,6 +10,7 @@
 #include "Metric.h"
 #include "Header.h"
 #include <utility>
+#include <iostream>
 
 #define UGLY_METHOD 0
 
@@ -388,17 +389,6 @@ namespace LC { namespace Math {
 				}
 			}
 			std::cout << std::endl;
-
-			// Check laplacian
-
-			Weight<T>* w = GetWeight(WeightTag::lap);
-			scalar* data = w->data;
-
-			//for (int i = 0; i < subNodes; i++) {
-			//	for (int kk = 0; kk < k; kk++)
-			//		printf("%f ", data[kk * subNodes + i]);
-			//	printf("\n");
-			//}
 
 		}
 

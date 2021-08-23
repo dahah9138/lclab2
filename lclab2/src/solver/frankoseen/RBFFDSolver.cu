@@ -236,9 +236,9 @@ namespace Electric { namespace RBF {
 		scalar ny000 = directors[glob_idx + N];
 		scalar nz000 = directors[glob_idx + 2 * N];
 
-		directors[glob_idx] = (1.0 + rate) / lap * (Xi * d.Vd.v100 * (ny000 * d.Vd.v010 + nz000 * d.Vd.v001) - 4.0 * PI * chir * (d.Dz.ny - d.Dy.nz) - d.Dxx.nx - d.Dyy.nx - d.Dzz.nx + lap * nx000) - rate * nx000;
-		directors[glob_idx + N] = (1.0 + rate) / lap * (Xi * d.Vd.v010 * (nx000 * d.Vd.v100 + nz000 * d.Vd.v001) - 4.0 * PI * chir * (d.Dx.nz - d.Dz.nx) - d.Dxx.ny - d.Dyy.ny - d.Dzz.ny + lap * ny000) - rate * ny000;
-		directors[glob_idx + 2 * N] = (1.0 + rate) / lap * (Xi * d.Vd.v001 * (nx000 * d.Vd.v100 + ny000 * d.Vd.v010) - 4.0 * PI * chir * (d.Dy.nx - d.Dx.ny) - d.Dxx.nz - d.Dyy.nz - d.Dzz.nz + lap * nz000) - rate * nz000;
+		directors[glob_idx] = (1.0 + rate) / (lap + Xi * d.Vd.v100 * d.Vd.v100) * (-Xi * d.Vd.v100 * (ny000 * d.Vd.v010 + nz000 * d.Vd.v001) + 4.0 * PI * chir * (d.Dy.nz - d.Dz.ny) - d.Dxx.nx - d.Dyy.nx - d.Dzz.nx + lap * nx000) - rate * nx000;
+		directors[glob_idx + N] = (1.0 + rate) / (lap + Xi * d.Vd.v010 * d.Vd.v010) * (-Xi * d.Vd.v010 * (nx000 * d.Vd.v100 + nz000 * d.Vd.v001) + 4.0 * PI * chir * (d.Dz.nx - d.Dx.nz) - d.Dxx.ny - d.Dyy.ny - d.Dzz.ny + lap * ny000) - rate * ny000;
+		directors[glob_idx + 2 * N] = (1.0 + rate) / (lap + Xi * d.Vd.v001 * d.Vd.v001) * (-Xi * d.Vd.v001 * (nx000 * d.Vd.v100 + ny000 * d.Vd.v010) + 4.0 * PI * chir * (d.Dx.ny - d.Dy.nx) - d.Dxx.nz - d.Dyy.nz - d.Dzz.nz + lap * nz000) - rate * nz000;
 	}
 
 	HEMI_DEV_CALLABLE

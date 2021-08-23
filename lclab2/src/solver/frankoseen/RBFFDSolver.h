@@ -26,6 +26,7 @@ namespace LC { namespace FrankOseen {
 		std::size_t nodes = 0;
 		std::size_t subnodes = 0;
 		std::size_t knn = 0;
+		scalar npp = 10.;
 		StencilWeights<scalar> derivative;
 		std::unique_ptr<scalar[]> position;
 		std::unique_ptr<scalar[]> directors;

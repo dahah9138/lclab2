@@ -1,6 +1,9 @@
 #include <lclab2.h>
 #include "Widget.h"
 
+#define TAYLOR_METHOD 0
+#define HOPFION_CONFIG 0
+
 using namespace Magnum;
 using namespace Math::Literals;
 using AppSolver = LC::FrankOseen::Electric::RBFFDSolver;
@@ -17,6 +20,17 @@ struct Plane {
     // Track usability
     bool usable = false;
     bool generated = false;
+};
+
+struct TaylorPlane {
+    LC::Math::TaylorSeries<LC::scalar> series;
+    std::unique_ptr<LC::scalar[]> nodes;
+    std::unique_ptr<std::size_t[]> neighbors;
+    std::unique_ptr<Geometry> geometry;
+    std::size_t numNodes;
+    std::size_t xDensity = 20, yDensity = 20;
+    // Track usability
+    bool usable = false;
 };
 
 struct Region {
@@ -60,6 +74,7 @@ private:
     Region _region;
 
     Plane _plane;
+    TaylorPlane _tplane;
 
     GL::Mesh _boxMesh{ NoCreate };
     GL::Buffer _boxInstanceBuffer{ NoCreate };
@@ -71,9 +86,23 @@ private:
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
-                                                                Configuration{}.setTitle("FOFD Elastic Simulation")
+                                                                Configuration{}.setTitle("FO-RBF-FD Simulation")
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable) } {
     _transparentShader = Shaders::VertexColorGL3D{};
+
+
+    Utility::Arguments args;
+    args.addOption('q', "topological-charge", "1")
+        .setHelp("topological-charge", "topological charge", "Q")
+        .addOption('k', "nearest-neighbors", "50")
+        .setHelp("nearest-neighbors", "nearest neighbors", "K")
+        .addOption('r', "exclusion-radius", "0.14285714285")
+        .setHelp("exclusion-radius", "exclusion radius", "R")
+        .addOption('v', "voltage", "2.0")
+        .setHelp("voltage", "Voltage", "V")
+        .addSkippedPrefix("magnum")
+        .parse(arguments.argc, arguments.argv);
+
 
     /* Setup the GUI */
     setupGUI();
@@ -93,32 +122,75 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data */
     Dataset* data = (Dataset*)_solver->GetDataPtr();
 
-    LC::scalar dop = 8.0;
-    int Q = 2;
-    LC::scalar qRatio = dop / (2. * Q + 1.);
+#if HOPFION_CONFIG
 
-    LC::scalar active_rad = dop / (2. * qRatio);
-    LC::scalar padding = dop * 0.1;
+    int Q = 1;
+    LC::scalar side = 2. * Q + 1.;
+    LC::scalar voltage = 1.3;
+    LC::scalar cellZ = 0.93;
+
+    int knn = 80;
+    LC::scalar rNode = 1. / 10.;
+    data->npp = 30.;
+    LC::scalar sigma = 1.;
+    LC::scalar active_rad = side / 2;
+    LC::scalar padding = 0;// pow(3. * knn / (4. * M_PI), 1. / 3.)* rNode;
+    LC::scalar r_edge = side / 2.0;
+
+    (*data)
+        .ElectricConstants(LC::FrankOseen::LC_TYPE::_5CB)
+        .VoltageConfiguration(LC::Math::VoltageZ(0.0, voltage, cellZ))
+        .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+        .Rate(-.50)
+        .Cell(side, side, cellZ)
+        .Boundaries(0, 0, 0)
+        .Neighbors(knn)
+        .ExclusionRadius(LC::Math::UniformRadius(rNode))
+        .DirectorConfiguration(LC::Math::Hopfion(Q, { side, side, cellZ }, 1.0, 1.5));
+
+    _region.interval[0] = 1.0;
+    _region.interval[1] = 1.0;
+#else
+    /*
+    Q = 1 : Stable (dop = 3, V = 2)
+    Q = 2 : Stable (dop = 5, V = 2.7-2.8)
+    Q = 3 : Stable (dop = 7, V = 3.13)
+    */
+    int Q = args.value<int>("topological-charge");
+    LC::scalar voltage = args.value<LC::scalar>("voltage");
+    LC::scalar dop = 2. * Q + 1.;
+
+    int knn = args.value<int>("nearest-neighbors");
+    LC::scalar rNode = args.value<LC::scalar>("exclusion-radius");
+    data->npp = 30.;
+    LC::scalar qRatio = dop / (2. * Q + 1.);
+    LC::scalar sigma = 1.;
+    LC::scalar active_rad = Q + 0.5;
+    LC::scalar padding = 0;// pow(3. * knn / (4. * M_PI), 1. / 3.)* rNode;
     LC::scalar r_edge = dop / 2.0;
 
     (*data)
         .ElectricConstants(LC::FrankOseen::LC_TYPE::_5CB)
-        .VoltageConfiguration(LC::Math::VoltageZ(0.0, 26.0, dop))
+        .VoltageConfiguration(LC::Math::VoltageZ(0.0, voltage, dop))
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Rate(-.10)
+        .Rate(-.50)
         .Cell(dop, dop, dop)
         .Boundaries(0, 0, 0)
-        .Neighbors(80)
-        .IsActiveConfig(LC::Math::ActiveSphere(active_rad))
-        .ExclusionRadius(LC::Math::LinearSphere(0.2, 0.25, r_edge, active_rad + padding))
-        //.ExclusionRadius(Dataset::UniformRadius(0.15))
+        .Neighbors(knn)
+        //.IsActiveConfig(LC::Math::ActiveSphere(active_rad))
+        //.ExclusionRadius(LC::Math::LinearSphere(rNode, sqrt(3.0) * rNode, sqrt(2.) * active_rad, active_rad))
+        .ExclusionRadius(LC::Math::ZLine(rNode, 0.25, 0.5, 1.5))
+        //.ExclusionRadius(LC::Math::UniformRadius(rNode))
         .DirectorConfiguration(LC::Math::Heliknoton(Q, { dop, dop, dop }, 1. / qRatio));
     //.DirectorConfiguration(Dataset::Planar(2 * dop, dop));
     //.DirectorConfiguration(Dataset::Uniform());
 
+    _region.interval[0] = 2.0 * (active_rad +  padding) / dop;
+    _region.interval[1] = 2.0 * (active_rad +  padding) / dop;
+#endif
+
     _solver->Init();
 
-    LC_INFO("Number of nodes = {0}", (*data).nodes);
 
     /* Init visuals */
 
@@ -204,8 +276,15 @@ void Sandbox::drawEvent() {
                 ImGui::Checkbox("Interpolant", &_widget.interpolant);
 
                 if (!prev && _widget.interpolant) {
+
+#if TAYLOR_METHOD
+                    _tplane.usable = false;
+#else
                     _plane.generated = false;
                     _plane.usable = false;
+#endif
+
+
                     _widget.updateImage = true;
                 }
                 else if (prev && !_widget.interpolant) {
@@ -220,6 +299,16 @@ void Sandbox::drawEvent() {
             }
             else {
 
+                float intervalX = _region.interval[0];
+                float intervalY = _region.interval[1];
+
+                ImGui::SliderFloat("X ratio", &_region.interval[0], 0.0f, 1.0f);
+                ImGui::SliderFloat("Y ratio", &_region.interval[1], 0.0f, 1.0f);
+
+                if (intervalX != _region.interval[0] || intervalY != _region.interval[1]) {
+                    // Need to regenerate the interpolant
+                    _widget.regenerateInterpolant = true;
+                }
             }
 
             // Pressed the relax button
@@ -258,7 +347,16 @@ void Sandbox::drawEvent() {
 
             if (ready) {
 
-                if (_widget.interpolant) updatePlane();
+                if (_widget.interpolant) {
+
+                    if (_widget.regenerateInterpolant) {
+                        generateInterpolant();
+                        updateInterpolant();
+                        _widget.regenerateInterpolant = false;
+                    }
+
+                    updatePlane();
+                }
                 else initGeometry();
 
                 _widget.updateImage = false;
@@ -288,7 +386,11 @@ void Sandbox::drawEvent() {
         updateBoxes();
         drawBoxes();
 
+#if TAYLOR_METHOD
+        if (_widget.interpolant) _tplane.geometry->Draw(_arcballCamera, _projectionMatrix);
+#else
         if (_widget.interpolant) _plane.geometry->Draw(_arcballCamera, _projectionMatrix);
+#endif
         else  _region.geometry->Draw(_arcballCamera, _projectionMatrix);
     }
 
@@ -391,8 +493,17 @@ void Sandbox::updatePlane() {
     updateInterpolant();
 
     Dataset* data = (Dataset*)_solver->GetDataPtr();
-    std::size_t iX = _plane.xDensity * data->cell_dims[0];
-    std::size_t iY = _plane.yDensity * data->cell_dims[1];
+
+    float cxRatio = data->cell_dims[0] * _region.interval[0];
+    float cyRatio = data->cell_dims[1] * _region.interval[1];
+
+#if TAYLOR_METHOD
+    std::size_t iX = _tplane.xDensity * cxRatio;
+    std::size_t iY = _tplane.yDensity * cyRatio;
+#else
+    std::size_t iX = _plane.xDensity * cxRatio;
+    std::size_t iY = _plane.yDensity * cyRatio;
+#endif
 
     LC::Math::Metric<LC::scalar> metric;
     metric.Bcs = data->bc;
@@ -409,10 +520,14 @@ void Sandbox::updatePlane() {
             std::size_t idx = j * iX + i;
 
             // Evaluate
+            //auto nn = _plane.interpolant.Evaluate(idx, data->position.get(), _plane.nodes.get(), _plane.neighbors.get(),
+            //    *(data->RBF.get()), metric, _plane.numNodes, data->nodes, _plane.knn);
+#if TAYLOR_METHOD
+            auto nn = _tplane.series.Evaluate(idx, _tplane.nodes.get(), data->position.get(), data->directors.get(), _tplane.neighbors.get(), data->nodes);
+#else
             auto nn = _plane.interpolant.Evaluate(idx, data->position.get(), _plane.nodes.get(), _plane.neighbors.get(),
-                *(data->RBF.get()), metric, _plane.numNodes, data->nodes, _plane.knn);
-
-
+                    *(data->RBF.get()), metric, _plane.numNodes, data->nodes, _plane.knn);
+#endif
             // Normalize nn
             LC::scalar nmag = sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
             nn[0] /= nmag;
@@ -424,11 +539,19 @@ void Sandbox::updatePlane() {
             phi = atan2(nn[1], nn[0]);
 
             // Use runge sphere color
+#if TAYLOR_METHOD
+            _tplane.geometry->polyInstanceData[idx].color = LC::Imaging::Colors::RungeSphere(theta, phi);
+#else
             _plane.geometry->polyInstanceData[idx].color = LC::Imaging::Colors::RungeSphere(theta, phi);
-
+#endif
             // Set orientation
             rotation = Matrix4::rotationZ(Rad{ -hPi + phi }) * Matrix4::rotationX(Rad{ hPi - theta });
+
+#if TAYLOR_METHOD
+            _tplane.geometry->polyInstanceData[idx].transformationMatrix = Matrix4::translation(_tplane.geometry->polyPositions[idx]) * Matrix4::scaling(Vector3{ _widget.nodeScale }) * rotation;
+#else
             _plane.geometry->polyInstanceData[idx].transformationMatrix = Matrix4::translation(_plane.geometry->polyPositions[idx]) * Matrix4::scaling(Vector3{ _widget.nodeScale }) * rotation;
+#endif
         }
     }
 
@@ -437,13 +560,30 @@ void Sandbox::updatePlane() {
 void Sandbox::generateInterpolant() {
     Dataset* data = (Dataset*)_solver->GetDataPtr();
 
-    // 1. Create the node positions
-    std::size_t iX = _plane.xDensity * data->cell_dims[0];
-    std::size_t iY = _plane.yDensity * data->cell_dims[1];
 
+    // 1. Create the node positions
+
+    float cxRatio = data->cell_dims[0] * _region.interval[0];
+    float cyRatio = data->cell_dims[1] * _region.interval[1];
+
+#if TAYLOR_METHOD
+    std::size_t iX = _tplane.xDensity * cxRatio;
+    std::size_t iY = _tplane.yDensity * cyRatio;
+#else
+    _plane.usable = false;
+    std::size_t iX = _plane.xDensity * cxRatio;
+    std::size_t iY = _plane.yDensity * cyRatio;
+#endif
+
+#if TAYLOR_METHOD
+    _tplane.numNodes = iX * iY;
+    _tplane.nodes = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * _tplane.numNodes]);
+    _tplane.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[_tplane.numNodes]);
+#else
     _plane.numNodes = iX * iY;
     _plane.nodes = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * _plane.numNodes]);
     _plane.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[_plane.knn * _plane.numNodes]);
+#endif
 
     // Generate the xy midplane
     for (int i = 0; i < iX; i++) {
@@ -452,44 +592,73 @@ void Sandbox::generateInterpolant() {
             LC::scalar xx = (LC::scalar)i / LC::scalar(iX - 1) - 0.5;
             LC::scalar yy = (LC::scalar)j / LC::scalar(iY - 1) - 0.5;
 
-            _plane.nodes[idx] = xx * data->cell_dims[0];
-            _plane.nodes[idx + _plane.numNodes] = yy * data->cell_dims[1];
+#if TAYLOR_METHOD
+            _tplane.nodes[idx] = xx * cxRatio;
+            _tplane.nodes[idx + _tplane.numNodes] = yy * cyRatio;
+            _tplane.nodes[idx + 2 * _tplane.numNodes] = 0.0;
+#else
+            _plane.nodes[idx] = xx * cxRatio;
+            _plane.nodes[idx + _plane.numNodes] = yy * cyRatio;
             _plane.nodes[idx + 2 * _plane.numNodes] = 0.0;
+#endif
         }
     }
 
     // Initialize the plane geometry
     {
+#if TAYLOR_METHOD
+        std::size_t Nspheres = _tplane.numNodes;
+#else
         std::size_t Nspheres = _plane.numNodes;
+#endif
         std::function<Vector3(void*, std::size_t)> Identity = [Nspheres](void* data, std::size_t i) {
             LC::scalar* scalar_data = (LC::scalar*)data;
             return Vector3{ (float)scalar_data[i], (float)scalar_data[i + Nspheres],  (float)scalar_data[i + 2 * Nspheres] };
         };
-
+#if TAYLOR_METHOD
+        _tplane.geometry = std::unique_ptr<Geometry>(new Geometry);
+        _tplane.geometry->Init((void*)_tplane.nodes.get(), Identity, _tplane.numNodes, 2);
+#else
         _plane.geometry = std::unique_ptr<Geometry>(new Geometry);
         _plane.geometry->Init((void*)_plane.nodes.get(), Identity, _plane.numNodes, 2);
+#endif
     }
 
     LC::Math::Metric<LC::scalar> metric;
     metric.Bcs = data->bc;
     metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
 
-    // 2. Compute neighbors relative to actual node positions
+    // 2. Get first nearest neighbor
+#if TAYLOR_METHOD
+    LC::Algorithm::knn_c(data->position.get(), data->nodes, _tplane.nodes.get(), _tplane.numNodes, metric, 1, (LC::scalar*)0, _tplane.neighbors.get());
+#else
     LC::Algorithm::knn_c(data->position.get(), data->nodes, _plane.nodes.get(), _plane.numNodes, metric, _plane.knn, (LC::scalar*)0, _plane.neighbors.get());
-
+#endif
     // 3. Compute interpolant
-    _plane.interpolant.ComputeFactorization(data->position.get(), _plane.neighbors.get(), *(data->RBF.get()), metric, _plane.numNodes, data->nodes, _plane.knn);
+#if TAYLOR_METHOD
+    LC::scalar* dx = data->derivative.GetWeight(LC::Math::WeightTag::x)->data;
+    LC::scalar* dy = data->derivative.GetWeight(LC::Math::WeightTag::y)->data;
+    LC::scalar* dz = data->derivative.GetWeight(LC::Math::WeightTag::z)->data;
 
+    _tplane.series.GenerateDifferentials(data->directors.get(), _tplane.neighbors.get(), data->neighbors.get(), dx, dy, dz, _tplane.numNodes, data->subnodes, data->nodes, data->knn);
+
+    _tplane.usable = true;
+#else
+    _plane.interpolant.ComputeFactorization(data->position.get(), _plane.neighbors.get(), *(data->RBF.get()), metric, _plane.numNodes, data->nodes, _plane.knn);
     _plane.generated = true;
+#endif
 }
 
 void Sandbox::updateInterpolant() {
 
+#if TAYLOR_METHOD
+    if (!_tplane.usable) generateInterpolant();
+#else
     if (!_plane.generated) generateInterpolant();
-
     Dataset* data = (Dataset*)_solver->GetDataPtr();
     _plane.interpolant.ComputeWeights(data->directors.get(), _plane.neighbors.get(), _plane.numNodes, data->nodes, _plane.knn);
     _plane.usable = true;
+#endif
 }
 
 void Sandbox::updateBoxes(bool first) {

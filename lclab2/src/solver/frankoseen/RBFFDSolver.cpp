@@ -354,16 +354,7 @@ namespace Electric {
 		}
 
 		if (data.is_active == 0) {
-			std::array<scalar, 3> cell = data.cell_dims;
-			data.is_active = [cell](scalar x, scalar y, scalar z) {
-				bool active = true;
-
-				if (abs(x) >= cell[0] / 2.0) active = false;
-				if (abs(y) >= cell[1] / 2.0) active = false;
-				if (abs(z) >= cell[2] / 2.0) active = false;
-
-				return active;
-			};
+			data.is_active = Math::ActiveParallelopiped(data.cell_dims, data.bc);
 		}
 
 		if (data.voltage_field == 0) {
@@ -381,8 +372,8 @@ namespace Electric {
 
 		// Generate nodes
 		{
-			std::size_t npp = 0.5 * pow(data.cell_dims[2] * data.cell_dims[1] * data.cell_dims[0] / pow(data.excl_rad(0.0, 0.0, 0.0), 3.0), 1. / 3.);
-			data.position = AdvancingFront(nodes_generated, npp, metric, data.excl_rad);
+			data.position = AdvancingFront(nodes_generated, data.npp, metric, data.excl_rad);
+			LC_INFO("Nodes generated = {0}", nodes_generated);
 		}
 
 		data.nodes = nodes_generated;
@@ -394,15 +385,21 @@ namespace Electric {
 		{
 			unsigned int count = 0;
 
+			auto cell_interior = Math::ActiveParallelopiped(data.cell_dims, data.bc);
+
+
 			for (auto i = 0; i < data.nodes; i++) {
 				scalar x = data.position[i];
 				scalar y = data.position[i + data.nodes];
 				scalar z = data.position[i + 2 * data.nodes];
 
-				if (data.is_active(x, y, z)) ++count;
+				if (data.is_active(x, y, z) && cell_interior(x, y, z)) {
+					++count;
+				}
 			}
 
 			data.subnodes = count;
+			LC_INFO("Active nodes = {0}", data.subnodes);
 		}
 
 		// 2. Append
@@ -411,12 +408,14 @@ namespace Electric {
 			data.active_nodes = std::unique_ptr<std::size_t[]>(new std::size_t[data.subnodes]);
 			unsigned int count = 0;
 
+			auto cell_interior = Math::ActiveParallelopiped(data.cell_dims, data.bc);
+
 			for (auto i = 0; i < data.nodes; i++) {
 				scalar x = data.position[i];
 				scalar y = data.position[i + data.nodes];
 				scalar z = data.position[i + 2 * data.nodes];
 
-				if (data.is_active(x, y, z)) data.active_nodes[count++] = i;
+				if (data.is_active(x, y, z) && cell_interior(x, y, z)) data.active_nodes[count++] = i;
 			}
 		}
 
@@ -425,6 +424,21 @@ namespace Electric {
 		// Find nearest neighbors
 
 		Algorithm::knn_c(data.position.get(), data.nodes, data.active_nodes.get(), data.subnodes, metric, data.knn, (scalar*)0, data.neighbors.get());
+
+		scalar total_dist = 0.0;
+
+		// Check average nearest neighbor radius
+		for (auto i = 0; i < data.subnodes; i++) {
+			std::size_t current_node = data.active_nodes[i];
+			std::size_t nearest_nbh = data.neighbors[data.subnodes + i];
+
+			// Get distance
+			std::array<scalar, 3> p1{ data.position[current_node], data.position[data.nodes + current_node], data.position[2 * data.nodes + current_node] };
+			std::array<scalar, 3> p2{ data.position[nearest_nbh], data.position[data.nodes + nearest_nbh], data.position[2 * data.nodes + nearest_nbh] };
+			total_dist += metric.distance(p1, p2);
+		}
+
+		LC_INFO("<d(NNeighbor)> = {0}", total_dist / (scalar)data.subnodes);
 
 		// Compute derivative weights
 

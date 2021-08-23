@@ -11,4 +11,7 @@ namespace LC { namespace Math {
 
 	template <> class Interpolant<float>;
 	template <> class Interpolant<double>;
+
+	template <> class TaylorSeries<float>;
+	template <> class TaylorSeries<double>;
 }}

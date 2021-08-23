@@ -29,7 +29,7 @@ namespace LC { namespace Algorithm {
 
     namespace CPUKNN {
         // Used for multithreading
-        static const std::size_t kNumThreads = 4;// std::thread::hardware_concurrency();
+        static const std::size_t kNumThreads = 8;// std::thread::hardware_concurrency();
         static int numQueriesProcessed;
         static std::mutex queryLock;
     }

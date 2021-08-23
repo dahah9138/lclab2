@@ -690,6 +690,71 @@ namespace LC { namespace Math {
 
 	};
 
+	template <typename T>
+	class TaylorSeries {
+		using Matrix = Eigen::Matrix<T, -1, -1>;
+		using RowVector = Eigen::Matrix<T, 1, 3>;
+		using ColVector = Eigen::Matrix<T, 3, 1>;
+		using Array = Eigen::Array<T, -1, -1>;
+	public:
+		TaylorSeries() : numPoints(0) {}
+
+		void GenerateDifferentials(const T *field, const std::size_t* domain, const std::size_t *neighbors, const T *dx, const T *dy, const T *dz, std::size_t queryNodes, std::size_t subNodes, std::size_t totalNodes, std::size_t k) {
+			
+			numPoints = queryNodes;
+			Df = std::unique_ptr<Matrix[]>(new Matrix[numPoints]);
+
+			std::array<const T*, 3> dr = { dx, dy, dz };
+
+			for (size_t idx = 0; idx < numPoints; idx++) {
+
+				Df[idx] = Matrix(3, 3);
+
+				Matrix& df = Df[idx];
+
+				// nearest neighbor to physical node
+				std::size_t nearest_idx = domain[idx];
+
+				// df = [D1 field, D2 field, D3 field]
+
+				for (int r = 0; r < 3; r++) {
+					for (int c = 0; c < 3; c++) {
+
+						const T* di = dr[c];
+						df(r, c) = 0.0;
+
+						for (auto kk = 0; kk < k; kk++) {
+							std::size_t field_idx = neighbors[kk * subNodes + nearest_idx];
+							df(r, c) += di[kk + k * nearest_idx] * field[field_idx + r * totalNodes];
+						}
+					}
+				}
+
+			}
+		}
+
+		std::array<T, 3> Evaluate(std::size_t idx, const T *query_pos, const T *pos, const T *field, const std::size_t *domain, std::size_t totalNodes) {
+			Matrix& df = Df[idx];
+
+			std::size_t nearest_idx = domain[idx];
+
+			ColVector f0 = ColVector(3), displ = ColVector(3);
+			for (int d = 0; d < 3; d++) {
+				f0(d) = field[nearest_idx + d * totalNodes];
+				displ(d) = query_pos[idx + d * numPoints] - pos[nearest_idx + d * totalNodes];
+			}
+
+			ColVector feval = f0 + df * displ;
+
+			return { feval(0), feval(1), feval(2) };
+
+		}
+
+	private:
+		std::unique_ptr<Matrix[]> Df;
+		std::size_t numPoints;
+	};
+
 
 	template <typename T>
 	class Interpolant {

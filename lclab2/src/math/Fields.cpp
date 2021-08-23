@@ -87,6 +87,48 @@ namespace LC { namespace Math {
 		};
 	}
 
+	VectorField Hopfion(int Q, std::array<scalar, 3> cell, scalar lambda, scalar lim, bool background) {
+
+		return [=](scalar x, scalar y, scalar z) {
+
+			scalar layersscale = ceil(2 * Q * lim);
+			Eigen::Matrix<scalar, 3, 1> coords{ x / cell[0], y / cell[1], z / cell[2] };
+			Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords;
+
+			if (p.dot(p) == 0.0) p[2] = 1.0;
+
+			// Rescale
+			p = lim * p;
+
+			scalar rsq = p.dot(p);
+			scalar r = sqrt(rsq);
+
+			// Normalize p
+			p = p / r;
+
+			if (r < lambda) {
+
+				scalar theta = 2 * M_PI * r * Q / lambda;
+
+				Eigen::Matrix<scalar, 3, 1> nn;
+
+				nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
+				nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
+				nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
+
+				// Normalize
+
+				nn.normalize();
+
+				return std::array<scalar, 3> { nn[0], nn[1], nn[2] };
+			}
+			else if (background) {
+				return std::array<scalar, 3> { 0.0, 0.0, 1.0 };
+			}
+			else return std::array<scalar, 3> { 0.0, 0.0, 0.0 };
+		};
+	}
+
 	ScalarField UniformRadius(scalar r) {
 		return [r](scalar x, scalar y, scalar z) {
 			return r;
@@ -97,8 +139,29 @@ namespace LC { namespace Math {
 		return [r1, r2, rstart, rend](scalar x, scalar y, scalar z) {
 			scalar rr2 = x * x + y * y + z * z;
 			scalar r = sqrt(rr2);
+			scalar t = r / rend;
 			if (r < rstart) return r1;
-			else if (r < rend) return r1 + (1.0 - r / rend) * r2;
+			else if (r < rend) return (1.0 - t) * r1 + t * r2;
+			else return r2;
+		};
+	}
+
+	ScalarField YLine(scalar r1, scalar r2, scalar xstart, scalar xend) {
+		return [r1, r2, xstart, xend](scalar x, scalar y, scalar z) {
+			scalar absx = abs(x);
+			scalar t = absx / xend;
+			if (absx < xstart) return r1;
+			else if (absx < xend) return (1.0 - t) * r1 + t * r2;
+			else return r2;
+		};
+	}
+
+	ScalarField ZLine(scalar r1, scalar r2, scalar zstart, scalar zend) {
+		return [r1, r2, zstart, zend](scalar x, scalar y, scalar z) {
+			scalar absz = abs(z);
+			scalar t = absz / zend;
+			if (absz < zstart) return r1;
+			else if (absz < zend) return (1.0 - t) * r1 + t * r2;
 			else return r2;
 		};
 	}
@@ -118,6 +181,22 @@ namespace LC { namespace Math {
 			scalar r2 = x * x + y * y + z * z;
 			if (r2 < r) return true;
 			else return false;
+		};
+	}
+
+	IsActive ActiveParallelopiped(std::array<scalar, 3> cell, std::array<bool, 3> bd) {
+		
+		for (int d = 0; d < 3; d++) cell[d] /= 2.0;
+		
+		return [cell, bd](scalar x, scalar y, scalar z) {
+
+			bool active = true;
+
+			if (abs(x) >= cell[0] && !bd[0]) active = false;
+			if (abs(y) >= cell[1] && !bd[1]) active = false;
+			if (abs(z) >= cell[2] && !bd[2]) active = false;
+
+			return active;
 		};
 	}
 	

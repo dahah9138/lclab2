@@ -41,6 +41,7 @@ void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& a
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
     polyShader
+        .setShininess(10000.0f)
         .setLightPositions({ Vector4{-20.0, 0.0f, 0.0f, 0.0f}, Vector4{20.0, 0.0f, 0.0f, 0.0f},
             Vector4{0.0, -20.0f, 0.0f, 0.0f}, Vector4{0.0, 20.0f, 0.0f, 0.0f},
             Vector4{0.0, 0.0f, -20.0f, 0.0f}, Vector4{0.0, 0.0f, 20.0f, 0.0f}

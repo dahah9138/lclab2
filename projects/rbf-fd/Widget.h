@@ -24,7 +24,12 @@ struct Widget {
 	int cycle = 10;
 
 	bool interpolant = false;
+
+	bool regenerateInterpolant = false;
+
 	float nodeScale = 0.01f;
+
+	std::array<float, 3> regionInterval = { 1.0f, 1.0f, 0.1f };
 
 	bool updateImage = false;
 

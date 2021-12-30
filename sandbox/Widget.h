@@ -30,6 +30,9 @@ struct Widget {
 
 	bool updateImage = false;
 	bool nonlinear = false;
+	float nonlinTheta = 0.0f;
+	bool nonlinCircular = false;
+
 	bool POM = false;
 	float alpha = 0.5f;
 

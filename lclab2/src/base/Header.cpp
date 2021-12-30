@@ -315,6 +315,15 @@ namespace LC {
 
 	void Header::clean() {
 		Header tmp{};
+		// Need to go through list and remove any entries that
+		// have non-null ptrs and were not passed to an external ptr
+		for (auto& obj : headerObjects) {
+			if (obj.second && !obj.first.copy) {
+				LC_CORE_INFO("Deleting unused loaded variable [{0}]", obj.first.variable.c_str());
+				delete[] obj.second;
+			}
+			obj.second = 0;
+		}
 		headerObjects.swap(tmp.headerObjects);
 	}
 

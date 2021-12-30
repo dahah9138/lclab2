@@ -2,14 +2,14 @@
 % Date: July 23, 2021
 % Reads data from .lmt file written by lclab2
 
-function [Objects, fileID] = fread_lmt(file_name)
+function [Objects, fileID, Version] = fread_lmt(file_name)
 
 fileID = fopen(file_name, 'r');
 
 % First read the header
 % ---
 % Version
-fread(fileID, 1, 'int32');
+Version = fread(fileID, 1, 'int32');
 
 % ---
 

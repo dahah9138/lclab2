@@ -179,8 +179,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         .Neighbors(knn)
         //.IsActiveConfig(LC::Math::ActiveSphere(active_rad))
         //.ExclusionRadius(LC::Math::LinearSphere(rNode, sqrt(3.0) * rNode, sqrt(2.) * active_rad, active_rad))
-        .ExclusionRadius(LC::Math::ZLine(rNode, 0.25, 0.5, 1.5))
-        //.ExclusionRadius(LC::Math::UniformRadius(rNode))
+        //.ExclusionRadius(LC::Math::ZLine(rNode, 0.25, 0.5, 1.5))
+        .ExclusionRadius(LC::Math::UniformRadius(rNode))
         .DirectorConfiguration(LC::Math::Heliknoton(Q, { dop, dop, dop }, 1. / qRatio));
     //.DirectorConfiguration(Dataset::Planar(2 * dop, dop));
     //.DirectorConfiguration(Dataset::Uniform());

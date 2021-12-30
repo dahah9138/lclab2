@@ -53,7 +53,7 @@ namespace ElasticOnly {
 #ifdef LCLAB2_CUDA_AVAIL
 	namespace RBF {
 
-		extern void RelaxGPUOneConst(scalar* directors, const std::size_t* active_nodes, const std::size_t* neighbors, const scalar* dx, const scalar* dy, const scalar* dz, const scalar* lap,
+		extern void RelaxGPUOneConst(scalar* directors, std::size_t* active_nodes, std::size_t* neighbors, scalar* dx, scalar* dy, scalar* dz, scalar* lap,
 			std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, std::size_t iterations);
 	}
 #endif
@@ -313,16 +313,16 @@ namespace Electric {
 #ifdef LCLAB2_CUDA_AVAIL
 	namespace RBF {
 
-		extern void RelaxGPUOneConst(scalar* directors, scalar *voltage, const std::size_t* active_nodes, const std::size_t* neighbors,
-			const scalar* dx, const scalar* dy, const scalar* dz,
-			const scalar* dxx, const scalar* dyy, const scalar* dzz,
-			const scalar* dxy, const scalar* dyz, const scalar* dzx,
+		extern void RelaxGPUOneConst(scalar* directors, scalar *voltage, std::size_t* active_nodes, std::size_t* neighbors,
+			scalar* dx, scalar* dy, scalar* dz,
+			scalar* dxx, scalar* dyy, scalar* dzz,
+			scalar* dxy, scalar* dyz, scalar* dzx,
 			std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, scalar ea, scalar eper, scalar epar, scalar Xi, std::size_t iterations);
 
-		extern void FindEquilibriumVoltage(scalar* directors, scalar* voltage, const std::size_t* active_nodes, const std::size_t* neighbors,
-			const scalar* dx, const scalar* dy, const scalar* dz,
-			const scalar* dxx, const scalar* dyy, const scalar* dzz,
-			const scalar* dxy, const scalar* dyz, const scalar* dzx,
+		extern void FindEquilibriumVoltage(scalar* directors, scalar* voltage, std::size_t* active_nodes, std::size_t* neighbors,
+			scalar* dx, scalar* dy, scalar* dz,
+			scalar* dxx, scalar* dyy, scalar* dzz,
+			scalar* dxy, scalar* dyz, scalar* dzx,
 			std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, scalar ea, scalar eper, scalar epar, scalar Xi, std::size_t iterations);
 	}
 #endif

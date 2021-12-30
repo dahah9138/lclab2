@@ -1,7 +1,7 @@
 function Data = fread_RBF(file_name)
 
 
-[Objects, fileID] = fread_lmt(file_name);
+[Objects, fileID, ~] = fread_lmt(file_name);
 
 % Now read and format the data
 % In this case, extract

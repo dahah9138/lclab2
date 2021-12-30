@@ -90,25 +90,16 @@ namespace ElasticOnly { namespace RBF {
 
 
 
-	void RelaxGPUOneConst(scalar* directors, const std::size_t* active_nodes, const std::size_t* neighbors, const scalar* dx, const scalar* dy, const scalar* dz, const scalar* lap,
+	void RelaxGPUOneConst(scalar* directors, std::size_t* active_nodes, std::size_t* neighbors, scalar* dx, scalar* dy, scalar* dz, scalar* lap,
 		std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, std::size_t iterations) {
 
-		hemi::Array<scalar> A_directors(N * 3);
-		hemi::Array<std::size_t> A_active_nodes(Nactive);
-		hemi::Array<std::size_t> A_neighbors(Nactive * k);
-		hemi::Array<scalar> A_dx(Nactive * k);
-		hemi::Array<scalar> A_dy(Nactive * k);
-		hemi::Array<scalar> A_dz(Nactive * k);
-		hemi::Array<scalar> A_lap(Nactive * k);
-
-		A_directors.copyFromHost(directors, N * 3);
-		A_active_nodes.copyFromHost(active_nodes, Nactive);
-		A_neighbors.copyFromHost(neighbors, Nactive * k);
-		A_dx.copyFromHost(dx, Nactive * k);
-		A_dy.copyFromHost(dy, Nactive * k);
-		A_dz.copyFromHost(dz, Nactive * k);
-		A_lap.copyFromHost(lap, Nactive * k);
-
+		hemi::Array<scalar> A_directors(directors, N * 3);
+		hemi::Array<std::size_t> A_active_nodes(active_nodes, Nactive);
+		hemi::Array<std::size_t> A_neighbors(neighbors, Nactive * k);
+		hemi::Array<scalar> A_dx(dx, Nactive * k);
+		hemi::Array<scalar> A_dy(dy, Nactive * k);
+		hemi::Array<scalar> A_dz(dz, Nactive * k);
+		hemi::Array<scalar> A_lap(lap, Nactive * k);
 
 		typedef void(*method_t)(scalar*, const std::size_t*, const std::size_t*,
 			const scalar*, const scalar*, const scalar*, const scalar*,
@@ -127,7 +118,8 @@ namespace ElasticOnly { namespace RBF {
 		hemi::synchronize();
 
 		// Copy data back
-		cudaMemcpy(directors, A_directors.readOnlyHostPtr(), 3 * sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+		
+		A_directors.readOnlyHostPtr();
 	}
 }}
 
@@ -342,40 +334,25 @@ namespace Electric { namespace RBF {
 
 
 
-	void RelaxGPUOneConst(scalar* directors, scalar *voltage, const std::size_t* active_nodes, const std::size_t* neighbors,
-		const scalar* dx, const scalar* dy, const scalar* dz,
-		const scalar* dxx, const scalar* dyy, const scalar* dzz,
-		const scalar* dxy, const scalar* dyz, const scalar* dzx,
+	void RelaxGPUOneConst(scalar* directors, scalar *voltage, std::size_t* active_nodes, std::size_t* neighbors,
+		scalar* dx, scalar* dy, scalar* dz,
+		scalar* dxx, scalar* dyy, scalar* dzz,
+		scalar* dxy, scalar* dyz, scalar* dzx,
 		std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, scalar ea, scalar eper, scalar epar, scalar Xi, std::size_t iterations) {
 
-		hemi::Array<scalar> A_directors(N * 3);
-		hemi::Array<scalar> A_voltage(N);
-		hemi::Array<std::size_t> A_active_nodes(Nactive);
-		hemi::Array<std::size_t> A_neighbors(Nactive * k);
-		hemi::Array<scalar> A_dx(Nactive * k);
-		hemi::Array<scalar> A_dy(Nactive * k);
-		hemi::Array<scalar> A_dz(Nactive * k);
-		hemi::Array<scalar> A_dxx(Nactive * k);
-		hemi::Array<scalar> A_dyy(Nactive * k);
-		hemi::Array<scalar> A_dzz(Nactive * k);
-		hemi::Array<scalar> A_dxy(Nactive * k);
-		hemi::Array<scalar> A_dyz(Nactive * k);
-		hemi::Array<scalar> A_dzx(Nactive * k);
-
-
-		A_directors.copyFromHost(directors, N * 3);
-		A_voltage.copyFromHost(voltage, N);
-		A_active_nodes.copyFromHost(active_nodes, Nactive);
-		A_neighbors.copyFromHost(neighbors, Nactive * k);
-		A_dx.copyFromHost(dx, Nactive * k);
-		A_dy.copyFromHost(dy, Nactive * k);
-		A_dz.copyFromHost(dz, Nactive * k);
-		A_dxx.copyFromHost(dxx, Nactive * k);
-		A_dyy.copyFromHost(dyy, Nactive * k);
-		A_dzz.copyFromHost(dzz, Nactive * k);
-		A_dxy.copyFromHost(dxy, Nactive * k);
-		A_dyz.copyFromHost(dyz, Nactive * k);
-		A_dzx.copyFromHost(dzx, Nactive * k);
+		hemi::Array<scalar> A_directors(directors, N * 3);
+		hemi::Array<scalar> A_voltage(voltage, N);
+		hemi::Array<std::size_t> A_active_nodes(active_nodes, Nactive);
+		hemi::Array<std::size_t> A_neighbors(neighbors, Nactive * k);
+		hemi::Array<scalar> A_dx(dx, Nactive * k);
+		hemi::Array<scalar> A_dy(dy, Nactive * k);
+		hemi::Array<scalar> A_dz(dz, Nactive * k);
+		hemi::Array<scalar> A_dxx(dxx, Nactive * k);
+		hemi::Array<scalar> A_dyy(dyy, Nactive * k);
+		hemi::Array<scalar> A_dzz(dzz, Nactive * k);
+		hemi::Array<scalar> A_dxy(dxy, Nactive * k);
+		hemi::Array<scalar> A_dyz(dyz, Nactive * k);
+		hemi::Array<scalar> A_dzx(dzx, Nactive * k);
 
 
 		typedef void(*method_t)(scalar*, scalar*, const std::size_t*, const std::size_t*,
@@ -399,45 +376,31 @@ namespace Electric { namespace RBF {
 		hemi::synchronize();
 
 		// Copy data back
-		cudaMemcpy(directors, A_directors.readOnlyHostPtr(), 3 * sizeof(scalar) * N, cudaMemcpyDeviceToHost);
-		cudaMemcpy(voltage, A_voltage.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+
+		A_directors.readOnlyHostPtr();
+		A_voltage.readOnlyHostPtr();
 	}
 
 
-	void FindEquilibriumVoltage(scalar* directors, scalar* voltage, const std::size_t* active_nodes, const std::size_t* neighbors,
-		const scalar* dx, const scalar* dy, const scalar* dz,
-		const scalar* dxx, const scalar* dyy, const scalar* dzz,
-		const scalar* dxy, const scalar* dyz, const scalar* dzx,
+	void FindEquilibriumVoltage(scalar* directors, scalar* voltage, std::size_t* active_nodes, std::size_t* neighbors,
+		scalar* dx, scalar* dy, scalar* dz,
+		scalar* dxx, scalar* dyy, scalar* dzz,
+		scalar* dxy, scalar* dyz, scalar* dzx,
 		std::size_t N, std::size_t Nactive, std::size_t k, scalar chirality, scalar rate, scalar ea, scalar eper, scalar epar, scalar Xi, std::size_t iterations) {
 
-		hemi::Array<scalar> A_directors(N * 3);
-		hemi::Array<scalar> A_voltage(N);
-		hemi::Array<std::size_t> A_active_nodes(Nactive);
-		hemi::Array<std::size_t> A_neighbors(Nactive * k);
-		hemi::Array<scalar> A_dx(Nactive * k);
-		hemi::Array<scalar> A_dy(Nactive * k);
-		hemi::Array<scalar> A_dz(Nactive * k);
-		hemi::Array<scalar> A_dxx(Nactive * k);
-		hemi::Array<scalar> A_dyy(Nactive * k);
-		hemi::Array<scalar> A_dzz(Nactive * k);
-		hemi::Array<scalar> A_dxy(Nactive * k);
-		hemi::Array<scalar> A_dyz(Nactive * k);
-		hemi::Array<scalar> A_dzx(Nactive * k);
-
-
-		A_directors.copyFromHost(directors, N * 3);
-		A_voltage.copyFromHost(voltage, N);
-		A_active_nodes.copyFromHost(active_nodes, Nactive);
-		A_neighbors.copyFromHost(neighbors, Nactive * k);
-		A_dx.copyFromHost(dx, Nactive * k);
-		A_dy.copyFromHost(dy, Nactive * k);
-		A_dz.copyFromHost(dz, Nactive * k);
-		A_dxx.copyFromHost(dxx, Nactive * k);
-		A_dyy.copyFromHost(dyy, Nactive * k);
-		A_dzz.copyFromHost(dzz, Nactive * k);
-		A_dxy.copyFromHost(dxy, Nactive * k);
-		A_dyz.copyFromHost(dyz, Nactive * k);
-		A_dzx.copyFromHost(dzx, Nactive * k);
+		hemi::Array<scalar> A_directors(directors, N * 3);
+		hemi::Array<scalar> A_voltage(voltage, N);
+		hemi::Array<std::size_t> A_active_nodes(active_nodes, Nactive);
+		hemi::Array<std::size_t> A_neighbors(neighbors, Nactive * k);
+		hemi::Array<scalar> A_dx(dx, Nactive * k);
+		hemi::Array<scalar> A_dy(dy, Nactive * k);
+		hemi::Array<scalar> A_dz(dz, Nactive * k);
+		hemi::Array<scalar> A_dxx(dxx, Nactive * k);
+		hemi::Array<scalar> A_dyy(dyy, Nactive * k);
+		hemi::Array<scalar> A_dzz(dzz, Nactive * k);
+		hemi::Array<scalar> A_dxy(dxy, Nactive * k);
+		hemi::Array<scalar> A_dyz(dyz, Nactive * k);
+		hemi::Array<scalar> A_dzx(dzx, Nactive * k);
 
 		for (int i = 0; i < iterations; i++) {
 
@@ -450,8 +413,10 @@ namespace Electric { namespace RBF {
 
 		hemi::synchronize();
 
+
 		// Copy data back
-		cudaMemcpy(voltage, A_voltage.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+
+		A_voltage.readOnlyHostPtr();
 	}
 
 }}

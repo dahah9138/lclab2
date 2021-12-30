@@ -266,4 +266,828 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly { namespace FD {
 	}
 
 
-}}}}
+}}
+
+namespace Electric { namespace FD {
+
+	typedef void(*vFunction_t)(void* data, unsigned int);
+
+	HEMI_DEV_CALLABLE
+		void Normalize_Device(scalar* nn, unsigned int idx, unsigned int N) {
+		scalar nx = nn[idx];
+		scalar ny = nn[idx + N];
+		scalar nz = nn[idx + N * 2];
+		scalar len = sqrt(nx * nx + ny * ny + nz * nz);
+		nn[idx] /= len;
+		nn[idx + N] /= len;
+		nn[idx + N * 2] /= len;
+	}
+
+	HEMI_DEV_CALLABLE
+		void HandleBoundaryConditionsOrder2_Device(scalar* nn, scalar *vv, unsigned int idx, const int* vXi, const bool* bc, unsigned int N) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++) {
+			if (bc[0] && r[0] == 0) nn[idx + N * d] = nn[sub2ind(vXi[0] - 2, r[1], r[2], vXi) + N * d];
+			else if (bc[0] && r[0] == vXi[0] - 1) nn[idx + N * d] = nn[sub2ind(1, r[1], r[2], vXi) + N * d];
+
+			if (bc[1] && r[1] == 0) nn[idx + N * d] = nn[sub2ind(r[0], vXi[1] - 2, r[2], vXi) + N * d];
+			else if (bc[1] && r[1] == vXi[1] - 1) nn[idx + N * d] = nn[sub2ind(r[0], 1, r[2], vXi) + N * d];
+
+			if (bc[2] && r[2] == 0) nn[idx + N * d] = nn[sub2ind(r[0], r[1], vXi[2] - 2, vXi) + N * d];
+			else if (bc[2] && r[2] == vXi[2] - 1) nn[idx + N * d] = nn[sub2ind(r[0], r[1], 1, vXi) + N * d];
+		}
+
+		if (bc[0] && r[0] == 0) vv[idx] = vv[sub2ind(vXi[0] - 2, r[1], r[2], vXi)];
+		else if (bc[0] && r[0] == vXi[0] - 1) vv[idx] = vv[sub2ind(1, r[1], r[2], vXi)];
+
+		if (bc[1] && r[1] == 0) vv[idx] = vv[sub2ind(r[0], vXi[1] - 2, r[2], vXi)];
+		else if (bc[1] && r[1] == vXi[1] - 1) nn[idx] = vv[sub2ind(r[0], 1, r[2], vXi)];
+
+		if (bc[2] && r[2] == 0) vv[idx] = vv[sub2ind(r[0], r[1], vXi[2] - 2, vXi)];
+		else if (bc[2] && r[2] == vXi[2] - 1) vv[idx] = vv[sub2ind(r[0], r[1], 1, vXi)];
+	}
+
+	HEMI_DEV_CALLABLE
+		void HandleBoundaryConditionsOrder4_Device(scalar* nn, scalar *vv, unsigned int idx, const int* vXi, const bool* bc, unsigned int N) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++) {
+			if (bc[0] && r[0] == 0) nn[idx + N * d] = nn[sub2ind(vXi[0] - 4, r[1], r[2], vXi) + N * d];
+			else if (bc[0] && r[0] == 1) nn[idx + N * d] = nn[sub2ind(vXi[0] - 3, r[1], r[2], vXi) + N * d];
+			else if (bc[0] && r[0] == vXi[0] - 2) nn[idx + N * d] = nn[sub2ind(2, r[1], r[2], vXi) + N * d];
+			else if (bc[0] && r[0] == vXi[0] - 1) nn[idx + N * d] = nn[sub2ind(3, r[1], r[2], vXi) + N * d];
+
+			if (bc[1] && r[1] == 0) nn[idx + N * d] = nn[sub2ind(r[0], vXi[1] - 4, r[2], vXi) + N * d];
+			else if (bc[1] && r[1] == 1) nn[idx + N * d] = nn[sub2ind(r[0], vXi[1] - 3, r[2], vXi) + N * d];
+			else if (bc[1] && r[1] == vXi[1] - 2) nn[idx + N * d] = nn[sub2ind(r[0], 2, r[2], vXi) + N * d];
+			else if (bc[1] && r[1] == vXi[1] - 1) nn[idx + N * d] = nn[sub2ind(r[0], 3, r[2], vXi) + N * d];
+
+			if (bc[2] && r[2] == 0) nn[idx + N * d] = nn[sub2ind(r[0], r[1], vXi[2] - 4, vXi) + N * d];
+			else if (bc[2] && r[2] == 1) nn[idx + N * d] = nn[sub2ind(r[0], r[1], vXi[2] - 3, vXi) + N * d];
+			else if (bc[2] && r[2] == vXi[2] - 2) nn[idx + N * d] = nn[sub2ind(r[0], r[1], 2, vXi) + N * d];
+			else if (bc[2] && r[2] == vXi[2] - 1) nn[idx + N * d] = nn[sub2ind(r[0], r[1], 3, vXi) + N * d];
+		}
+
+		if (bc[0] && r[0] == 0) vv[idx] = vv[sub2ind(vXi[0] - 4, r[1], r[2], vXi)];
+		else if (bc[0] && r[0] == 1) vv[idx] = vv[sub2ind(vXi[0] - 3, r[1], r[2], vXi)];
+		else if (bc[0] && r[0] == vXi[0] - 2) vv[idx] = vv[sub2ind(2, r[1], r[2], vXi)];
+		else if (bc[0] && r[0] == vXi[0] - 1) vv[idx] = vv[sub2ind(3, r[1], r[2], vXi)];
+
+		if (bc[1] && r[1] == 0) vv[idx] = vv[sub2ind(r[0], vXi[1] - 4, r[2], vXi)];
+		else if (bc[1] && r[1] == 1) vv[idx] = vv[sub2ind(r[0], vXi[1] - 3, r[2], vXi)];
+		else if (bc[1] && r[1] == vXi[1] - 2) vv[idx] = vv[sub2ind(r[0], 2, r[2], vXi)];
+		else if (bc[1] && r[1] == vXi[1] - 1) vv[idx] = vv[sub2ind(r[0], 3, r[2], vXi)];
+
+		if (bc[2] && r[2] == 0) vv[idx] = vv[sub2ind(r[0], r[1], vXi[2] - 4, vXi)];
+		else if (bc[2] && r[2] == 1) vv[idx] = vv[sub2ind(r[0], r[1], vXi[2] - 3, vXi)];
+		else if (bc[2] && r[2] == vXi[2] - 2) vv[idx] = vv[sub2ind(r[0], r[1], 2, vXi)];
+		else if (bc[2] && r[2] == vXi[2] - 1) vv[idx] = vv[sub2ind(r[0], r[1], 3, vXi)];
+	}
+
+
+	// Update bulk nodes
+	HEMI_DEV_CALLABLE
+		void OneConstAlgebraicO2_Device(scalar* nn, scalar *vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar K, scalar epar, scalar eper, const scalar* dr, const scalar* dr2, scalar rate, scalar chirality) {
+		using namespace LC::Cuda;
+
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] == 0 || r[d] == vXi[d] - 1) return;
+
+		scalar N, curl;
+
+		scalar nD[3][3];
+		scalar vD[3];
+		// [position][direction][front/back]
+		scalar dir[3][3][2];
+		scalar vol = 1.0, denom = 0.0;
+
+		for (int d = 0; d < 3; d++) {
+			vol *= dr2[d];
+			denom += dr2[d] * dr2[(d + 1) % 3];
+
+			// Fill
+			dir[0][d][0] = nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][1] = nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd * d];
+
+			dir[1][d][0] = nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd * d];
+			dir[1][d][1] = nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd * d];
+
+			dir[2][d][0] = nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd * d];
+			dir[2][d][1] = nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd * d];
+
+			nD[0][d] = (dir[0][d][1] - dir[0][d][0]) / (2.0 * dr[0]);
+			nD[1][d] = (dir[1][d][1] - dir[1][d][0]) / (2.0 * dr[1]);
+			nD[2][d] = (dir[2][d][1] - dir[2][d][0]) / (2.0 * dr[2]);
+		}
+
+		vD[0] = (vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		vD[1] = (vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
+		vD[2] = (vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - vv[sub2ind(r[0], r[1], r[2] - 1, vXi)]) / (2.0 * dr[2]);
+
+
+		__syncthreads();
+
+
+		scalar Xi = 8.854 * (epar - eper) / K;
+
+		for (int d = 0; d < 3; d++) {
+
+			scalar c = (1.0 + rate) / (2.0 * denom - dr2[0]* dr2[1]* dr2[2] * Xi * vD[d] * vD[d]);
+			N = 0.0;
+
+			for (int dd = 0; dd < 3; dd++)
+				N += (vol / dr2[dd]) * (dir[dd][d][1] + dir[dd][d][0]);
+
+			const int a = (d + 1) % 3;
+			const int b = (d + 2) % 3;
+			curl = nD[a][b] - nD[b][a];
+
+			nn[idx + Nd * d] = c * (N - 4.0 * PI * chirality * vol * curl + Xi * vol * vD[d] * (vD[a] * nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * a] + vD[b] * nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * b])) - rate * nn[idx + Nd * d];
+		}
+	}
+
+	// Update bulk nodes
+	HEMI_DEV_CALLABLE
+		void UpdateVoltageO2_Device(scalar* nn, scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar epar, scalar eper, const scalar* dr, scalar rate) {
+		using namespace LC::Cuda;
+
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] == 0 || r[d] == vXi[d] - 1) return;
+
+
+		scalar nx000 = nn[idx];
+		scalar ny000 = nn[idx + Nd];
+		scalar nz000 = nn[idx + 2 * Nd];
+		scalar ea = epar - eper;
+
+		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
+		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
+
+		scalar nx010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
+		scalar ny010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd]) / (2.0 * dr[1]);
+		scalar nz010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd]) / (2.0 * dr[1]);
+
+		scalar nx001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi)]) / (2.0 * dr[2]);
+		scalar ny001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd]) / (2.0 * dr[2]);
+		scalar nz001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd]) / (2.0 * dr[2]);
+
+
+		scalar v100 = (vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar v010 = (vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
+		scalar v001 = (vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - vv[sub2ind(r[0], r[1], r[2] - 1, vXi)]) / (2.0 * dr[2]);
+
+		scalar v110 = (vv[sub2ind(r[0] + 1, r[1] + 1, r[2], vXi)] - vv[sub2ind(r[0] + 1, r[1] - 1, r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1] + 1, r[2], vXi)] + vv[sub2ind(r[0] - 1, r[1] - 1, r[2], vXi)]) / (4.0 * dr[0] * dr[1]);
+		scalar v101 = (vv[sub2ind(r[0] + 1, r[1], r[2] + 1, vXi)] - vv[sub2ind(r[0] + 1, r[1], r[2] - 1, vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2] + 1, vXi)] + vv[sub2ind(r[0] - 1, r[1], r[2] - 1, vXi)]) / (4.0 * dr[0] * dr[2]);
+		scalar v011 = (vv[sub2ind(r[0], r[1] + 1, r[2] + 1, vXi)] - vv[sub2ind(r[0], r[1] + 1, r[2] - 1, vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2] + 1, vXi)] + vv[sub2ind(r[0], r[1] - 1, r[2] - 1, vXi)]) / (4.0 * dr[1] * dr[2]);
+
+		scalar w200 = -2.0 / (dr[0] * dr[0]);
+		scalar vm200 = (vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] + vv[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (dr[0] * dr[0]);
+
+		scalar w020 = -2.0 / (dr[1] * dr[1]);
+		scalar vm020 = (vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] + vv[sub2ind(r[0], r[1] + 1, r[2], vXi)]) / (dr[1] * dr[1]);
+
+		scalar w002 = -2.0 / (dr[2] * dr[2]);
+		scalar vm002 = (vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] + vv[sub2ind(r[0], r[1], r[2] + 1, vXi)]) / (dr[2] * dr[2]);
+
+
+		__syncthreads();
+
+		vv[idx] = (1. + rate) * (-9. * ea * (-3. * (vm002 + vm020 + vm200) + nx100 * (ny000 * v010 + nz000 * v001 + 2. * nx000 * v100) +
+			(nx000 * nx000) * vm200 + (ny000 * ny000) * vm020 + (nz000 * nz000) * vm002 + nx000 * ny010 * v100 + nx000 * ny100 * v010 +
+			nx000 * nz001 * v100 + nx000 * nz100 * v001 + nx001 * nz000 * v100 + nx010 * ny000 * v100 + ny000 * nz001 * v010 + ny000 * nz010 * v001 +
+			ny001 * nz000 * v010 + ny010 * nz000 * v001 + 2. * nx000 * ny000 * v110 + 2. * nx000 * nz000 * v101 + 2. * ny000 * ny010 * v010 + 2. * ny000 * nz000 * v011 +
+			2. * nz000 * nz001 * v001) - 2. * (epar + 2. * eper) * (vm002 + vm020 + vm200)) / (2. * (epar + 2. * eper) * (w002 + w020 + w200) +
+				9. * ea * ((-3. + nx000 * nx000) * w200 + (-3. + ny000 * ny000) * w020 + (-3. + nz000 * nz000) * w002)) - rate * vv[idx];
+		
+	}
+
+	HEMI_DEV_CALLABLE
+		void OneConstAlgebraicO4_Device(scalar* nn, scalar*vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar K, scalar epar, scalar eper, const scalar* dr, const scalar* dr2, scalar rate, scalar chirality) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] < 2 || r[d] > vXi[d] - 3) return;
+
+		constexpr scalar c1 = 1.0 / 12.0;
+		constexpr scalar c2 = 2.0 / 3.0;
+		constexpr scalar c3 = 4.0 / 3.0;
+
+		scalar N, curl;
+		// [position][director]
+		scalar nAvg[3][3];
+		scalar vD[3];
+		// [derivative][director]
+		scalar nD[3][3];
+		// [derivative][director][--, -, +, ++]
+		scalar dir[3][3][4];
+
+		for (int d = 0; d < 3; d++) {
+
+			// Fill
+			dir[0][d][0] = nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][1] = nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][2] = nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][3] = nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd * d];
+
+			dir[1][d][0] = nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd * d];
+			dir[1][d][1] = nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd * d];
+			dir[1][d][2] = nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd * d];
+			dir[1][d][3] = nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd * d];
+
+			dir[2][d][0] = nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd * d];
+			dir[2][d][1] = nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd * d];
+			dir[2][d][2] = nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd * d];
+			dir[2][d][3] = nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd * d];
+
+			for (int i = 0; i < 3; i++) {
+				nD[i][d] = (-c1 * dir[i][d][3] + c2 * dir[i][d][2] - c2 * dir[i][d][1] + c1 * dir[i][d][0]) / dr[i];
+				nAvg[i][d] = (c3 * (dir[i][d][1] + dir[i][d][2]) - c1 * (dir[i][d][0] + dir[i][d][3])) / dr2[i];
+			}
+
+		}
+
+		vD[0] = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		vD[1] = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		vD[2] = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+		
+		__syncthreads();
+
+		scalar Xi = 8.854 * (epar - eper) / K;
+
+		for (int d = 0; d < 3; d++) {
+
+			N = nAvg[0][d] + nAvg[1][d] + nAvg[2][d];
+			scalar denom = 2.5 * (1.0 / dr2[0] + 1.0 / dr2[1] + 1.0 / dr2[2]) - Xi * vD[d] * vD[d];
+
+			const int a = (d + 1) % 3;
+			const int b = (d + 2) % 3;
+			curl = nD[a][b] - nD[b][a];
+
+			scalar na = nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * a];
+			scalar nb = nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * b];
+
+
+			nn[idx + Nd * d] = (1.0 + rate) * (N - 4.0 * PI * chirality * curl + Xi * vD[d] * (vD[a] * na + vD[b] * nb)) / denom - rate * nn[idx + Nd * d];
+		}
+	}
+
+	HEMI_DEV_CALLABLE
+		void ThreeConstAlgebraicO4_Device(scalar* nn, scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* dr, const scalar* dr2, scalar rate, scalar chirality) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] < 2 || r[d] > vXi[d] - 3) return;
+
+		constexpr scalar c1 = 1.0 / 12.0;
+		constexpr scalar c2 = 2.0 / 3.0;
+		constexpr scalar c3 = 4.0 / 3.0;
+
+		// [position][director]
+		scalar nAvg[3][3];
+		scalar v100, v010, v001;
+		// [derivative][director]
+		scalar nD[3][3];
+		// [derivative][director][--, -, +, ++]
+		scalar dir[3][3][4];
+
+		scalar nx000 = nn[sub2ind(r[0], r[1], r[2], vXi)];
+		scalar ny000 = nn[sub2ind(r[0], r[1], r[2], vXi) + Nd];
+		scalar nz000 = nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * 2];
+
+		for (int d = 0; d < 3; d++) {
+
+			// Fill
+			dir[0][d][0] = nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][1] = nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][2] = nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd * d];
+			dir[0][d][3] = nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd * d];
+
+			dir[1][d][0] = nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd * d];
+			dir[1][d][1] = nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd * d];
+			dir[1][d][2] = nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd * d];
+			dir[1][d][3] = nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd * d];
+
+			dir[2][d][0] = nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd * d];
+			dir[2][d][1] = nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd * d];
+			dir[2][d][2] = nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd * d];
+			dir[2][d][3] = nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd * d];
+
+			for (int i = 0; i < 3; i++) {
+				nD[i][d] = (-c1 * dir[i][d][3] + c2 * dir[i][d][2] - c2 * dir[i][d][1] + c1 * dir[i][d][0]) / dr[i];
+				nAvg[i][d] = (c3 * (dir[i][d][1] + dir[i][d][2]) - c1 * (dir[i][d][0] + dir[i][d][3]));
+			}
+
+		}
+
+
+		scalar nx110 = (nn[sub2ind(r[0] - 2, r[1] - 2, r[2], vXi)] + nn[sub2ind(r[0] + 2, r[1] + 2, r[2], vXi)] - nn[sub2ind(r[0] - 2, r[1] + 2, r[2], vXi)] - nn[sub2ind(r[0] + 2, r[1] - 2, r[2], vXi)] +
+			(nn[sub2ind(r[0] + 1, r[1] - 2, r[2], vXi)] + nn[sub2ind(r[0] - 2, r[1] + 1, r[2], vXi)] - nn[sub2ind(r[0] - 1, r[1] - 2, r[2], vXi)] - nn[sub2ind(r[0] - 2, r[1] - 1, r[2], vXi)] +
+				nn[sub2ind(r[0] + 2, r[1] - 1, r[2], vXi)] + nn[sub2ind(r[0] - 1, r[1] + 2, r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1] + 2, r[2], vXi)] - nn[sub2ind(r[0] + 2, r[1] + 1, r[2], vXi)]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1] + 1, r[2], vXi)] + nn[sub2ind(r[0] - 1, r[1] - 1, r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1] - 1, r[2], vXi)] - nn[sub2ind(r[0] - 1, r[1] + 1, r[2], vXi)]) * 64.0f) / (144.0f * dr[0] * dr[1]);
+
+		scalar nx101 = (nn[sub2ind(r[0] - 2, r[1], r[2] - 2, vXi)] + nn[sub2ind(r[0] + 2, r[1], r[2] + 2, vXi)] - nn[sub2ind(r[0] - 2, r[1], r[2] + 2, vXi)] - nn[sub2ind(r[0] + 2, r[1], r[2] - 2, vXi)] +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] - 2, vXi)] + nn[sub2ind(r[0] - 2, r[1], r[2] + 1, vXi)] - nn[sub2ind(r[0] - 1, r[1], r[2] - 2, vXi)] - nn[sub2ind(r[0] - 2, r[1], r[2] - 1, vXi)] +
+				nn[sub2ind(r[0] + 2, r[1], r[2] - 1, vXi)] + nn[sub2ind(r[0] - 1, r[1], r[2] + 2, vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2] + 2, vXi)] - nn[sub2ind(r[0] + 2, r[1], r[2] + 1, vXi)]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] + 1, vXi)] + nn[sub2ind(r[0] - 1, r[1], r[2] - 1, vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2] - 1, vXi)] - nn[sub2ind(r[0] - 1, r[1], r[2] + 1, vXi)]) * 64.0f) / (144.0f * dr[0] * dr[2]);
+
+		scalar nx011 = (nn[sub2ind(r[0], r[1] - 2, r[2] - 2, vXi)] + nn[sub2ind(r[0], r[1] + 2, r[2] + 2, vXi)] - nn[sub2ind(r[0], r[1] - 2, r[2] + 2, vXi)] - nn[sub2ind(r[0], r[1] + 2, r[2] - 2, vXi)] +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] - 2, vXi)] + nn[sub2ind(r[0], r[1] - 2, r[2] + 1, vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2] - 2, vXi)] - nn[sub2ind(r[0], r[1] - 2, r[2] - 1, vXi)] +
+				nn[sub2ind(r[0], r[1] + 2, r[2] - 1, vXi)] + nn[sub2ind(r[0], r[1] - 1, r[2] + 2, vXi)] - nn[sub2ind(r[0], r[1] + 1, r[2] + 2, vXi)] - nn[sub2ind(r[0], r[1] + 2, r[2] + 1, vXi)]) * 8.0f +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] + 1, vXi)] + nn[sub2ind(r[0], r[1] - 1, r[2] - 1, vXi)] - nn[sub2ind(r[0], r[1] + 1, r[2] - 1, vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2] + 1, vXi)]) * 64.0f) / (144.0f * dr[1] * dr[2]);
+
+
+		scalar ny110 = (nn[sub2ind(r[0] - 2, r[1] - 2, r[2], vXi) + Nd] + nn[sub2ind(r[0] + 2, r[1] + 2, r[2], vXi) + Nd] - nn[sub2ind(r[0] - 2, r[1] + 2, r[2], vXi) + Nd] - nn[sub2ind(r[0] + 2, r[1] - 2, r[2], vXi) + Nd] +
+			(nn[sub2ind(r[0] + 1, r[1] - 2, r[2], vXi) + Nd] + nn[sub2ind(r[0] - 2, r[1] + 1, r[2], vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1] - 2, r[2], vXi) + Nd] - nn[sub2ind(r[0] - 2, r[1] - 1, r[2], vXi) + Nd] +
+				nn[sub2ind(r[0] + 2, r[1] - 1, r[2], vXi) + Nd] + nn[sub2ind(r[0] - 1, r[1] + 2, r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1] + 2, r[2], vXi) + Nd] - nn[sub2ind(r[0] + 2, r[1] + 1, r[2], vXi) + Nd]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1] + 1, r[2], vXi) + Nd] + nn[sub2ind(r[0] - 1, r[1] - 1, r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1] - 1, r[2], vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1] + 1, r[2], vXi) + Nd]) * 64.0f) / (144.0f * dr[0] * dr[1]);
+
+
+		scalar ny101 = (nn[sub2ind(r[0] - 2, r[1], r[2] - 2, vXi) + Nd] + nn[sub2ind(r[0] + 2, r[1], r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0] - 2, r[1], r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0] + 2, r[1], r[2] - 2, vXi) + Nd] +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] - 2, vXi) + Nd] + nn[sub2ind(r[0] - 2, r[1], r[2] + 1, vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1], r[2] - 2, vXi) + Nd] - nn[sub2ind(r[0] - 2, r[1], r[2] - 1, vXi) + Nd] +
+				nn[sub2ind(r[0] + 2, r[1], r[2] - 1, vXi) + Nd] + nn[sub2ind(r[0] - 1, r[1], r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0] + 2, r[1], r[2] + 1, vXi) + Nd]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] + 1, vXi) + Nd] + nn[sub2ind(r[0] - 1, r[1], r[2] - 1, vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2] - 1, vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1], r[2] + 1, vXi) + Nd]) * 64.0f) / (144.0f * dr[0] * dr[2]);
+
+		scalar ny011 = (nn[sub2ind(r[0], r[1] - 2, r[2] - 2, vXi) + Nd] + nn[sub2ind(r[0], r[1] + 2, r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0], r[1] - 2, r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0], r[1] + 2, r[2] - 2, vXi) + Nd] +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] - 2, vXi) + Nd] + nn[sub2ind(r[0], r[1] - 2, r[2] + 1, vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2] - 2, vXi) + Nd] - nn[sub2ind(r[0], r[1] - 2, r[2] - 1, vXi) + Nd] +
+				nn[sub2ind(r[0], r[1] + 2, r[2] - 1, vXi) + Nd] + nn[sub2ind(r[0], r[1] - 1, r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0], r[1] + 1, r[2] + 2, vXi) + Nd] - nn[sub2ind(r[0], r[1] + 2, r[2] + 1, vXi) + Nd]) * 8.0f +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] + 1, vXi) + Nd] + nn[sub2ind(r[0], r[1] - 1, r[2] - 1, vXi) + Nd] - nn[sub2ind(r[0], r[1] + 1, r[2] - 1, vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2] + 1, vXi) + Nd]) * 64.0f) / (144.0f * dr[1] * dr[2]);
+
+		scalar nz110 = (nn[sub2ind(r[0] - 2, r[1] - 2, r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0] + 2, r[1] + 2, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 2, r[1] + 2, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 2, r[1] - 2, r[2], vXi) + 2 * Nd] +
+			(nn[sub2ind(r[0] + 1, r[1] - 2, r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0] - 2, r[1] + 1, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1] - 2, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 2, r[1] - 1, r[2], vXi) + 2 * Nd] +
+				nn[sub2ind(r[0] + 2, r[1] - 1, r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0] - 1, r[1] + 2, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1] + 2, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 2, r[1] + 1, r[2], vXi) + 2 * Nd]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1] + 1, r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0] - 1, r[1] - 1, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1] - 1, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1] + 1, r[2], vXi) + 2 * Nd]) * 64.0f) / (144.0f * dr[0] * dr[1]);
+
+
+		scalar nz101 = (nn[sub2ind(r[0] - 2, r[1], r[2] - 2, vXi) + 2 * Nd] + nn[sub2ind(r[0] + 2, r[1], r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0] - 2, r[1], r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0] + 2, r[1], r[2] - 2, vXi) + 2 * Nd] +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] - 2, vXi) + 2 * Nd] + nn[sub2ind(r[0] - 2, r[1], r[2] + 1, vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1], r[2] - 2, vXi) + 2 * Nd] - nn[sub2ind(r[0] - 2, r[1], r[2] - 1, vXi) + 2 * Nd] +
+				nn[sub2ind(r[0] + 2, r[1], r[2] - 1, vXi) + 2 * Nd] + nn[sub2ind(r[0] - 1, r[1], r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0] + 2, r[1], r[2] + 1, vXi) + 2 * Nd]) * 8.0f +
+			(nn[sub2ind(r[0] + 1, r[1], r[2] + 1, vXi) + 2 * Nd] + nn[sub2ind(r[0] - 1, r[1], r[2] - 1, vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2] - 1, vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1], r[2] + 1, vXi) + 2 * Nd]) * 64.0f) / (144.0f * dr[0] * dr[2]);
+
+		scalar nz011 = (nn[sub2ind(r[0], r[1] - 2, r[2] - 2, vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1] + 2, r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 2, r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] + 2, r[2] - 2, vXi) + 2 * Nd] +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] - 2, vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1] - 2, r[2] + 1, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 1, r[2] - 2, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 2, r[2] - 1, vXi) + 2 * Nd] +
+				nn[sub2ind(r[0], r[1] + 2, r[2] - 1, vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1] - 1, r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] + 1, r[2] + 2, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] + 2, r[2] + 1, vXi) + 2 * Nd]) * 8.0f +
+			(nn[sub2ind(r[0], r[1] + 1, r[2] + 1, vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1] - 1, r[2] - 1, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] + 1, r[2] - 1, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 1, r[2] + 1, vXi) + 2 * Nd]) * 64.0f) / (144.0f * dr[1] * dr[2]);
+
+
+
+		v100 = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		v010 = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		v001 = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+
+		__syncthreads();
+
+		scalar K = (k11 + k22 + k33) / 3.0;
+		scalar Xi = 8.854 * (epar - eper) / K;
+		scalar q0 = 2 * PI * chirality;
+		scalar c0 = 2.5;
+
+		// Reduced elastic constants
+		k11 /= K;
+		k22 /= K;
+		k33 /= K;
+
+		scalar nx000_new = ((k11 * nAvg[0][0]) / dr2[0] + (k33 * nAvg[1][0]) / dr2[1] + (k22 * nAvg[2][0]) / dr2[2] + k11 * ny110 - k33 * ny110 + (-k22 + k33) * nD[2][1] * (nD[1][0] - 2 * nD[0][1]) * nz000 + ((k22 - k33) * nAvg[1][0] * nz000*nz000) / dr2[1] +
+			((-k22 + k33) * nAvg[2][0] * nz000*nz000) / dr2[2] + (-k22 + k33) * ny110 * nz000*nz000 + (-k22 + k33) * nD[1][0] * ny000 * nD[2][2] + (k22 - k33) * ny000 * nD[0][1] * nD[2][2] + (-k22 + k33) * nD[2][0] * ny000 * nD[1][2] + 2 * (k22 - k33) * ny000 * nD[1][2] * nD[0][2] + k11 * nz101 - k22 * nz101 +
+			(k22 - k33) * nz000*nz000 * nz101 + (-k22 + k33) * nz000 * (2 * nx011 * ny000 + nD[2][0] * (nD[1][1] + 2 * nD[2][2]) - 2 * nD[1][0] * nD[1][2] + 3 * nD[0][1] * nD[1][2] - (nD[1][1] + 3 * nD[2][2]) * nD[0][2] - ny000 * (ny101 + nz110)) + 2 * k22 * nD[2][1] * q0 - 2 * k22 * nD[1][2] * q0 + (nz000 * v001 + ny000 * v010) * v100 * Xi)
+			/ (c0 * (k11 / dr2[0] + (k33 + k22 * nz000*nz000 - k33 * nz000*nz000) / dr2[1] + (k22 - k22 * nz000*nz000 + k33 * nz000*nz000) / dr2[2]));
+
+		scalar ny000_new = (k11 * nx110 - k33 * nx110 + (k33 * nAvg[0][1]) / dr2[0] + (k11 * nAvg[1][1]) / dr2[1] + (k22 * nAvg[2][1]) / dr2[2] + (k22 - k33) * nD[2][0] * (nD[1][0] - nD[0][1]) * nz000 + (-k22 + k33) * nx110 * nz000*nz000 + ((k22 - k33) * nAvg[0][1] * nz000*nz000) / dr2[0] +
+			((-k22 + k33) * nAvg[2][1] * nz000*nz000) / dr2[2] + (-k22 + k33) * nx000 * nD[0][1] * nD[2][2] + (-k22 + k33) * nD[2][1] * nz000 * (nD[0][0] + nD[1][1] + 2 * nD[2][2]) + (k22 - k33) * nz000 * (nD[0][0] + nD[2][2]) * nD[1][2] + k11 * nz011 - k22 * nz011 + (-k22 + k33) * nx000 * nD[2][1] * nD[0][2] +
+			(-k22 + k33) * (3 * nD[1][0] - 2 * nD[0][1]) * nz000 * nD[0][2] + 2 * (k22 - k33) * nx000 * nD[1][2] * nD[0][2] + (-k22 + k33) * nx000 * nz000 * (2 * ny101 - nz110) - 2 * k22 * nD[2][0] * q0 + 2 * k22 * nD[0][2] * q0 + v010 * (nz000 * v001 + nx000 * v100) * Xi) /
+			((c0 * k33) / dr2[0] + (c0 * (dr2[2] * k11 + dr2[1] * k22 + (-dr[1] + dr[2]) * (dr[1] + dr[2]) * (k22 - k33) * nz000*nz000)) / (dr2[1] * dr2[2]) + ((k22 - k33) * nz000 * nAvg[0][2]) / dr2[0] +
+				((k22 - k33) * (dr2[1] * (-(nx101 * nz000) + 2 * ny011 * nz000 + nD[1][1] * nD[2][2] + (nD[2][1] - 2 * nD[1][2]) * nD[1][2] - nD[2][0] * nD[0][2] + 2 * nD[0][2]*nD[0][2]) - nz000 * nAvg[1][2])) / dr2[1] + (-v010*v010 + v100*v100) * Xi);
+
+		scalar nz000_new = (k33 * (-(nD[2][0] * nD[1][0] * ny000) + nx101 * (-1 + nx000*nx000 + ny000*ny000) + nx000 * nD[0][1] * (-nD[2][1] + nD[1][2]) + nx000 * (nD[1][1] + nD[2][2]) * nD[0][2] +
+			ny000 * (-(nD[2][1] * nD[1][1]) + nD[2][0] * nD[0][1] + (nD[0][0] + 2 * nD[1][1] + nD[2][2]) * nD[1][2] + nD[1][0] * nD[0][2] - 2 * nD[0][1] * nD[0][2] + 2 * nx000 * nz110)) + ((k33 + k22 * ny000*ny000 - k33 * ny000*ny000) * nAvg[0][2]) / dr2[0] -
+			((k33 + k22 * (-2 + nx000*nx000 + 2 * ny000*ny000) - k33 * (nx000*nx000 + 2 * ny000*ny000)) * nAvg[1][2]) / dr2[1] + ((k22 - k33) * (-1 + nx000*nx000 + ny000*ny000) * nAvg[2][2]) / dr2[2] + k11 * (nx101 + ny011 + nAvg[2][2] / dr2[2]) -
+			k22 * (nx000*nx000 * nx101 + ny011 + nD[2][0] * ny000 * (-nD[1][0] + nD[0][1]) + ny000 * (nx101 * ny000 - nD[2][1] * nD[1][1] + (nD[0][0] + 2 * nD[1][1] + nD[2][2]) * nD[1][2] + (nD[1][0] - 2 * nD[0][1]) * nD[0][2]) + nx000 * (-(nD[2][1] * nD[0][1]) + nD[0][1] * nD[1][2] + (nD[1][1] + nD[2][2]) * nD[0][2] + 2 * ny000 * nz110) +
+				2 * (-nD[1][0] + nD[0][1]) * q0) + v001 * (ny000 * v010 + nx000 * v100) * Xi) /
+			(c0 * (k33 / dr2[0] + (k11 + (k22 - k33) * (-1 + nx000*nx000 + ny000*ny000)) / dr2[2] + (-(k22 * (-2 + nx000*nx000 + ny000*ny000)) + k33 * (-1 + nx000*nx000 + ny000*ny000)) / dr2[1]) + ((k22 - k33) * ny000 * nAvg[0][1]) / dr2[0] +
+				((-k22 + k33) * ny000 * nAvg[1][1]) / dr2[1] - (k22 - k33) * (-nD[1][0]*nD[1][0] + nD[2][1]*nD[2][1] + nD[1][1]*nD[1][1] + 4 * nD[1][0] * nD[0][1] - 2 * nD[0][1]*nD[0][1] - nD[1][1] * nD[2][2] - nD[2][2] * (nD[0][0] + nD[2][2]) - nD[2][1] * nD[1][2] + nD[1][2]*nD[1][2] + ny000 * (nx110 - 2 * nz011) +
+					nD[2][0] * (nD[2][0] - nD[0][2]) + nx000 * (ny110 - 2 * nz101)) + (-v001*v001 + v100*v100) * Xi);
+
+
+		scalar nmag = nx000_new * nx000_new + ny000_new * ny000_new + nz000_new * nz000_new;
+
+		nn[idx] = (1.0 + rate) * nx000_new / nmag - rate * nn[idx];
+		nn[idx + Nd] = (1.0 + rate) * ny000_new / nmag - rate * nn[idx + Nd];
+		nn[idx + Nd * 2] = (1.0 + rate) * nz000_new / nmag - rate * nn[idx + Nd * 2];
+	}
+
+	HEMI_DEV_CALLABLE
+		void UpdateVoltageO4_Device(scalar* nn, scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar epar, scalar eper, const scalar* dr, scalar rate) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] < 2 || r[d] > vXi[d] - 3) return;
+
+		constexpr scalar c1 = 1.0 / 12.0;
+		constexpr scalar c2 = 2.0 / 3.0;
+
+		scalar nx000 = nn[idx];
+		scalar ny000 = nn[idx + Nd];
+		scalar nz000 = nn[idx + 2 * Nd];
+		scalar ea = epar - eper;
+
+		scalar nx100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		scalar ny100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd]) / dr[0];
+		scalar nz100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + 2 * Nd]) / dr[0];
+
+		scalar nx010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		scalar ny010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd]) / dr[1];
+		scalar nz010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + 2 * Nd]) / dr[1];
+
+		scalar nx001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+		scalar ny001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd]) / dr[2];
+		scalar nz001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + 2 * Nd]) / dr[2];
+
+
+		scalar v100 = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		scalar v010 = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		scalar v001 = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+
+		
+		scalar v110 = (vv[sub2ind(r[0] - 2, r[1] - 2, r[2], vXi)] + vv[sub2ind(r[0] + 2, r[1] + 2, r[2], vXi)] - vv[sub2ind(r[0] - 2, r[1] + 2, r[2], vXi)] - vv[sub2ind(r[0] + 2, r[1] - 2, r[2], vXi)] +
+			(vv[sub2ind(r[0] + 1, r[1] - 2, r[2], vXi)] + vv[sub2ind(r[0] - 2, r[1] + 1, r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1] - 2, r[2], vXi)] - vv[sub2ind(r[0] - 2, r[1] - 1, r[2], vXi)] +
+				vv[sub2ind(r[0] + 2, r[1] - 1, r[2], vXi)] + vv[sub2ind(r[0] - 1, r[1] + 2, r[2], vXi)] - vv[sub2ind(r[0] + 1, r[1] + 2, r[2], vXi)] - vv[sub2ind(r[0] + 2, r[1] + 1, r[2], vXi)]) * 8.0f +
+			(vv[sub2ind(r[0] + 1, r[1] + 1, r[2], vXi)] + vv[sub2ind(r[0] - 1, r[1] - 1, r[2], vXi)] - vv[sub2ind(r[0] + 1, r[1] - 1, r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1] + 1, r[2], vXi)]) * 64.0f) / (144.0f * dr[0] * dr[1]);
+
+
+		scalar v101 = (vv[sub2ind(r[0] - 2, r[1], r[2] - 2, vXi)] + vv[sub2ind(r[0] + 2, r[1], r[2] + 2, vXi)] - vv[sub2ind(r[0] - 2, r[1], r[2] + 2, vXi)] - vv[sub2ind(r[0] + 2, r[1], r[2] - 2, vXi)] +
+			(vv[sub2ind(r[0] + 1, r[1], r[2] - 2, vXi)] + vv[sub2ind(r[0] - 2, r[1], r[2] + 1, vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2] - 2, vXi)] - vv[sub2ind(r[0] - 2, r[1], r[2] - 1, vXi)] +
+				vv[sub2ind(r[0] + 2, r[1], r[2] - 1, vXi)] + vv[sub2ind(r[0] - 1, r[1], r[2] + 2, vXi)] - vv[sub2ind(r[0] + 1, r[1], r[2] + 2, vXi)] - vv[sub2ind(r[0] + 2, r[1], r[2] + 1, vXi)]) * 8.0f +
+			(vv[sub2ind(r[0] + 1, r[1], r[2] + 1, vXi)] + vv[sub2ind(r[0] - 1, r[1], r[2] - 1, vXi)] - vv[sub2ind(r[0] + 1, r[1], r[2] - 1, vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2] + 1, vXi)]) * 64.0f) / (144.0f * dr[0] * dr[2]);
+
+		scalar v011 = (vv[sub2ind(r[0], r[1] - 2, r[2] - 2, vXi)] + vv[sub2ind(r[0], r[1] + 2, r[2] + 2, vXi)] - vv[sub2ind(r[0], r[1] - 2, r[2] + 2, vXi)] - vv[sub2ind(r[0], r[1] + 2, r[2] - 2, vXi)] +
+			(vv[sub2ind(r[0], r[1] + 1, r[2] - 2, vXi)] + vv[sub2ind(r[0], r[1] - 2, r[2] + 1, vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2] - 2, vXi)] - vv[sub2ind(r[0], r[1] - 2, r[2] - 1, vXi)] +
+				vv[sub2ind(r[0], r[1] + 2, r[2] - 1, vXi)] + vv[sub2ind(r[0], r[1] - 1, r[2] + 2, vXi)] - vv[sub2ind(r[0], r[1] + 1, r[2] + 2, vXi)] - vv[sub2ind(r[0], r[1] + 2, r[2] + 1, vXi)]) * 8.0f +
+			(vv[sub2ind(r[0], r[1] + 1, r[2] + 1, vXi)] + vv[sub2ind(r[0], r[1] - 1, r[2] - 1, vXi)] - vv[sub2ind(r[0], r[1] + 1, r[2] - 1, vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2] + 1, vXi)]) * 64.0f) / (144.0f * dr[1] * dr[2]);
+		
+
+		scalar w200 = -2.5 / (dr[0] * dr[0]);
+		scalar vm200 = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + 2.0 * c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] + 2.0 * c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] - c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / (dr[0] * dr[0]);
+
+		scalar w020 = -2.5 / (dr[1] * dr[1]);
+		scalar vm020 = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + 2.0 * c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] + 2.0 * c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] - c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / (dr[1] * dr[1]);
+
+		scalar w002 = -2.5 / (dr[2] * dr[2]);
+		scalar vm002 = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + 2.0 * c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] + 2.0 * c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] - c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / (dr[2] * dr[2]);
+
+		__syncthreads();
+
+		scalar vp = (-9. * ea * (-3. * (vm002 + vm020 + vm200) + nx100 * (ny000 * v010 + nz000 * v001 + 2. * nx000 * v100) +
+			(nx000 * nx000) * vm200 + (ny000 * ny000) * vm020 + (nz000 * nz000) * vm002 + nx000 * ny010 * v100 + nx000 * ny100 * v010 +
+			nx000 * nz001 * v100 + nx000 * nz100 * v001 + nx001 * nz000 * v100 + nx010 * ny000 * v100 + ny000 * nz001 * v010 + ny000 * nz010 * v001 +
+			ny001 * nz000 * v010 + ny010 * nz000 * v001 + 2. * nx000 * ny000 * v110 + 2. * nx000 * nz000 * v101 + 2. * ny000 * ny010 * v010 + 2. * ny000 * nz000 * v011 +
+			2. * nz000 * nz001 * v001) - 2. * (epar + 2. * eper) * (vm002 + vm020 + vm200)) / (2. * (epar + 2. * eper) * (w002 + w020 + w200) +
+				9. * ea * ((-3. + nx000 * nx000) * w200 + (-3. + ny000 * ny000) * w020 + (-3. + nz000 * nz000) * w002));
+
+		vv[idx] = (1. + rate) * vp - rate * vv[idx];
+	}
+
+	HEMI_DEV_CALLABLE
+		void FreeEnergyDensityO2_Device(scalar *en, const scalar *nn, const scalar *vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] == 0 || r[d] == vXi[d] - 1) return;
+
+
+		scalar nx000 = nn[idx];
+		scalar ny000 = nn[idx + Nd];
+		scalar nz000 = nn[idx + 2 * Nd];
+		scalar Xi = 8.8541878 * ea / (k11 + k22 + k33) * 3.;
+
+		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
+		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
+
+		scalar nx010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
+		scalar ny010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd]) / (2.0 * dr[1]);
+		scalar nz010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd]) / (2.0 * dr[1]);
+
+		scalar nx001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi)]) / (2.0 * dr[2]);
+		scalar ny001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd]) / (2.0 * dr[2]);
+		scalar nz001 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] - nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd]) / (2.0 * dr[2]);
+
+		scalar nx200 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] + nn[sub2ind(r[0] - 1, r[1], r[2], vXi)] - 2.0 * nx000) / dr2[0];
+		scalar ny200 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] + nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd] - 2.0 * ny000) / dr2[0];
+		scalar nz200 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd] - 2.0 * nz000) / dr2[0];
+
+		scalar nx020 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] + nn[sub2ind(r[0], r[1] - 1, r[2], vXi)] - 2.0 * nx000) / dr2[1];
+		scalar ny020 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] + nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd] - 2.0 * ny000) / dr2[1];
+		scalar nz020 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd] - 2.0 * nz000) / dr2[1];
+
+		scalar nx002 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] + nn[sub2ind(r[0], r[1], r[2] - 1, vXi)] - 2.0 * nx000) / dr2[2];
+		scalar ny002 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] + nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd] - 2.0 * ny000) / dr2[2];
+		scalar nz002 = (nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] + nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd] - 2.0 * nz000) / dr2[2];
+
+		scalar v100 = (vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - vv[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar v010 = (vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - vv[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
+		scalar v001 = (vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - vv[sub2ind(r[0], r[1], r[2] - 1, vXi)]) / (2.0 * dr[2]);
+
+		en[idx] = (k11 * pow(nx100 + ny010 + nz001, 2) + k33 * (pow(nx000 * (-nx010 + ny100) + nz000 * (ny001 - nz010), 2) + pow(ny000 * (ny001 - nz010) + nx000 * (nx001 - nz100), 2) + pow(ny000 * (nx010 - ny100) + nz000 * (nx001 - nz100), 2)) -
+			2 * k22 * (nx000 * (nx002 + nx020 + nx200) + pow(nx010 - ny100, 2) + ny000 * (ny002 + ny020 + ny200) + pow(nx100 + ny010 + nz001, 2) + pow(ny001 - nz010, 2) + pow(nx001 - nz100, 2) + nz000 * (nz002 + nz020 + nz200)) +
+			k22 * pow((-nx010 + ny100) * nz000 + nx000 * (-ny001 + nz010) + ny000 * (nx001 - nz100) + 2.*PI*chirality, 2) - pow(nz000 * v001 + ny000 * v010 + nx000 * v100, 2) * Xi) / 2.;
+		
+	}
+
+	void FreeEnergyDensityO2(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
+	
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			FreeEnergyDensityO2_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, dr, dr2, chirality);
+		});
+	}
+
+	void OneConstAlgebraicO2(scalar* directors, scalar *voltage, const int* vXi, scalar K, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, idx, vXi, bc, N);
+			OneConstAlgebraicO2_Device(directors, voltage, idx, N, vXi, K, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO2_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, idx, N);
+		});
+	}
+
+
+	void OneConstAlgebraicO4(scalar* directors, scalar *voltage, const int* vXi, scalar K, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, idx, vXi, bc, N);
+			OneConstAlgebraicO4_Device(directors, voltage, idx, N, vXi, K, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO4_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	void ThreeConstAlgebraicO4(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, idx, vXi, bc, N);
+			ThreeConstAlgebraicO4_Device(directors, voltage, idx, N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO4_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	/*
+		TODO: ThreeConstAlgebraicO2_Device
+	*/
+	void ThreeConstAlgebraicO2(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, idx, vXi, bc, N);
+			//ThreeConstAlgebraicO4_Device(directors, voltage, idx, N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO2_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	void UpdateVoltageO4GPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* dr, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, idx, vXi, bc, N);
+			UpdateVoltageO4_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+
+		});
+	}
+
+	void UpdateVoltageO2GPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* dr, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, idx, vXi, bc, N);
+			UpdateVoltageO2_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+
+		});
+	}
+
+	/* routine
+		0 - FullFunctionalO2
+		1 - OneConstFunctionalO2
+		2 - FullAlgebraicO2
+		3 - OneConstAlgebraicO2
+		4 - FullFunctionalO4
+		5 - OneConstFunctionalO4
+		6 - FullAlgebraicO4
+		7 - OneConstAlgebraicO4
+	*/
+	void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int routine) {
+		unsigned int N = vXi[0] * vXi[1] * vXi[2];
+
+		hemi::Array<scalar> dirs(N * 3);
+		hemi::Array<scalar> volt(N);
+		hemi::Array<scalar> cX(3);
+		hemi::Array<int> vX(3);
+		hemi::Array<bool> BC(3);
+
+		scalar K = (k11 + k22 + k33) / 3.0;
+
+		int notificationIterations = iterations / 10;
+
+		dirs.copyFromHost(directors, N * 3);
+		volt.copyFromHost(voltage, N);
+		cX.copyFromHost(cXi, 3);
+		vX.copyFromHost(vXi, 3);
+		BC.copyFromHost(bc, 3);
+
+		hemi::Array<scalar> dr(3), dr2(3);
+		{
+			scalar* h_dr = dr.writeOnlyHostPtr();
+			scalar* h_dr2 = dr2.writeOnlyHostPtr();
+			for (int d = 0; d < 3; d++) {
+				h_dr[d] = cXi[d] / (scalar)(vXi[d] - 1);
+				h_dr2[d] = h_dr[d] * h_dr[d];
+			}
+		}
+
+		// Flipped algebraic bit
+		if (routine & 0x02) {
+			// Flipped one const bit
+			if (routine & 0x01) {
+				typedef void(*method_t)(scalar*, scalar *, const int*, scalar, scalar, scalar, const bool*, const scalar*, const scalar*, const scalar*, scalar, scalar, unsigned int);
+				method_t method;
+				// Flipped order4 bit
+				if (routine & 0x04) method = OneConstAlgebraicO4;
+				else method = OneConstAlgebraicO2;
+
+				for (unsigned int i = 0; i < iterations; i++) {
+					method(dirs.devicePtr(),
+						volt.devicePtr(),
+						vX.readOnlyDevicePtr(),
+						K,
+						epar,
+						eper,
+						BC.readOnlyDevicePtr(),
+						cX.readOnlyDevicePtr(),
+						dr.readOnlyDevicePtr(),
+						dr2.readOnlyDevicePtr(),
+						chirality, rate, N);
+
+					if ((i + 1) % notificationIterations == 0) {
+						cudaDeviceSynchronize();
+						printf("Iterations = %d\n", i + 1);
+					}
+					
+
+				}
+			}
+			else { // Three constant bit
+				
+				typedef void(*method_t)(scalar*, scalar*, const int*, scalar, scalar, scalar, scalar, scalar, const bool*, const scalar*, const scalar*, const scalar*, scalar, scalar, unsigned int);
+				method_t method;
+				// Flipped order4 bit
+				if (routine & 0x04) method = ThreeConstAlgebraicO4;
+				else method = ThreeConstAlgebraicO2;
+
+				for (unsigned int i = 0; i < iterations; i++) {
+
+					method(dirs.devicePtr(),
+						volt.devicePtr(),
+						vX.readOnlyDevicePtr(),
+						k11,
+						k22,
+						k33,
+						epar,
+						eper,
+						BC.readOnlyDevicePtr(),
+						cX.readOnlyDevicePtr(),
+						dr.readOnlyDevicePtr(),
+						dr2.readOnlyDevicePtr(),
+						chirality, rate, N);
+
+					if ((i + 1) % notificationIterations == 0) {
+						cudaDeviceSynchronize();
+						printf("Iterations = %d\n", i + 1);
+					}
+				
+				}
+			}
+
+		}
+		else {
+			return;
+		}
+		cudaDeviceSynchronize();
+		cudaMemcpy(directors, dirs.readOnlyHostPtr(), 3 * sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+		cudaMemcpy(voltage, volt.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+	}
+
+	void UpdateVoltageGPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar rate, unsigned int iterations, int routine) {
+		unsigned int N = vXi[0] * vXi[1] * vXi[2];
+
+		hemi::Array<scalar> dirs(N * 3);
+		hemi::Array<scalar> volt(N);
+		hemi::Array<int> vX(3);
+		hemi::Array<bool> BC(3);
+
+		dirs.copyFromHost(directors, N * 3);
+		volt.copyFromHost(voltage, N);
+		vX.copyFromHost(vXi, 3);
+		BC.copyFromHost(bc, 3);
+
+		hemi::Array<scalar> dr(3);
+		{
+			scalar* h_dr = dr.writeOnlyHostPtr();
+			for (int d = 0; d < 3; d++) {
+				h_dr[d] = cXi[d] / (scalar)(vXi[d] - 1);
+			}
+		}
+
+		
+		typedef void(*method_t)(scalar*, scalar*, const int*, scalar, scalar, const bool*, const scalar*, scalar, unsigned int);
+		method_t method;
+		// Flipped order4 bit
+		if (routine & 0x04) method = UpdateVoltageO4GPU;
+		else method = UpdateVoltageO2GPU;
+
+		for (unsigned int i = 0; i < iterations; i++)
+			method(dirs.devicePtr(),
+				volt.devicePtr(),
+				vX.readOnlyDevicePtr(),
+				epar,
+				eper,
+				BC.readOnlyDevicePtr(),
+				dr.readOnlyDevicePtr(),
+				rate,
+				N);
+		
+		hemi::synchronize();
+		cudaMemcpy(voltage, volt.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+	}
+
+	void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality) {
+		
+		unsigned int N = vXi[0] * vXi[1] * vXi[2];
+		hemi::Array<scalar> dirs(N * 3);
+		hemi::Array<scalar> volt(N);
+		hemi::Array<scalar> en(N);
+		hemi::Array<scalar> cX(3);
+		hemi::Array<int> vX(3);
+
+		scalar ea = epar - eper;
+
+		dirs.copyFromHost(directors, N * 3);
+		volt.copyFromHost(voltage, N);
+		cX.copyFromHost(cXi, 3);
+		vX.copyFromHost(vXi, 3);
+
+		hemi::Array<scalar> dr(3), dr2(3);
+		{
+			scalar* h_dr = dr.writeOnlyHostPtr();
+			scalar* h_dr2 = dr2.writeOnlyHostPtr();
+			for (int d = 0; d < 3; d++) {
+				h_dr[d] = cXi[d] / (scalar)(vXi[d] - 1);
+				h_dr2[d] = h_dr[d] * h_dr[d];
+			}
+		}
+
+		FreeEnergyDensityO2(
+			en.devicePtr(),
+			dirs.readOnlyDevicePtr(),
+			volt.readOnlyDevicePtr(),
+			vX.readOnlyDevicePtr(),
+			k11,
+			k22,
+			k33,
+			ea,
+			dr.readOnlyDevicePtr(),
+			dr2.readOnlyDevicePtr(),
+			chirality,
+			N);
+
+		hemi::synchronize();
+		cudaMemcpy(en_density, en.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+	}
+
+
+}}
+
+}}

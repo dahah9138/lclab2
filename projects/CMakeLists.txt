@@ -7,5 +7,6 @@ if (CONSOLE_ONLY)
 else()
 	add_subdirectory(rbf-fd-e)
 	add_subdirectory(rbf-fd)
+	add_subdirectory(FO-electric)
 endif()
 	

@@ -6,14 +6,16 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = 'strange_soliton';
+file = 'hybrid-from-Q3';
+%file = 'trefoil_smallest';
 
 % Cone error
-eps = 0.2;
+eps = 0.15;
 
 % Sampling rate for isosurfaces of preimages
-sample = 5; 
+sample = 1;
 preimg_alpha = 1;
+seifert = 0;
 
 
 file = strcat(file, '.mat');
@@ -27,37 +29,35 @@ end
 
 % Cut off some of nn
 
-[m0,n0,p0,~] = size(nn);
+[n0,m0,p0,~] = size(nn);
 
 p01 = int32(p0 *3/9);
 p02 = int32(p0 *6/9);
+
+n01 = int32(n0 *2/9);
+n02 = int32(n0 *7/9);
+
+m01 = int32(m0 * 2/9);
+m02 = int32(m0 * 7/9);
 
 cutnn = nn(:,:,p01:p02,:);
 %nn = cutnn;
 
 
 xs_xz = 0;
-xs_xy = 0;
+xs_xy = 1;
 xs_yz = 0;
-viewangle = [0,90];
-xsection_alpha = 0.4;
+viewangle = [0,0];
+xsection_alpha = 1;
 
 % Sampling rate for the xz-xsection
 ratexs = 4; 
 
 % reference vector
+thetad = [];
 
-numpreimages = 8;
-thetamin = 90;
-thetamax = 90;
-phimin = 0;
-phimax = 360;
 
-%thetad = linspace(thetamin,thetamax, numpreimages);
-%phid = linspace(phimin,phimax, numpreimages);
-
-thetad = [0, 180];
-phid = [0, 0];
+phid = [];
 
 epsilon = eps*ones(size(thetad));
 
@@ -99,8 +99,17 @@ for cone=1:length(theta)
     py = sin(theta(cone)).*sin(phi(cone));
     pz = cos(theta(cone));
     
-    diffmag = sqrt((nn2(:,:,:,1)-phixs).^2+...
-        (nn2(:,:,:,2)-py).^2+(nn2(:,:,:,3)-pz).^2);
+    if seifert
+        target = ones(size(nn2));
+        target(:,:,:,1) = phixs;
+        target(:,:,:,2) = py;
+        target(:,:,:,3) = pz;
+        dtp = abs(dot(target, nn2, 4));
+        diffmag = dtp;
+    else
+        diffmag = sqrt((nn2(:,:,:,1)-phixs).^2+...
+            (nn2(:,:,:,2)-py).^2+(nn2(:,:,:,3)-pz).^2);
+    end
     
     disp('Finished diffmag')
     
@@ -333,9 +342,6 @@ xlim([small_bd-2 large_bd+1])
 ylim([small_bd-2 large_bd+1])
 zlim([-2 p+1])
 linewidth = 1;
-
-
-
 
 
 function A=fatan(X,Y)

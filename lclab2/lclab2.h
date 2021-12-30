@@ -23,7 +23,6 @@
 #include "src/utility/searchlist.h"
 
 // Math
-#include "src/math/vec3.h"
 #include "src/math/Choose.h"
 #include "src/math/rng.h"
 #include "src/math/subset.h"
@@ -31,6 +30,7 @@
 #include "src/math/poly_spline.h"
 #include "src/math/powi.h"
 #include "src/math/Metric.h"
+#include "src/math/LinearInterpolate.h"
 #include "src/math/AdvancingFront.h"
 #include "src/math/StencilWeights.h"
 

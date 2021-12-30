@@ -7,6 +7,7 @@ add_library(lclab2_math Choose.h Choose.cpp
 						Metric.h Metric.cpp
 						AdvancingFront.h AdvancingFront.cpp
 						StencilWeights.h StencilWeights.cpp
+						LinearInterpolate.h LinearInterpolate.cpp
 						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}

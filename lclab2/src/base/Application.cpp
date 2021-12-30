@@ -43,7 +43,7 @@ namespace LC
 			const Vector3 up = Vector3::yAxis();
 			const Deg fov = 45.0_degf;
 			_arcballCamera.emplace(eye, viewCenter, up, fov, windowSize());
-			_arcballCamera->setLagging(param);
+			_arcballCamera->setLagging(0.0);
 
 			_projectionMatrix = Matrix4::perspectiveProjection(fov,
 				Vector2{ framebufferSize() }.aspectRatio(), 0.01f, 100.0f);
@@ -315,6 +315,7 @@ namespace LC
 			_header.writeFile = res;
 			_solver->Export(_header);
 			LC_INFO("Saved to file {0}", res.c_str());
+			_header.readFile = res;
 		}
 	}
 	bool Application::open() {

@@ -23,6 +23,38 @@ namespace LC { namespace Math {
 		};
 	}
 
+	IsActive Torus(std::array<scalar, 3> position, scalar r1, scalar r2) {
+
+		r2 *= r2;
+
+		return [position, r1, r2](scalar x, scalar y, scalar z) {
+
+			Eigen::Matrix<scalar, 3, 1> r = { x - position[0], y - position[1], z - position[2] };
+
+			scalar val1 = r1 - sqrt(r[0] * r[0] + r[1] * r[1]);
+			return (val1 * val1 + r[2] * r[2] > r2) ? false : true;
+		};
+	}
+
+	IsActive RubberTorus(std::array<scalar, 3> position, scalar r1, scalar r2, scalar deformation) {
+
+		r2 *= r2;
+
+		if (deformation > 1.0) deformation = 1.0;
+		else if (deformation < 0.0) deformation = 0.0;
+
+		return [position, r1, r2, deformation](scalar x, scalar y, scalar z) {
+
+			Eigen::Matrix<scalar, 3, 1> r = { x - position[0], y - position[1], z - position[2] };
+
+			// Compute azimuthal angle
+			scalar theta = atan2(r[1], r[0]);
+
+			scalar val1 = r1 * (1.0 - deformation * (1.0 + cos(theta)) * 0.5) - sqrt(r[0] * r[0] + r[1] * r[1]);
+			return (val1 * val1 + r[2] * r[2] > r2) ? false : true;
+		};
+	}
+
 
 	VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda, scalar lim,
 		const Eigen::Matrix<scalar, 3, 1>& translation, bool background) {

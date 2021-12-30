@@ -59,8 +59,17 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable)
 
 } {
-    _transparentShader = Shaders::VertexColorGL3D{};
    
+    Utility::Arguments args;
+    args.addOption('q', "topological-charge", "1")
+        .setHelp("topological-charge", "topological charge", "Q")
+        .addOption('n', "nodes-per-pitch", "30")
+        .setHelp("nodes-per-pitch", "Nodes per pitch", "N")
+        .addSkippedPrefix("magnum")
+        .parse(arguments.argc, arguments.argv);
+
+    _transparentShader = Shaders::VertexColorGL3D{};
+
     /* Setup the GUI */
     setupGUI();
 
@@ -81,10 +90,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     /* Setup data using function chaining */
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
-    // Create heliknotons
-    std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
-    translations.push_back({ 0.0, 0.9, 0.0 });
-    translations.push_back({ 0.9, 0.0, 0.0 });
 
 
     //Dataset::Config plan = Dataset::Planar(2);
@@ -96,15 +101,48 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     //    heli(nn, i, j, k, voxels);
     //};
 
+    int Q = args.value<int>("topological-charge");
+    int npp = args.value<int>("nodes-per-pitch");
 
 
-    (*data).Voxels(60, 60, 60)
+    /*
+            Settings for nested heliknotons
+    */
+    (*data).Voxels((2 * Q + 1) * npp, (2 * Q + 1) * npp, (2 * Q + 1) * npp)
         .Boundaries(1, 1, 0)
-        .Cell(2, 2, 2)
+        .Cell(2 * Q + 1, 2 * Q + 1, 2 * Q + 1)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        //.Configuration(Dataset::Heliknoton(1, translations, 0.2, 3));
-        .Configuration(Dataset::Heliknoton(1));
-        //.Configuration(custom_cfg);
+        .Configuration(Dataset::Heliknoton(Q));
+
+    if (0)
+    {
+        // Test with Q = 2 for now
+        Q = 2;
+
+        LC::scalar dz = 0.5 * (2. * Q + 1.) / (2. * Q);
+
+        /*
+            Settings for merged structure
+        */
+
+        // Create heliknotons
+        std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
+        translations.push_back({ 0.0, 0.0, dz });
+        translations.push_back({ 0.0, 0.0, -dz });
+
+        Dataset::Config helis = Dataset::Heliknoton(1, translations, 0.50, 3);
+
+        (*data).Voxels(5 * npp, 5 * npp, (2 * Q + 1) * npp)
+            .Boundaries(1, 1, 0)
+            .Cell(5, 5, 2 * Q + 1)
+            .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+            .Configuration(helis);
+    }
+
+
+    //.Configuration(custom_cfg);
+
+
     _solver->Init();
 
     _relaxFuture.second = false;
@@ -175,9 +213,99 @@ void Sandbox::drawEvent() {
                 dropDownMenu<Dataset::RelaxKind>("Relax method", data->relaxKind, map);
             }
 
+            static bool p_modification_window = false;
+            if (ImGui::Button("Modify LC"))
+                p_modification_window ^= true;
+
+            if (p_modification_window) {
+                ImGui::SetNextWindowContentSize({ 150,100 });
+                ImGui::SetNextWindowPos({ 0, 450 });
+                ImGui::Begin("LC Modification window", &p_modification_window);
+
+                // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
+
+                static std::array<float, 3> fp_arr{ 0.0, 0.0, 0.0 }, f_orien{ 0.0, 0.0,-1.0 };
+                static std::array<int, 3> iperm_arr{ 0, 1, 2 };
+                static float f_r1{ 0.5 }, f_r2{ 0.1 };
+                static float deform = 0.0;
+
+                ImGui::InputFloat3("Position", &fp_arr[0]);
+                ImGui::InputFloat3("Orientation", &f_orien[0]);
+                ImGui::InputFloat("Deformation", &deform);
+                ImGui::InputInt3("sigma(xyz)", &iperm_arr[0]);
+
+                ImGui::InputFloat("R", &f_r1);
+                ImGui::InputFloat("r", &f_r2);
+                
+                if (ImGui::Button("Add torus")) {
+                    
+                    for (int d = 0; d < 3; d++) {
+
+                        // clamp
+                        if (iperm_arr[d] > 2) iperm_arr[d] = 2;
+                        if (iperm_arr[d] < 0) iperm_arr[d] = 0;
+
+                        // No repeats
+                        if (iperm_arr[d] == iperm_arr[(d + 1) % 3] || iperm_arr[d] == iperm_arr[(d + 2) % 3]) {
+                            // Reset
+                            iperm_arr[0] = 0;
+                            iperm_arr[1] = 1;
+                            iperm_arr[2] = 2;
+                        }
+                    }
+
+                    std::array<LC::scalar, 3> p_arr;
+                    std::array<LC::scalar, 3> orientation;
+                    LC::scalar r1, r2;
+                    
+                    for (int d = 0; d < 3; d++) {
+                        p_arr[d] = fp_arr[d];
+                        orientation[d] = f_orien[d];
+                    }
+
+                    r1 = f_r1;
+                    r2 = f_r2;
+
+                    FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+                    std::array<float, 3> pos;
+
+                    LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+                    LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+                    LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+                    auto torus = LC::Math::RubberTorus(p_arr, r1, r2, deform);
+
+                    for (int i = 0; i < data->voxels[0]; i++)
+                        for (int j = 0; j < data->voxels[1]; j++)
+                            for (int k = 0; k < data->voxels[2]; k++) {
+                                
+                                pos[iperm_arr[0]] = -data->cell_dims[0] / 2.0 + i * dx;
+                                pos[iperm_arr[1]] = -data->cell_dims[1] / 2.0 + j * dy;
+                                pos[iperm_arr[2]] = -data->cell_dims[2] / 2.0 + k * dz;
+
+                                // Is inside torus
+                                if (torus(pos[0], pos[1], pos[2])) {
+                                    nn(i, j, k, 0) = orientation[0];
+                                    nn(i, j, k, 1) = orientation[1];
+                                    nn(i, j, k, 2) = orientation[2];
+                                }
+
+                            }
+                }
+
+                ImGui::End();
+            }
+            
+
             {
                 ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
                 ImGui::Checkbox("Nonlinear imaging", &_widget.nonlinear);
+
+                if (_widget.nonlinear) {
+                    ImGui::SliderFloat("Nonlinear theta (deg)", &_widget.nonlinTheta, 0.0f, 365.0f);
+                    ImGui::Checkbox("Nonlinear circular polarization", &_widget.nonlinCircular);
+                }
 
                 if (ImGui::CollapsingHeader("POM Settings")) {
 
@@ -253,10 +381,10 @@ void Sandbox::drawEvent() {
                 _manipulator->setTransformation(Matrix4{});
             ImGui::SameLine();
             if (ImGui::Button("xz"))
-                _manipulator->setTransformation(Matrix4::rotationY(Rad(-M_PI)) * Matrix4::rotationX(Rad(-M_PI/2.0f)));
+                _manipulator->setTransformation(Matrix4::rotationZ(Rad(M_PI)) * Matrix4::rotationY(Rad(M_PI)) * Matrix4::rotationX(Rad(M_PI / 2.0f)));
             ImGui::SameLine();
             if (ImGui::Button("yz"))
-                _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(M_PI / 2.0f)));
+                _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(-M_PI / 2.0f)));
 
             _widget.updateImage = ImGui::Button("Update Image") || _widget.updateImageFromLoad;
 
@@ -467,7 +595,12 @@ void Sandbox::updateColor() {
 
                 if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cidx].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
                 // Green 3 photon nonlinear imaging
-                else _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx,6.0f) }), alpha };
+                else {
+                    if (_widget.nonlinCircular)
+                        _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) }), alpha };
+                    else
+                        _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(M_PI / 180. * _widget.nonlinTheta)+ ny * sin(M_PI / 180. * _widget.nonlinTheta), 6.0f) }), alpha };
+                }
 
                 _crossSections[id].section.second->vertices[cidx].position[id] = data->cell_dims[id] * ((float)hvox / float(data->voxels[id] - 1) - 0.5f);
                 

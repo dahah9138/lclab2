@@ -686,9 +686,11 @@ namespace Electric {
 			k33 = data.k33.first;
 		}
 
+#ifdef LCLAB2_CUDA_AVAIL
 		FD::ComputeEnergyDensity(data.en_density.get(), data.directors.get(), data.voltage.get(),
 			&data.voxels[0], k11, k22, k33,
 			data.epar, data.eper, &data.cell_dims[0], data.chirality);
+#endif
 
 		scalar sum = 0.0;
 
@@ -727,7 +729,6 @@ namespace Electric {
 		}
 		// Relax voltage to initial state
 #if LCLAB2_CUDA_AVAIL
-
 		// Determine electric constants
 		data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
 		data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;

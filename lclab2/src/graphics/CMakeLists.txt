@@ -7,7 +7,8 @@ add_library(lclab2_graphics ArcBall.h ArcBall.cpp
 			  Torus.h Torus.cpp
 			  NormalTorus.h NormalTorus.cpp
 			  DynamicColorSheet.h DynamicColorSheet.cpp
-			  TransparentDrawable.h)
+			  TransparentDrawable.h TransparentNormalDrawable.h
+			  Surface.h Surface.cpp)
 target_include_directories(lclab2_graphics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 	                                     ${CMAKE_CURRENT_SOURCE_DIR}/../base
 				                         ${CMAKE_SOURCE_DIR}/external/portable-file-dialogs

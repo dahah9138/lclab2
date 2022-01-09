@@ -31,6 +31,7 @@
 #include "src/math/powi.h"
 #include "src/math/Metric.h"
 #include "src/math/LinearInterpolate.h"
+#include "src/math/Isosurface.h"
 #include "src/math/AdvancingFront.h"
 #include "src/math/StencilWeights.h"
 
@@ -47,7 +48,9 @@
 	#include "src/graphics/Torus.h"
 	#include "src/graphics/NormalTorus.h"
 	#include "src/graphics/DynamicColorSheet.h"
+	#include "src/graphics/Surface.h"
 	#include "src/graphics/TransparentDrawable.h"
+	#include "src/graphics/TransparentNormalDrawable.h"
 
 	//implot impl
 	#include "src/implementation/ImContext.h"

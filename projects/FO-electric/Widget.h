@@ -12,9 +12,20 @@ struct Widget {
 
 	// From example
 	bool showDemoWindow = false;
-	bool showAnotherWindow = false;
+	bool showLCINFO = false;
 
 	bool showSettings = true;
+	bool showPOMSettings = false;
+	bool showPreimageSettings = false;
+	bool showModificationWindow = false;
+
+	int ptheta = 0.0f;
+	int pphi = 0.0f;
+	bool addPreimage = false;
+	float preimage_alpha = 1.0f;
+	float isoLevel = 0.0625f;
+
+	bool drawSurfaces = false;
 
 	// For simulation
 	bool relax = false;
@@ -23,6 +34,9 @@ struct Widget {
 	bool autoRelax = false;
 	// State dependent on relax and autoRelax
 	bool continuousRelax = false;
+
+	float energyErrorThreshold = 1e-8f;
+
 
 	int axis = 2;
 

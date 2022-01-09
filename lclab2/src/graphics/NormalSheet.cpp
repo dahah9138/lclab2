@@ -75,4 +75,14 @@ void NormalSheet::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcb
                .draw(sheetMesh);
 }
 
+void NormalSheet::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection) {
+
+    sheetShader.setTransformationMatrix(viewMatrix)
+        .setProjectionMatrix(projection)
+        .setNormalMatrix(viewMatrix.normalMatrix())
+        .setLightRanges({ Magnum::Constants::inf() })
+        .setShininess(2000.0f)
+        .draw(sheetMesh);
+}
+
 }

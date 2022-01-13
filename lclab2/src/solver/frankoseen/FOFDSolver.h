@@ -533,6 +533,7 @@ namespace Electric {
 		void SetVoltage(scalar v, int iterations = 500);
 
 		scalar TotalEnergy();
+		scalar TotalEnergyFunctionalDerivativeAbsSum();
 
 		void HandleBoundaryConditionsOrder4(Tensor4& nn, int i, int j, int k);
 		void HandleBoundaryConditionsOrder2(Tensor4& nn, int i, int j, int k);

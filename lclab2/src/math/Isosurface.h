@@ -498,7 +498,7 @@ namespace LC { namespace Math {
 							m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 						}
 
-						if (x == m_scalarVox[0] - 1) {
+						if (x == m_scalarVox[0] - 2) {
 							if (m_edgeTable[tableIndex] & 4) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 2);
 								unsigned int id = GetEdgeID(x, y, z, 2);
@@ -510,7 +510,7 @@ namespace LC { namespace Math {
 								m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 							}
 						}
-						if (y == m_scalarVox[1] - 1) {
+						if (y == m_scalarVox[1] - 2) {
 							if (m_edgeTable[tableIndex] & 2) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 1);
 								unsigned int id = GetEdgeID(x, y, z, 1);
@@ -522,7 +522,7 @@ namespace LC { namespace Math {
 								m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 							}
 						}
-						if (z == m_scalarVox[2] - 1) {
+						if (z == m_scalarVox[2] - 2) {
 							if (m_edgeTable[tableIndex] & 16) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 4);
 								unsigned int id = GetEdgeID(x, y, z, 4);
@@ -534,19 +534,19 @@ namespace LC { namespace Math {
 								m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 							}
 						}
-						if ((x == m_scalarVox[0] - 1) && (y == m_scalarVox[1] - 1))
+						if ((x == m_scalarVox[0] - 2) && (y == m_scalarVox[1] - 2))
 							if (m_edgeTable[tableIndex] & 1024) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 10);
 								unsigned int id = GetEdgeID(x, y, z, 10);
 								m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 							}
-						if ((x == m_scalarVox[0] - 1) && (z == m_scalarVox[2] - 1))
+						if ((x == m_scalarVox[0] - 2) && (z == m_scalarVox[2] - 2))
 							if (m_edgeTable[tableIndex] & 64) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 6);
 								unsigned int id = GetEdgeID(x, y, z, 6);
 								m_i2pt3idVertices.insert(ID2POINT3DID::value_type(id, pt));
 							}
-						if ((y == m_scalarVox[1] - 1) && (z == m_scalarVox[2] - 1))
+						if ((y == m_scalarVox[1] - 2) && (z == m_scalarVox[2] - 2))
 							if (m_edgeTable[tableIndex] & 32) {
 								POINT3DID pt = CalculateIntersection(x, y, z, 5);
 								unsigned int id = GetEdgeID(x, y, z, 5);

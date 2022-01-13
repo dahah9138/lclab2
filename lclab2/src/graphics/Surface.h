@@ -51,7 +51,7 @@ namespace LC {
             Magnum::Color4 color;
         };
 
-        virtual void Init(Vertex* verts, unsigned int nVerts, unsigned int* inds, unsigned int nIndices);
+        virtual void Init(Vertex* verts, unsigned int nVerts, unsigned int* inds, unsigned int nIndices, const Magnum::Vector3& translate = Magnum::Vector3{0.0f,0.0f,0.0f});
 
         Trade::MeshData Data();
         GL::Mesh Mesh();

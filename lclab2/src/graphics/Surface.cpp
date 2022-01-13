@@ -2,7 +2,7 @@
 
 namespace LC {
 
-    void Surface::Init(Vertex *verts, unsigned int nVerts, unsigned int *inds, unsigned int nIndices) {
+    void Surface::Init(Vertex *verts, unsigned int nVerts, unsigned int *inds, unsigned int nIndices, const Magnum::Vector3& translate) {
 
         vertices = Containers::Array<Vertex>{ NoInit, nVerts };
         indices = Containers::Array<UnsignedInt>{ NoInit, nIndices };
@@ -10,6 +10,7 @@ namespace LC {
         // Generate vertices and indices
         for (std::size_t i = 0; i < nVerts; ++i) {
             vertices[i] = verts[i];
+            vertices[i].position += translate;
         }
         for (std::size_t i = 0; i < nIndices; ++i) {
             indices[i] = inds[i];

@@ -463,6 +463,7 @@ namespace Electric {
 		extern void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method);
 		extern void UpdateVoltageGPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar rate, unsigned int iterations, int routine);
 		extern void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality);
+		extern void ComputeEnergyFunctionalDerivativeAbsSum(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality);
 	}
 #endif
 
@@ -698,6 +699,38 @@ namespace Electric {
 
 		for (int i = 0; i < N; i++) {
 			sum += data.en_density[i];
+		}
+
+		return sum;
+	}
+
+	scalar FOFDSolver::TotalEnergyFunctionalDerivativeAbsSum() {
+
+		// Compute energy
+		scalar k11, k22, k33;
+		if (static_cast<int>(data.relaxKind) & static_cast<int>(Dataset::RelaxKind::OneConst)) {
+			k11 = (data.k11.first + data.k22.first + data.k33.first) / 3.0;
+			k22 = k11;
+			k33 = k11;
+		}
+		else {
+			k11 = data.k11.first;
+			k22 = data.k22.first;
+			k33 = data.k33.first;
+		}
+
+#ifdef LCLAB2_CUDA_AVAIL
+		FD::ComputeEnergyFunctionalDerivativeAbsSum(data.en_density.get(), data.directors.get(), data.voltage.get(),
+			&data.voxels[0], k11, k22, k33,
+			data.epar, data.eper, &data.cell_dims[0], data.chirality);
+#endif
+
+		long double sum = 0.0;
+
+		std::size_t N = data.voxels[0] * data.voxels[1] * data.voxels[2];
+
+		for (int i = 0; i < N; i++) {
+			sum += (long double)data.en_density[i];
 		}
 
 		return sum;

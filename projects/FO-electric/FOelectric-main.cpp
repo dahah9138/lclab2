@@ -6,6 +6,8 @@ using namespace Math::Literals;
 using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
 
+#define MAX_GRAPH_POINTS 1000
+
 enum class Axis { x = 0, y = 1, z = 2 };
 struct CrossX {
     Float axisPosition;
@@ -28,12 +30,18 @@ struct Preimage {
     Preimage() {}
     Preimage(float t, float p, float iso = 0.07f) : theta(t), phi(p), isoLevel(iso) {}
     
+    friend bool operator == (const Preimage& p1, const Preimage& p2) {
+        return (p1.theta == p2.theta && p1.phi == p2.phi) ? 1 : 0;
+    }
+
+    float theta = 0.0f;
+    float phi = 0.0f;
     bool draw = true;
-    float theta;
-    float phi;
-    float isoLevel;
+    float isoLevel = 0.07f;
     LC::Surface surface;
+
     Containers::Optional<GL::Mesh> mesh;
+
 };
 
 class Sandbox : public LC::Application
@@ -106,6 +114,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         .parse(arguments.argc, arguments.argv);
 
     _transparentShader = Shaders::VertexColorGL3D{};
+
     _phongShader = Shaders::PhongGL{ Shaders::PhongGL::Flag::VertexColor };
 
 
@@ -218,8 +227,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
     updateBoxes(true);
 
-    _widget.series_x_axis_vec.resize(500);
-    _widget.energy_series_vec.resize(500);
+    _widget.series_x_axis_vec.resize(MAX_GRAPH_POINTS);
+    _widget.energy_series_vec.resize(MAX_GRAPH_POINTS);
 
 
     LC_INFO("Created client application!");
@@ -279,10 +288,7 @@ void Sandbox::drawEvent() {
             if (ImGui::Button("Modify LC"))
                 _widget.showModificationWindow ^= true;
 
-            if (ImGui::Button("Generate Isosurface"))
-                generateIsosurface();
-
-            ImGui::Checkbox("Draw Surface", &_widget.drawSurfaces);
+            
 
 
             // Dropdown menu for lc types
@@ -397,6 +403,10 @@ void Sandbox::drawEvent() {
 
             ImGui::Checkbox("Auto", &_widget.autoRelax);
 
+            ImGui::RadioButton("Total Energy", &_widget.radioEn, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Total Energy Derivative", &_widget.radioEn, 1);
+
             // Pressed the relax button
             _widget.relax = ImGui::Button("Relax");
 
@@ -433,7 +443,7 @@ void Sandbox::drawEvent() {
                 ImGui::Text("Relaxing...");
                 if (_widget.energy_series.size() > 1) {
                     ImGui::SameLine();
-                    ImGui::Text("(dE = %.5e)", (float)difference);
+                    ImGui::Text("[dE (per cycle) = %.5e]", (float)difference / (float)_widget.cycle);
                 }
             }
 
@@ -510,10 +520,17 @@ void Sandbox::drawEvent() {
             
             _widget.updateImageFromLoad = false;
             
-            int points = 500;
+            int points = MAX_GRAPH_POINTS;
             // Update list
             LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / (data->voxels[0] * data->voxels[1] * data->voxels[2]);
-            LC::scalar energy = solver->TotalEnergy();
+
+            LC::scalar energy = 0.0;
+
+            if (_widget.radioEn == 0)
+                energy = solver->TotalEnergy();
+            else if (_widget.radioEn == 1)
+                energy = solver->TotalEnergyFunctionalDerivativeAbsSum();
+
             _widget.energy_series.push_back(energy * unit_density);
             _widget.series_x_axis.push_back(data->numIterations);
 
@@ -563,13 +580,13 @@ void Sandbox::updateBoxes(bool first) {
         _camera->cameraMatrix() * _manipulator->transformationMatrix() *
         Matrix4::scaling(0.5f * Vector3{ (float)data->cell_dims[0], (float)data->cell_dims[1], (float)data->cell_dims[2] }), 0x00ffff_rgbf);
 
-    float dx = float(_widget.shrink_interval_end[0] - _widget.shrink_interval_begin[0]) / data->voxels[0];
-    float dy = float(_widget.shrink_interval_end[1] - _widget.shrink_interval_begin[1]) / data->voxels[1];
-    float dz = float(_widget.shrink_interval_end[2] - _widget.shrink_interval_begin[2]) / data->voxels[2];
+    float dx = float(_widget.shrink_interval_end[0] - _widget.shrink_interval_begin[0]) / (data->voxels[0] - 1);
+    float dy = float(_widget.shrink_interval_end[1] - _widget.shrink_interval_begin[1]) / (data->voxels[1] - 1);
+    float dz = float(_widget.shrink_interval_end[2] - _widget.shrink_interval_begin[2]) / (data->voxels[2] - 1);
 
-    float xb = 0.5f * (_widget.shrink_interval_begin[0] + _widget.shrink_interval_end[0]) / (data->voxels[0] - 1);
-    float yb = 0.5f * (_widget.shrink_interval_begin[1] + _widget.shrink_interval_end[1]) / (data->voxels[1] - 1);
-    float zb = 0.5f * (_widget.shrink_interval_begin[2] + _widget.shrink_interval_end[2]) / (data->voxels[2] - 1);
+    float xb = 0.5f * (_widget.shrink_interval_begin[0] + _widget.shrink_interval_end[0]-2) / (data->voxels[0] - 1);
+    float yb = 0.5f * (_widget.shrink_interval_begin[1] + _widget.shrink_interval_end[1]-2) / (data->voxels[1] - 1);
+    float zb = 0.5f * (_widget.shrink_interval_begin[2] + _widget.shrink_interval_end[2]-2) / (data->voxels[2] - 1);
 
     arrayAppend(_boxInstanceData, InPlaceInit,
         _camera->cameraMatrix() * _manipulator->transformationMatrix() *
@@ -756,7 +773,8 @@ void Sandbox::initVisuals() {
 
     std::array<int, 3> voxels = data->voxels;
     std::array<LC::scalar, 3> cdims = data->cell_dims;
-
+    _widget.shrink_interval_end = voxels;
+    _widget.shrink_interval_begin = { 1, 1, 1 };
 
     // Create a new manipulator and set its parent
     // Reset preimageManipulator as well
@@ -849,23 +867,53 @@ void Sandbox::handlePOMWindow() {
 
 void Sandbox::handlePreimageWindow() {
     if (_widget.showPreimageSettings) {
+        Dataset* data = (Dataset*)(_solver->GetDataPtr());
+
         ImGui::Begin("Configure Preimages", &_widget.showPreimageSettings);
 
         ImGui::PushItemWidth(100.0f);
 
         if (ImGui::CollapsingHeader("Global Properties")) {
             ImGui::SliderFloat("Alpha", &_widget.preimage_alpha, 0.0f, 1.0f);
+
+            ImGui::PopItemWidth(); 
+            int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2] });
+            ImGui::SliderInt3("Start Indices", &_widget.shrink_interval_begin[0], 0, maxVox);
+            ImGui::SliderInt3("End Indices", &_widget.shrink_interval_end[0], 0, maxVox);
+            ImGui::PushItemWidth(100.0f);
+
+            if (!_widget.showModificationWindow) {
+                updateBoxes();
+                drawBoxes();
+            }
         }
 
         ImGui::SliderInt("theta", &_widget.ptheta, 0, 180);
         ImGui::SameLine();
         ImGui::SliderInt("phi", &_widget.pphi, 0, 360);
         ImGui::SameLine();
-        ImGui::InputFloat("isoLevel", &_widget.isoLevel);
+        ImGui::SliderFloat("isoLevel", &_widget.isoLevel, 0.0f, 0.3f);
+
+
+        // Clamp
+        for (int d = 0; d < 3; d++) {
+            if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
+            if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
+            while (_widget.shrink_interval_begin[d] >= _widget.shrink_interval_end[d]) {
+                --_widget.shrink_interval_begin[d];
+                ++_widget.shrink_interval_end[d];
+                if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
+                if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
+            }
+        }
 
         ImGui::PopItemWidth();
 
         _widget.addPreimage = ImGui::Button("Add Preimage");
+
+        ImGui::SameLine();
+
+        _widget.removePreimage = ImGui::Button("Remove Preimage");
 
 
         if (_widget.addPreimage) {
@@ -880,14 +928,29 @@ void Sandbox::handlePreimageWindow() {
                 }
             }
             if (!found)
-                _preimages.emplace_back(_widget.ptheta, _widget.pphi, _widget.isoLevel);
+                _preimages.emplace_back((float)_widget.ptheta, (float)_widget.pphi, _widget.isoLevel);
         }
+        else if (_widget.removePreimage) {
+
+            _preimages.remove(Preimage{ (float)_widget.ptheta, (float)_widget.pphi });
+                
+        }
+
+
         // Show list to manage preimages
-        ImGui::Text("(Theta, Phi)");
+        ImGui::Text("(Theta, Phi) (isolevel)");
         for (const auto& p : _preimages) {
-            ImGui::Text("(%f, %f)", p.theta, p.phi);
+            ImGui::Text("(%.0f, %.0f) (%f)", p.theta, p.phi, p.isoLevel);
         }
+
+        if (ImGui::Button("Generate Isosurfaces")) {
+            generateIsosurface();
+        }
+
+        ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
+
         ImGui::End();
+
     }
 }
 
@@ -1071,17 +1134,19 @@ void Sandbox::handleModificationWindow() {
                     }
         }
 
-
-        ImGui::InputInt3("Start Indices", &_widget.shrink_interval_begin[0]);
-        ImGui::InputInt3("End Indices", &_widget.shrink_interval_end[0]);
+        int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2] });
+        ImGui::SliderInt3("Start Indices", &_widget.shrink_interval_begin[0], 0, maxVox);
+        ImGui::SliderInt3("End Indices", &_widget.shrink_interval_end[0], 0, maxVox);
 
         // Clamp
         for (int d = 0; d < 3; d++) {
-            if (_widget.shrink_interval_begin[d] < 0) _widget.shrink_interval_begin[d] = 0;
-            if (_widget.shrink_interval_end[d] >= data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d] - 1;
-            if (_widget.shrink_interval_begin[d] >= _widget.shrink_interval_end[d]) {
+            if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
+            if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
+            while (_widget.shrink_interval_begin[d] >= _widget.shrink_interval_end[d]) {
                 --_widget.shrink_interval_begin[d];
                 ++_widget.shrink_interval_end[d];
+                if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
+                if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
             }
         }
 
@@ -1090,7 +1155,7 @@ void Sandbox::handleModificationWindow() {
             unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
             std::array<int, 3> vNew;
             for (int d = 0; d < 3; d++)
-                vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d];
+                vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
 
 
 
@@ -1104,21 +1169,22 @@ void Sandbox::handleModificationWindow() {
             }
             FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
 
-            FOFDSolver::Tensor4 nnp(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
-            FOFDSolver::Tensor3 vvp(field_vv.get(), vNew[0], vNew[1], vNew[2]);
+            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
 
-            for (int i = _widget.shrink_interval_begin[0]; i < _widget.shrink_interval_end[0]; i++)
-                for (int j = _widget.shrink_interval_begin[1]; j < _widget.shrink_interval_end[1]; j++)
-                    for (int k = _widget.shrink_interval_begin[2]; k < _widget.shrink_interval_end[2]; k++) {
+            for (int i = _widget.shrink_interval_begin[0]-1; i < _widget.shrink_interval_end[0]; i++)
+                for (int j = _widget.shrink_interval_begin[1]-1; j < _widget.shrink_interval_end[1]; j++)
+                    for (int k = _widget.shrink_interval_begin[2]-1; k < _widget.shrink_interval_end[2]; k++) {
 
-                        int ip = i - _widget.shrink_interval_begin[0];
-                        int jp = j - _widget.shrink_interval_begin[1];
-                        int kp = k - _widget.shrink_interval_begin[2];
+
+                        int ip = i - _widget.shrink_interval_begin[0]+1;
+                        int jp = j - _widget.shrink_interval_begin[1]+1;
+                        int kp = k - _widget.shrink_interval_begin[2]+1;
 
                         for (int d = 0; d < 3; d++)
-                            nnp(ip, jp, kp, d) = nn(i, j, k, d);
+                            nn_new(ip, jp, kp, d) = nn(i, j, k, d);
 
-                        vv(ip, jp, kp) = vv(i, j, k);
+                        vv_new(ip, jp, kp) = vv(i, j, k);
 
                     }
 
@@ -1138,11 +1204,42 @@ void Sandbox::handleModificationWindow() {
 
 void Sandbox::generateIsosurface() {
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    unsigned int size = data->voxels[0] * data->voxels[1] * data->voxels[2];
     std::array<LC::scalar, 3> cell = { data->cell_dims[0] / (data->voxels[0] - 1),data->cell_dims[1] / (data->voxels[1] - 1),data->cell_dims[2] / (data->voxels[2] - 1) };
-    std::unique_ptr<float[]> field(new float[size]);
     std::array<LC::scalar, 3> N;
 
+    // ==========================
+    unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
+    std::array<int, 3> vNew;
+    for (int d = 0; d < 3; d++)
+        vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
+
+
+
+    unsigned int size = vNew[0] * vNew[1] * vNew[2];
+    std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * size]);
+    FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+    FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+
+    for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
+        for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
+            for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
+
+
+                int ip = i - _widget.shrink_interval_begin[0] + 1;
+                int jp = j - _widget.shrink_interval_begin[1] + 1;
+                int kp = k - _widget.shrink_interval_begin[2] + 1;
+
+                for (int d = 0; d < 3; d++)
+                    nn_new(ip, jp, kp, d) = nn(i, j, k, d);
+
+            }
+
+    std::unique_ptr<float[]> field(new float[size]);
+
+
+    for (int d = 0; d < 3; d++)
+        _widget.preimage_translate[d] = -0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
+    
     // ======================================================
     // Reset the manipulator
     _preimageManipulator = std::make_unique<LC::Drawable::Object3D>();
@@ -1156,9 +1253,9 @@ void Sandbox::generateIsosurface() {
 
         N = { sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta) };
         for (unsigned int i = 0; i < size; i++) {
-            field[i] = (data->directors[i] - N[0]) * (data->directors[i] - N[0]) +
-                (data->directors[i + size] - N[1]) * (data->directors[i + size] - N[1]) +
-                (data->directors[i + 2 * size] - N[2]) * (data->directors[i + 2 * size] - N[2]);
+            field[i] = (field_nn[i] - N[0]) * (field_nn[i] - N[0]) +
+                (field_nn[i + size] - N[1]) * (field_nn[i + size] - N[1]) +
+                (field_nn[i + 2 * size] - N[2]) * (field_nn[i + 2 * size] - N[2]);
         }
 
         std::array<float, 4> color;
@@ -1172,7 +1269,7 @@ void Sandbox::generateIsosurface() {
 
 
 
-        _isoGenerator.GenerateSurface(field.get(), pimage.isoLevel, data->voxels, cell, color);
+        _isoGenerator.GenerateSurface(field.get(), pimage.isoLevel, vNew, cell, color);
 
         if (_isoGenerator.isSurfaceValid()) {
 
@@ -1185,7 +1282,7 @@ void Sandbox::generateIsosurface() {
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
 
             // Fill magnum class with generated surface data
-            pimage.surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd);
+            pimage.surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, -_widget.preimage_translate);
 
             // Delete data
             delete[] verts;

@@ -41,7 +41,7 @@ struct POM {
     };
 
     Waveplate waveplate = Waveplate::None;
-    bool polarizers = false;
+    bool polarizers = true;
     float polarizerAngle = 90.0f;
     double thickness = 0.0;
     double dz = 0.0;

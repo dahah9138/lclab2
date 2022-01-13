@@ -22,10 +22,12 @@ struct Widget {
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
 	bool addPreimage = false;
+	bool removePreimage = false;
 	float preimage_alpha = 1.0f;
 	float isoLevel = 0.0625f;
+	Magnum::Vector3 preimage_translate = Magnum::Vector3{ 0.0f, 0.0f, 0.0f };
 
-	bool drawSurfaces = false;
+	bool drawSurfaces = true;
 
 	// For simulation
 	bool relax = false;
@@ -52,6 +54,9 @@ struct Widget {
 	float voltage = 0.0f;
 	int voltage_iterations = 500;
 
+	// Total en. Radio button
+	int radioEn = 1;
+
 	// Parameters that can be modified in GUI
 	int topological_charge = 1;
 	int npp = 30;
@@ -59,8 +64,8 @@ struct Widget {
 	std::array<int, 3> boundaries = { 1, 1, 0 };
 
 	int interpolate = 1;
-	std::array<int, 3> shrink_interval_begin = { 0, 0, 0 };
-	std::array<int, 3> shrink_interval_end = { 1, 1, 1 };
+	std::array<int, 3> shrink_interval_begin = { 1, 1, 1 };
+	std::array<int, 3> shrink_interval_end = { 2, 2, 2 };
 
 	std::list<LC::scalar> energy_series;
 	std::vector<LC::scalar> energy_series_vec;
@@ -71,7 +76,7 @@ struct Widget {
 	bool POM = false;
 	float alpha = 0.5f;
 
-	bool GPU = false;
+	bool GPU = true;
 
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };

@@ -123,6 +123,7 @@ namespace LC { namespace FrankOseen {
 				return _5CB(ep);
 			else if (lc == LC_TYPE::ZLI2806)
 				return ZLI2806(ep);
+			else return _5CB(ep);
 		}
 
 		static SIscalar _5CB(const Constant& electricProperty) {

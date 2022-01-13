@@ -116,6 +116,9 @@ namespace LC { namespace Math {
 			else if (background) {
 				return std::array<scalar, 3> { -sin(omega), cos(omega), 0.0 };
 			}
+			else {
+				return std::array<scalar, 3> { 0.0, 0.0, 0.0 };
+			}
 		};
 	}
 

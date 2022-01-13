@@ -320,9 +320,11 @@ void Sandbox::initGeometry() {
 
     Dataset* data = (Dataset*)_solver->GetDataPtr();
 
-    
-    _region.nodes.swap(std::vector<std::pair<std::size_t, std::array<float, 3>>>{});
-    _region.nodes.reserve(data->nodes);
+    {
+        std::vector<std::pair<std::size_t, std::array<float, 3>>> temp{};
+        _region.nodes.swap(temp);
+        _region.nodes.reserve(data->nodes);
+    }
     
 
     // Add points within bounds

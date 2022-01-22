@@ -7,6 +7,9 @@ using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
 
 #define MAX_GRAPH_POINTS 1000
+// Current use case for interpolating preimages is inefficient,
+// use to interpolate director field THEN copy before passing to isoGenerator
+#define TESTINTERP 0
 
 enum class Axis { x = 0, y = 1, z = 2 };
 struct CrossX {
@@ -93,7 +96,11 @@ private:
     Widget _widget;
     LC::Header _header;
     LC::Imaging::UniformGrid::POM _pomImager;
-    LC::Math::Isosurface<float> _isoGenerator;
+#if TESTINTERP
+    LC::Math::Isosurface<LC::Math::Interp3Map<float>, float> _isoGenerator;
+#else
+    LC::Math::Isosurface<float*, float> _isoGenerator;
+#endif
     std::list<Preimage> _preimages;
 };
 
@@ -257,15 +264,23 @@ void Sandbox::drawEvent() {
             ImGui::Begin("lclab2", 0, window_flags);
 
             {
-                std::function<void()> p = [this]() {
+                std::function<void()> loadAction = [this]() {
+
                     initVisuals();
                     // Reset energy chart
-                    _widget.energy_series.clear();
-                    _widget.series_x_axis.clear();
+                    Dataset* dataloc = (Dataset*)(_solver->GetDataPtr());
+                    _widget.energy_series = std::list<LC::scalar>{};
+                    _widget.series_x_axis = std::list<LC::scalar>{};
+                    for (int i = 0; i < _widget.energy_series_vec.size(); i++) {
+                        _widget.energy_series_vec[i] = 0.0;
+                        _widget.series_x_axis_vec[i] = dataloc->numIterations;
+                    }
+
                 };
-                saveMenu(_widget.updateImageFromLoad, p);
-                imageMenu();
+                saveMenu(_widget.updateImageFromLoad, loadAction);
             }
+
+            imageMenu();
 
             // Demo widgets for fast prototyping
             if (ImGui::Button("Demo ImGui"))
@@ -306,12 +321,15 @@ void Sandbox::drawEvent() {
 
             float t1 = _widget.energyErrorThreshold * 1e8f;
 
+            ImGui::PushItemWidth(100.0f);
             ImGui::InputFloat("(10^-8) Energy Threshold", &t1);
 
             _widget.energyErrorThreshold = t1 * 1e-8f;
 
             ImGui::InputFloat("Voltage", &_widget.voltage);
             ImGui::InputInt("Voltage iterations", &_widget.voltage_iterations);
+
+            ImGui::PopItemWidth();
 
             if (ImGui::Button("Update voltage")) {
                 solver->SetVoltage(_widget.voltage, _widget.voltage_iterations);
@@ -328,8 +346,12 @@ void Sandbox::drawEvent() {
                 ImGui::SameLine();
                 ImGui::Checkbox("Enable POM", &_widget.POM);
 
-                if (_widget.nonlinear)
-                    ImGui::InputFloat("Nonlinear theta (deg)", &_widget.nonlinTheta);
+                if (_widget.nonlinear) {
+                    ImGui::PushItemWidth(100.0f);
+                    ImGui::SliderFloat("Nonlinear theta (deg)", &_widget.nonlinTheta, 0.0f, 365.0f);
+                    ImGui::PopItemWidth();
+                    ImGui::Checkbox("Nonlinear circular polarization", &_widget.nonlinCircular);
+                }
 
                 handlePOMWindow();
                 handlePreimageWindow();
@@ -387,6 +409,7 @@ void Sandbox::drawEvent() {
             _widget.updateImage = ImGui::Button("Update Image") || _widget.updateImageFromLoad;
 
             // Set Cycle
+            ImGui::PushItemWidth(100.0f);
             ImGui::InputInt("Cycle", &_widget.cycle);
 
             // Relaxation rate
@@ -394,6 +417,7 @@ void Sandbox::drawEvent() {
                 Dataset* data = (Dataset*)(_solver->GetDataPtr());
                 Float relaxRate = data->rate;
                 ImGui::InputFloat("Relax rate", &relaxRate);
+                ImGui::PopItemWidth();
                 data->rate = relaxRate;
             }
 
@@ -520,7 +544,6 @@ void Sandbox::drawEvent() {
             
             _widget.updateImageFromLoad = false;
             
-            int points = MAX_GRAPH_POINTS;
             // Update list
             LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / (data->voxels[0] * data->voxels[1] * data->voxels[2]);
 
@@ -536,7 +559,7 @@ void Sandbox::drawEvent() {
 
             // Update time series for free energy
 
-            if (_widget.energy_series.size() == points) {
+            if (_widget.energy_series.size() == MAX_GRAPH_POINTS) {
                 _widget.energy_series.pop_front();
                 _widget.series_x_axis.pop_front();
             }
@@ -720,8 +743,12 @@ void Sandbox::updateColor() {
 
                 if (!_widget.nonlinear) _crossSections[id].section.second->vertices[cidx].color = { LC::Imaging::Colors::RungeSphere(theta, phi), alpha };
                 // Green 3 photon nonlinear imaging
-                else _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(M_PI / 180. * _widget.nonlinTheta) + ny * sin(M_PI / 180. * _widget.nonlinTheta), 6.0f) }), alpha };
-
+                else {
+                    if (_widget.nonlinCircular)
+                        _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) }), alpha };
+                    else
+                        _crossSections[id].section.second->vertices[cidx].color = { Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(M_PI / 180. * _widget.nonlinTheta) + ny * sin(M_PI / 180. * _widget.nonlinTheta), 6.0f) }), alpha };
+                }
                 _crossSections[id].section.second->vertices[cidx].position[id] = data->cell_dims[id] * ((float)hvox / float(data->voxels[id] - 1) - 0.5f);
 
                 //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
@@ -964,12 +991,15 @@ void Sandbox::handleLCINFOWindow() {
         ImGui::Begin("LC Info", &_widget.showLCINFO);
 
 
-        // Time series data
+        // Relaxation time series data
         {
             int points = _widget.series_x_axis.size();
-
+            
             if (ImPlot::BeginPlot("Free Energy Density v. Iterations", "Iterations", "Free energy density")) {
                 ImPlot::SetNextMarkerStyle(ImPlotMarker_None);
+
+                // Reset points
+                if (_widget.updateImageFromLoad) points = MAX_GRAPH_POINTS;
                 ImPlot::PlotLine("F", &_widget.series_x_axis_vec[0], &_widget.energy_series_vec[0], points);
                 ImPlot::EndPlot();
             }
@@ -978,8 +1008,12 @@ void Sandbox::handleLCINFOWindow() {
         std::map<LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
         auto relaxMethodMap = Dataset::RelaxMap();
 
-        FOFDSolver::Tensor3 voltage(data->voltage.get(), data->voxels[1], data->voxels[1], data->voxels[2]);
-        float dV = voltage(0, 0, data->voxels[2] - 1) - voltage(0, 0, 0);
+        float dV = 0.0f;
+
+        if (data->voltage.get()) {
+            FOFDSolver::Tensor3 voltage(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
+            dV = voltage(0, 0, data->voxels[2] - 1) - voltage(0, 0, 0);
+        }
 
         // Show LC information
         ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
@@ -1020,11 +1054,19 @@ void Sandbox::handleModificationWindow() {
             // Reset data
             (*data).numIterations = 0;
 
+            _widget.energy_series = std::list<LC::scalar>{};
+            _widget.series_x_axis = std::list<LC::scalar>{};
+            for (int i = 0; i < _widget.energy_series_vec.size(); i++) {
+                _widget.energy_series_vec[i] = 0.0;
+                _widget.series_x_axis_vec[i] = 0.0;
+            }
+
             // Initialize
             _solver->Init();
             // Update visuals
             initVisuals();
-            updateColor();
+            //updateColor();
+            _widget.updateImageFromLoad = true;
         }
 
         ImGui::SameLine();
@@ -1032,6 +1074,9 @@ void Sandbox::handleModificationWindow() {
         if (ImGui::Button("Edit existing")) {
             (*data).Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
                 .Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
+            initVisuals();
+            //updateColor();
+            _widget.updateImageFromLoad = true;
         }
 
         ImGui::InputInt("Interpolate", &_widget.interpolate);
@@ -1154,8 +1199,12 @@ void Sandbox::handleModificationWindow() {
             // Create a new ptr
             unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
             std::array<int, 3> vNew;
-            for (int d = 0; d < 3; d++)
+            for (int d = 0; d < 3; d++) {
                 vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
+                // Update cell dims
+                data->cell_dims[d] *= (LC::scalar)vNew[d] / (LC::scalar)data->voxels[d];
+            }
+
 
 
 
@@ -1204,7 +1253,15 @@ void Sandbox::handleModificationWindow() {
 
 void Sandbox::generateIsosurface() {
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    std::array<LC::scalar, 3> cell = { data->cell_dims[0] / (data->voxels[0] - 1),data->cell_dims[1] / (data->voxels[1] - 1),data->cell_dims[2] / (data->voxels[2] - 1) };
+#if TESTINTERP
+    int nterp = 2;
+#endif
+    std::array<LC::scalar, 3> cell =
+#if TESTINTERP
+    { data->cell_dims[0] / (data->voxels[0] * nterp - 1),data->cell_dims[1] / (data->voxels[1] * nterp - 1),data->cell_dims[2] / (data->voxels[2] * nterp - 1) };
+#else
+    { data->cell_dims[0] / (data->voxels[0] - 1), data->cell_dims[1] / (data->voxels[1] - 1), data->cell_dims[2] / (data->voxels[2] - 1) };
+#endif
     std::array<LC::scalar, 3> N;
 
     // ==========================
@@ -1238,7 +1295,11 @@ void Sandbox::generateIsosurface() {
 
 
     for (int d = 0; d < 3; d++)
-        _widget.preimage_translate[d] = -0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
+#if TESTINTERP
+        _widget.preimage_translate[d] = 0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
+#else
+        _widget.preimage_translate[d] = 0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
+#endif
     
     // ======================================================
     // Reset the manipulator
@@ -1267,9 +1328,15 @@ void Sandbox::generateIsosurface() {
             color[3] = _widget.preimage_alpha;
         }
 
+#if TESTINTERP
+        // First pass field to interpolator...
+        LC::Math::Interp3Map<float> fieldInt(field.get(), vNew, { nterp,nterp,nterp });
+        for (int d = 0; d < 3; d++) vNew[d] *= nterp;
 
-
+        _isoGenerator.GenerateSurface(fieldInt, pimage.isoLevel, vNew, cell, color);
+#else
         _isoGenerator.GenerateSurface(field.get(), pimage.isoLevel, vNew, cell, color);
+#endif
 
         if (_isoGenerator.isSurfaceValid()) {
 
@@ -1282,7 +1349,7 @@ void Sandbox::generateIsosurface() {
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
 
             // Fill magnum class with generated surface data
-            pimage.surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, -_widget.preimage_translate);
+            pimage.surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
 
             // Delete data
             delete[] verts;

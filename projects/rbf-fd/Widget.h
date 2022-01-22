@@ -28,6 +28,7 @@ struct Widget {
 	bool regenerateInterpolant = false;
 
 	float nodeScale = 0.01f;
+	float relaxRate = -0.5f;
 
 	std::array<float, 3> regionInterval = { 1.0f, 1.0f, 0.1f };
 

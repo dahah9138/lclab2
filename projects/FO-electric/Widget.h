@@ -50,6 +50,7 @@ struct Widget {
 
 	bool updateImage = false;
 	bool nonlinear = false;
+	bool nonlinCircular = false;
 	float nonlinTheta = 0.0f;
 	float voltage = 0.0f;
 	int voltage_iterations = 500;

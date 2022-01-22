@@ -2,8 +2,13 @@
 
 namespace LC { namespace Math {
 
-	template class Isosurface<short>;
-	template class Isosurface<unsigned short>;
-	template class Isosurface<float>;
-	template class Isosurface<double>;
+	template class Isosurface<const short*, short>;
+	template class Isosurface<const unsigned short*, unsigned short>;
+	template class Isosurface<const float*, float>;
+	template class Isosurface<const double*, double>;
+
+	template class Isosurface<Interp3Map<short>, short>;
+	template class Isosurface<Interp3Map<unsigned short>, short>;
+	template class Isosurface<Interp3Map<float>, float>;
+	template class Isosurface<Interp3Map<double>, double>;
 }}

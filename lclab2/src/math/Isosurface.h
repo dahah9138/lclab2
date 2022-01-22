@@ -4,6 +4,7 @@
 #include "core.h"
 #include "scalar.h"
 #include "Vector.h"
+#include "LinearInterpolator.h"
 
 
 namespace LC { namespace Math {
@@ -60,14 +61,14 @@ namespace LC { namespace Math {
 		COLOR4 color;
 	};
 
-	template <typename T>
+	template <typename F, typename T>
 	class Isosurface {
 	public:
 		
 		Isosurface();
 		~Isosurface();
 
-		void GenerateSurface(const T* scalarField, T isoLevel, std::array<int, 3> voxel, std::array<scalar, 3> cell, std::array<float, 4> color);
+		void GenerateSurface(F scalarField, T isoLevel, std::array<int, 3> voxel, std::array<scalar, 3> cell, std::array<float, 4> color);
 		
 		void DeleteSurface();
 
@@ -109,7 +110,7 @@ namespace LC { namespace Math {
 	protected:
 
 		// Field data (assumed matlab format)
-		const T* m_scalarField;
+		F m_scalarField;
 		std::array<int, 3> m_scalarVox;
 		std::array<scalar, 3> m_cell;
 		std::array<float, 4> m_color;
@@ -142,7 +143,7 @@ namespace LC { namespace Math {
 		static const unsigned int m_triTable[256][16];
 	};
 
-	template <class T> const unsigned int Isosurface<T>::m_edgeTable[256] = {
+	template <typename F, class T> const unsigned int Isosurface<F, T>::m_edgeTable[256] = {
 	0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
 	0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
 	0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c,
@@ -177,7 +178,7 @@ namespace LC { namespace Math {
 	0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x0
 	};
 
-	template <class T> const unsigned int Isosurface<T>::m_triTable[256][16] = {
+	template <typename F, class T> const unsigned int Isosurface<F, T>::m_triTable[256][16] = {
 		{X, X, X, X, X, X, X, X, X, X, X, X, X, X, X, X},
 		{0, 8, 3, X, X, X, X, X, X, X, X, X, X, X, X, X},
 		{0, 1, 9, X, X, X, X, X, X, X, X, X, X, X, X, X},
@@ -436,21 +437,22 @@ namespace LC { namespace Math {
 		{X, X, X, X, X, X, X, X, X, X, X, X, X, X, X, X}
 	};
 
-	template <class T> Isosurface<T>::Isosurface() : m_cell({ 0.0f, 0.0f, 0.0f }), m_scalarVox({ 0,0,0 }), m_scalarField(NULL),
+	template <typename F, class T> Isosurface<F, T>::Isosurface() : m_cell({ 0.0f, 0.0f, 0.0f }), m_scalarVox({ 0,0,0 }), m_scalarField(NULL),
 		m_vertices(NULL), m_indices(NULL), m_nVerts(0), m_nIndices(0), m_tIsoLevel(0.25f), m_bValidSurface(0) {
 
 	}
 
-	template <class T> Isosurface<T>::~Isosurface() {
+	template <typename F, class T> Isosurface<F, T>::~Isosurface() {
 	}
 
-	template <class T> void Isosurface<T>::GenerateSurface(const T* scalarField, T isoLevel, std::array<int, 3> voxel, std::array<scalar, 3> cell, std::array<float, 4> color) {
+	template <typename F, class T> void Isosurface<F, T>::GenerateSurface(F scalarField, T isoLevel, std::array<int, 3> voxel, std::array<scalar, 3> cell, std::array<float, 4> color) {
 		// Set class members
 		m_scalarField = scalarField;
 		m_tIsoLevel = isoLevel;
 		m_scalarVox = voxel;
 		m_cell = cell;
 		m_color = color;
+
 
 		unsigned int nPointsInXDirection = m_scalarVox[0];
 		unsigned int nPointsInSlice = nPointsInXDirection * m_scalarVox[1];
@@ -574,11 +576,11 @@ namespace LC { namespace Math {
 		m_bValidSurface = true;
 	}
 
-	template <class T> bool Isosurface<T>::isSurfaceValid() {
+	template <typename F, class T> bool Isosurface<F, T>::isSurfaceValid() {
 		return m_bValidSurface;
 	}
 
-	template <class T> void Isosurface<T>::DeleteSurface() {
+	template <typename F, class T> void Isosurface<F, T>::DeleteSurface() {
 		m_cell = { 0.0f, 0.0f, 0.0f };
 		m_scalarVox = { 0, 0, 0 };
 		m_nVerts = 0;
@@ -588,29 +590,29 @@ namespace LC { namespace Math {
 		m_bValidSurface = false;
 	}
 
-	template <class T> IsoVertex* Isosurface<T>::ReleaseSurfaceVertices() {
+	template <typename F, class T> IsoVertex* Isosurface<F, T>::ReleaseSurfaceVertices() {
 
 		if (!m_bValidSurface) return NULL;
 		m_nVerts = 0;
 		return m_vertices.release();
 	}
 
-	template <class T> unsigned int* Isosurface<T>::ReleaseSurfaceIndices() {
+	template <typename F, class T> unsigned int* Isosurface<F, T>::ReleaseSurfaceIndices() {
 
 		if (!m_bValidSurface) return NULL;
 		m_nIndices = 0;
 		return m_indices.release();
 	}
 
-	template <class T> unsigned int Isosurface<T>::NumSurfaceVertices() {
+	template <typename F, class T> unsigned int Isosurface<F, T>::NumSurfaceVertices() {
 		return m_nVerts;
 	}
 
-	template <class T> unsigned int Isosurface<T>::NumSurfaceIndices() {
+	template <typename F, class T> unsigned int Isosurface<F, T>::NumSurfaceIndices() {
 		return m_nIndices;
 	}
 
-	template <class T> int Isosurface<T>::GetVolumeLengths(float& fVolLengthX, float& fVolLengthY, float& fVolLengthZ) {
+	template <typename F, class T> int Isosurface<F, T>::GetVolumeLengths(float& fVolLengthX, float& fVolLengthY, float& fVolLengthZ) {
 
 		if (isSurfaceValid()) {
 			fVolLengthX = m_cell[0] * m_scalarVox[0];
@@ -622,7 +624,7 @@ namespace LC { namespace Math {
 			return X;
 	}
 
-	template <class T> unsigned int Isosurface<T>::GetEdgeID(unsigned int nX, unsigned int nY, unsigned int nZ, unsigned int nEdgeNo) {
+	template <typename F, class T> unsigned int Isosurface<F, T>::GetEdgeID(unsigned int nX, unsigned int nY, unsigned int nZ, unsigned int nEdgeNo) {
 		switch (nEdgeNo) {
 		case 0:
 			return GetVertexID(nX, nY, nZ) + 1;
@@ -655,11 +657,11 @@ namespace LC { namespace Math {
 	}
 
 	// This vertex id needs to be corrected as well...
-	template <class T> unsigned int Isosurface<T>::GetVertexID(unsigned int nX, unsigned int nY, unsigned int nZ) {
+	template <typename F, class T> unsigned int Isosurface<F, T>::GetVertexID(unsigned int nX, unsigned int nY, unsigned int nZ) {
 		return 3 * (nZ * m_scalarVox[1] * m_scalarVox[0] + nY * m_scalarVox[0] + nX);
 	}
 
-	template <class T> POINT3DID Isosurface<T>::CalculateIntersection(unsigned int nX, unsigned int nY, unsigned int nZ, unsigned int nEdgeNo)
+	template <typename F, class T> POINT3DID Isosurface<F, T>::CalculateIntersection(unsigned int nX, unsigned int nY, unsigned int nZ, unsigned int nEdgeNo)
 	{
 		float x1, y1, z1, x2, y2, z2;
 		unsigned int v1x = nX, v1y = nY, v1z = nZ;
@@ -746,7 +748,7 @@ namespace LC { namespace Math {
 		return intersection;
 	}
 
-	template <class T> POINT3DID Isosurface<T>::Interpolate(float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, T tVal1, T tVal2) {
+	template <typename F, class T> POINT3DID Isosurface<F, T>::Interpolate(float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, T tVal1, T tVal2) {
 		POINT3DID interpolation;
 		float mu;
 
@@ -758,7 +760,7 @@ namespace LC { namespace Math {
 		return interpolation;
 	}
 
-	template <class T> void Isosurface<T>::RenameVerticesAndTriangles() {
+	template <typename F, class T> void Isosurface<F, T>::RenameVerticesAndTriangles() {
 		unsigned int nextID = 0;
 		ID2POINT3DID::iterator mapIterator = m_i2pt3idVertices.begin();
 		TRIANGLEVECTOR::iterator vecIterator = m_trivecTriangles.begin();
@@ -805,7 +807,7 @@ namespace LC { namespace Math {
 		m_trivecTriangles.clear();
 	}
 
-	template <class T> void Isosurface<T>::CalculateNormals()
+	template <typename F, class T> void Isosurface<F, T>::CalculateNormals()
 	{
 		// Set all normals to 0.
 		for (unsigned int i = 0; i < m_nVerts; i++) {

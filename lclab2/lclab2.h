@@ -31,6 +31,7 @@
 #include "src/math/powi.h"
 #include "src/math/Metric.h"
 #include "src/math/LinearInterpolate.h"
+#include "src/math/LinearInterpolator.h"
 #include "src/math/Isosurface.h"
 #include "src/math/AdvancingFront.h"
 #include "src/math/StencilWeights.h"

@@ -8,6 +8,7 @@ add_library(lclab2_math Choose.h Choose.cpp
 						AdvancingFront.h AdvancingFront.cpp
 						StencilWeights.h StencilWeights.cpp
 						LinearInterpolate.h LinearInterpolate.cpp
+						LinearInterpolator.h LinearInterpolator.cpp
 						Vector.h Vector.cpp
 						Isosurface.h Isosurface.cpp
 						Fields.h Fields.cpp)

@@ -555,6 +555,9 @@ namespace Electric {
 
 			if (voltage == 0) {
 				LC_CORE_WARN("Voltage was not found");
+				// Initialize voltage
+				voltage = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
+				LC_CORE_INFO("Voltage initialized");
 			}
 
 			size_of_scalar = *p_size_of_scalar;
@@ -570,6 +573,7 @@ namespace Electric {
 
 			// Initialize energy density
 			en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
+			
 		}
 		else {
 			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);

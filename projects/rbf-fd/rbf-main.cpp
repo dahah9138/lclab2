@@ -173,7 +173,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         .ElectricConstants(LC::FrankOseen::LC_TYPE::_5CB)
         .VoltageConfiguration(LC::Math::VoltageZ(0.0, voltage, dop))
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Rate(-.50)
+        .Rate(_widget.relaxRate)
         .Cell(dop, dop, dop)
         .Boundaries(0, 0, 0)
         .Neighbors(knn)
@@ -312,8 +312,17 @@ void Sandbox::drawEvent() {
             }
 
             // Pressed the relax button
+            ImGui::PushItemWidth(100.0f);
+
             ImGui::InputInt("Iterations/cycle", &_widget.cycle);
+
+            ImGui::SameLine();
+
+            ImGui::InputFloat("Relax rate", &_widget.relaxRate);
             _widget.relax = ImGui::Button("Relax");
+
+
+            ImGui::PopItemWidth();
             if (_relaxFuture.second) {
                 ImGui::SameLine();
                 ImGui::Text("Relaxing...");
@@ -336,7 +345,9 @@ void Sandbox::drawEvent() {
             const bool GPU = true;
 
             // Try to relax asynchronously...
+            data->Rate(_widget.relaxRate);
             _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, GPU);
+
             _relaxFuture.second = true;
             _widget.updateImage = true;
         }

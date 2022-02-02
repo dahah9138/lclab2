@@ -55,6 +55,9 @@ struct Widget {
 	float voltage = 0.0f;
 	int voltage_iterations = 500;
 
+	bool savePOM = false;
+	std::string savePOM_loc;
+
 	// Total en. Radio button
 	int radioEn = 1;
 

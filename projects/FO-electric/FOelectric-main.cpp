@@ -102,6 +102,8 @@ private:
     LC::Math::Isosurface<float*, float> _isoGenerator;
 #endif
     std::list<Preimage> _preimages;
+
+    LC::Imaging::ImageSeries _image_series;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -237,6 +239,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _widget.series_x_axis_vec.resize(MAX_GRAPH_POINTS);
     _widget.energy_series_vec.resize(MAX_GRAPH_POINTS);
 
+    _image_series = LC::Imaging::ImageSeries((std::int32_t)data->voxels[0], (std::int32_t)data->voxels[1], "default-POM");
+
 
     LC_INFO("Created client application!");
 }
@@ -275,6 +279,10 @@ void Sandbox::drawEvent() {
                         _widget.energy_series_vec[i] = 0.0;
                         _widget.series_x_axis_vec[i] = dataloc->numIterations;
                     }
+
+                    // ** Only intended to be used for POM recording
+                    _image_series = LC::Imaging::ImageSeries((std::int32_t)dataloc->voxels[0], (std::int32_t)dataloc->voxels[1], _header.readFile + "-POM");
+
 
                 };
                 saveMenu(_widget.updateImageFromLoad, loadAction);
@@ -788,6 +796,50 @@ void Sandbox::POM() {
             (*dataPtr)[idx].color[id] = color[id];
         }, alpha);
 
+    if (_widget.savePOM) {
+        using namespace LC::Imaging;
+        std::size_t sz = data->voxels[0] * data->voxels[1];
+        std::unique_ptr<ImageSeries::COLOR[]> plane(new ImageSeries::COLOR[sz]);
+
+        for (auto idx = 0; idx < sz; idx++) {
+            plane[idx].R = _crossSections[i].section.second->vertices[idx].color[0] * 255;
+            plane[idx].G = _crossSections[i].section.second->vertices[idx].color[1] * 255;
+            plane[idx].B = _crossSections[i].section.second->vertices[idx].color[2] * 255;
+            plane[idx].A = alpha * 255;
+        }
+
+        // Generate and save POM
+        std::string name = getLoadFile();
+
+        // Get just the file name
+        while (1) {
+            auto index1 = name.find("/");
+            auto index2 = name.find("\\");
+
+            if (index1 != std::string::npos) {
+                name = name.substr(index1 + 1);
+            }
+            else if (index2 != std::string::npos) {
+                name = name.substr(index2 + 1);
+            }
+            else break;
+
+        }
+
+        // Remove the .type if it exists
+        {
+            auto index = name.find(".");
+            if (index != std::string::npos) {
+                name = name.substr(0, index);
+            }
+        }
+
+        if (name.empty()) name = "default";
+        _image_series.write_file = _widget.savePOM_loc + "/" + name;
+        LC_INFO("Saving POM as <{0}>", _image_series.write_file.c_str());
+        _image_series.GenerateAndWriteFrame(plane.get(), data->voxels[0], data->voxels[1]);
+    }
+
     // Update sheet
     Trade::MeshData meshData = _crossSections[i].section.second->Data();
     _crossSections[i].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
@@ -863,6 +915,21 @@ void Sandbox::handlePOMWindow() {
     if (_widget.showPOMSettings) {
 
         ImGui::Begin("Configure POM", &_widget.showPOMSettings);
+        
+        ImGui::Checkbox("Save POM", &_widget.savePOM);
+        if (_widget.savePOM) {
+            if (ImGui::Button("Choose POM location")) {
+                auto res = pfd::select_folder("POM Location", LCLAB2_ROOT_PATH, pfd::opt::force_path);
+
+                while (!res.ready(1000))
+                    LC_INFO("Waiting for user...");
+
+                if (res.ready() && !res.result().empty()) {
+                    _widget.savePOM_loc = res.result();
+                }
+            }
+            ImGui::Text("POM Location = %s", _widget.savePOM_loc.c_str());
+        }
 
         {
             Float pitch = _widget.pitch.first;
@@ -1106,6 +1173,31 @@ void Sandbox::handleModificationWindow() {
             updateColor();
         }
 
+        if (ImGui::Button("Helical field")) {
+            auto helical = LC::Math::Planar(2 * data->cell_dims[2], data->cell_dims[2]);
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+            std::array<float, 3> pos;
+
+            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
+                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
+                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
+
+                        pos[0] = -data->cell_dims[0] / 2.0 + i * dx;
+                        pos[1] = -data->cell_dims[1] / 2.0 + j * dy;
+                        pos[2] = -data->cell_dims[2] / 2.0 + k * dz;
+
+                        auto n = helical(pos[0], pos[1], pos[2]);
+
+                        for (int d = 0; d < 3; d++) {
+                            nn(i, j, k, d) = n[d];
+                        }
+                    }
+        }
 
         // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
 
@@ -1121,6 +1213,9 @@ void Sandbox::handleModificationWindow() {
 
         ImGui::InputFloat("R", &f_r1);
         ImGui::InputFloat("r", &f_r2);
+
+
+
 
         if (ImGui::Button("Add torus")) {
 

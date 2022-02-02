@@ -382,6 +382,13 @@ namespace Electric {
 			}
 
 			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
+				
+				// Create a lambda func that squishes z coordinate where z in [-1,1]
+				auto lmb = [=](scalar x, scalar y, scalar z) {
+					return (scalar)1.;
+				};
+
+				
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 
 					scalar layersscale = ceil(2 * Q * lim);
@@ -407,7 +414,7 @@ namespace Electric {
 
 					if (r < lambda) {
 
-						scalar theta = 2 * M_PI * r * Q / lambda;
+						scalar theta = 2 * M_PI * r * Q / lmb(p[0], p[1], p[2]);
 
 						Eigen::Matrix<scalar, 3, 1> nn;
 

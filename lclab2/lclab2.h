@@ -61,6 +61,9 @@
 	#include "src/imaging/RungeSphere.h"
 #endif
 
+	#include "src/imaging/BMP.h"
+	#include "src/imaging/ImageSeries.h"
+
 // CUDA
 #ifdef LCLAB2_CUDA_AVAIL
     #include "src/cuda/CudaContext.h"

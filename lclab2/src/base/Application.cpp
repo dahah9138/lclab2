@@ -116,6 +116,10 @@ namespace LC
 			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
 			  "All Files", "*" },
 			pfd::opt::none);
+
+		while (!sf.ready(1000))
+			LC_CORE_INFO("Waiting for user input...");
+
 		return sf.result();
 	}
 
@@ -124,7 +128,18 @@ namespace LC
 			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
 					"All Files", "*" },
 			pfd::opt::none);
+
+		while (!of.ready(1000))
+			LC_CORE_INFO("Waiting for user input...");
+
 		return of.result();
+	}
+
+	std::string Application::getLoadFile() {
+		return _header.readFile;
+	}
+	std::string Application::getSaveFile() {
+		return _header.writeFile;
 	}
 
 	void Application::viewportEvent(ViewportEvent& event) {

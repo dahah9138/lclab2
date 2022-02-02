@@ -89,6 +89,9 @@ namespace LC
 		void guiRenderer();
 		void polyRenderer();
 
+		std::string getLoadFile();
+		std::string getSaveFile();
+
 		void sortObjects(Magnum::SceneGraph::DrawableGroup3D& drawables);
 
 		void setupGUI();

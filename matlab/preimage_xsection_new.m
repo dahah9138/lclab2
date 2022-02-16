@@ -6,14 +6,14 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = 'hybrid-from-Q3';
+file = '../data/mat/asymmetric_Q2_normal';
 %file = 'trefoil_smallest';
 
 % Cone error
 eps = 0.15;
 
 % Sampling rate for isosurfaces of preimages
-sample = 1;
+sample = 3;
 preimg_alpha = 1;
 seifert = 0;
 
@@ -45,19 +45,17 @@ cutnn = nn(:,:,p01:p02,:);
 
 
 xs_xz = 0;
-xs_xy = 1;
+xs_xy = 0;
 xs_yz = 0;
 viewangle = [0,0];
-xsection_alpha = 1;
+xsection_alpha = .5;
 
 % Sampling rate for the xz-xsection
 ratexs = 4; 
 
 % reference vector
-thetad = [];
-
-
-phid = [];
+thetad = [0, 180];
+phid = [0, 0];
 
 epsilon = eps*ones(size(thetad));
 

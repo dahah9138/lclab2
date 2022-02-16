@@ -20,6 +20,12 @@ struct POM {
         Quarter530nm = 2
 	};
 
+    struct Light {
+        float wavelength;
+        float intensity;
+    };
+
+
     void Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, ColorDataFunc colorFunc, const float &alpha = 0.5f);
 
     // Default matlab indexing where slices is of the form
@@ -54,8 +60,9 @@ struct POM {
     double n0 = 0.0;
     double ne = 0.0;
 
-    std::array<float, 3> lightRGB = { 650.0, 550.0, 450.0 };
-    std::array<float, 3> intensity = { 1.0, 0.6, 0.2 };
+    // in nanometers
+    // Spectrum for incandenscent in nanometers
+    std::vector<Light> lights = { Light{650.0f, 1.0f}, Light{550.0f, 0.6f}, Light{450.0f, 0.2f} };
 
     // Dimension order
     std::array<int, 3> indexOrder = { 0, 1, 2 };

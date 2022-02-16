@@ -18,6 +18,7 @@ struct Widget {
 	bool showPOMSettings = false;
 	bool showPreimageSettings = false;
 	bool showModificationWindow = false;
+	bool showNonlinearSettings = false;
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
@@ -56,7 +57,14 @@ struct Widget {
 	int voltage_iterations = 500;
 
 	bool savePOM = false;
+	bool saveNonlinear = false;
+	bool sampleCharge = false;
+	int radio_save_nonlin_xsection = 0;
 	std::string savePOM_loc;
+	std::string saveNonlin_loc;
+
+	float computed_topological_charge = 0.0f;
+
 
 	// Total en. Radio button
 	int radioEn = 1;

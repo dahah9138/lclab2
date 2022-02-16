@@ -10,6 +10,8 @@ add_library(lclab2_math Choose.h Choose.cpp
 						LinearInterpolate.h LinearInterpolate.cpp
 						LinearInterpolator.h LinearInterpolator.cpp
 						Vector.h Vector.cpp
+						HopfCharge.h
+						CumulativeTrapIntegral.h CumulativeTrapIntegral.cpp
 						Isosurface.h Isosurface.cpp
 						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC

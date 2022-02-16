@@ -35,6 +35,8 @@
 #include "src/math/Isosurface.h"
 #include "src/math/AdvancingFront.h"
 #include "src/math/StencilWeights.h"
+#include "src/math/CumulativeTrapIntegral.h"
+#include "src/math/HopfCharge.h"
 
 // Algorithms
 #include "src/algorithm/cpuknn.h"

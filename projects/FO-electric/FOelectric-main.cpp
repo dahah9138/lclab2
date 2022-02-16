@@ -66,6 +66,7 @@ private:
     void imageMenu();
     void handlePOMWindow();
     void handlePreimageWindow();
+    void handleNonlinearImagingWindow();
     void handleLCINFOWindow();
     void handleModificationWindow();
     void generateIsosurface();
@@ -103,7 +104,7 @@ private:
 #endif
     std::list<Preimage> _preimages;
 
-    LC::Imaging::ImageSeries _image_series;
+    LC::Imaging::ImageSeries _image_series, _nonlin_image_series;
 };
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
@@ -165,7 +166,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _widget.celldims = { 2.f * Q + 1, 2.f * Q + 1, 2.f * Q + 1 };
     int npp = _widget.npp;
     float v0 = _widget.voltage;
-    
+
 
     _widget.boundaries[0] = 1;
     _widget.boundaries[1] = 1;
@@ -282,7 +283,7 @@ void Sandbox::drawEvent() {
 
                     // ** Only intended to be used for POM recording
                     _image_series = LC::Imaging::ImageSeries((std::int32_t)dataloc->voxels[0], (std::int32_t)dataloc->voxels[1], _header.readFile + "-POM");
-
+                    for (int d = 0; d < 3; d++) _widget.celldims[d] = dataloc->cell_dims[d];
 
                 };
                 saveMenu(_widget.updateImageFromLoad, loadAction);
@@ -345,21 +346,13 @@ void Sandbox::drawEvent() {
             }
            
             handleModificationWindow();
+            handleNonlinearImagingWindow();
 
-            
-            
             {
                 ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
-                ImGui::Checkbox("Nonlinear imaging", &_widget.nonlinear);
-                ImGui::SameLine();
+                
                 ImGui::Checkbox("Enable POM", &_widget.POM);
 
-                if (_widget.nonlinear) {
-                    ImGui::PushItemWidth(100.0f);
-                    ImGui::SliderFloat("Nonlinear theta (deg)", &_widget.nonlinTheta, 0.0f, 365.0f);
-                    ImGui::PopItemWidth();
-                    ImGui::Checkbox("Nonlinear circular polarization", &_widget.nonlinCircular);
-                }
 
                 handlePOMWindow();
                 handlePreimageWindow();
@@ -414,7 +407,10 @@ void Sandbox::drawEvent() {
             if (ImGui::Button("yz"))
                 _manipulator->setTransformation(Matrix4::rotationY(Rad(M_PI / 2.0f)) * Matrix4::rotationX(Rad(-M_PI / 2.0f)));
 
-            _widget.updateImage = ImGui::Button("Update Image") || _widget.updateImageFromLoad;
+            if (ImGui::Button("Update Image") || _widget.updateImageFromLoad)
+                _widget.updateImage = true;
+
+            _widget.updateImageFromLoad = false;
 
             // Set Cycle
             ImGui::PushItemWidth(100.0f);
@@ -441,6 +437,13 @@ void Sandbox::drawEvent() {
 
             // Pressed the relax button
             _widget.relax = ImGui::Button("Relax");
+            ImGui::SameLine();
+            if (ImGui::Button("Compute Charge")) _widget.sampleCharge = true;
+
+            if (_widget.relax) {
+                _widget.sampleCharge = true;
+                _widget.updateImage = true;
+            }
 
             // Compute change in free en:
             LC::scalar difference = 2.0 * _widget.energyErrorThreshold;
@@ -543,14 +546,21 @@ void Sandbox::drawEvent() {
         _widget.updateImage = true;
     }
 
-    if (_widget.updateImage || _relaxFuture.second) {
+    if (_widget.updateImage || _widget.sampleCharge || _relaxFuture.second) {
 
         bool ready = checkRelax();
 
         if (ready) {
-            updateColor();
+            if (_widget.updateImage) {
+                updateColor();
+                _widget.updateImage = false;
+            }
             
-            _widget.updateImageFromLoad = false;
+            // Compute topological charge
+            if (_widget.sampleCharge) {
+                _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
+                _widget.sampleCharge = false;
+            }
             
             // Update list
             LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / (data->voxels[0] * data->voxels[1] * data->voxels[2]);
@@ -767,7 +777,10 @@ void Sandbox::updateColor() {
         Trade::MeshData meshData = _crossSections[id].section.second->Data();
         _crossSections[id].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
 
+
+
     }
+
 }
 
 void Sandbox::POM() {
@@ -838,6 +851,14 @@ void Sandbox::POM() {
         _image_series.write_file = _widget.savePOM_loc + "/" + name;
         LC_INFO("Saving POM as <{0}>", _image_series.write_file.c_str());
         _image_series.GenerateAndWriteFrame(plane.get(), data->voxels[0], data->voxels[1]);
+
+        //auto window = Magnum::Platform::Sdl2Application::window();
+        //auto windims = Magnum::Platform::Sdl2Application::windowSize();
+        
+        // Test writing window
+        //SDL_Surface* sshot = SDL_CreateRGBSurface(0, windims.x(), windims.y(), 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+        //SDL_Render
+
     }
 
     // Update sheet
@@ -904,6 +925,10 @@ void Sandbox::imageMenu() {
                 _widget.showPreimageSettings = true;
             }
 
+            if (ImGui::MenuItem("Nonlinear Settings")) {
+                _widget.showNonlinearSettings = true;
+            }
+
             ImGui::EndMenu();
         }
         ImGui::EndMenuBar();
@@ -945,8 +970,8 @@ void Sandbox::handlePOMWindow() {
 
 
         // Show additional options in a dropdown (TODO)
-        ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
-        ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
+        //ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
+        //ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
         ImGui::InputFloat("Gamma", &_pomImager.gamma);
         ImGui::InputFloat("z-depth", &_pomImager.z_scan_ratio);
         ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers);
@@ -1048,6 +1073,180 @@ void Sandbox::handlePreimageWindow() {
     }
 }
 
+void Sandbox::handleNonlinearImagingWindow() {
+    if (_widget.showNonlinearSettings) {
+        ImGui::Begin("Nonlinear Imaging", &_widget.showNonlinearSettings);
+        ImGui::Checkbox("Nonlinear imaging", &_widget.nonlinear);
+
+        if (ImGui::Button("Choose scan location")) {
+            auto res = pfd::select_folder("Scan Location", LCLAB2_ROOT_PATH, pfd::opt::force_path);
+
+            while (!res.ready(1000))
+                LC_INFO("Waiting for user...");
+
+            if (res.ready() && !res.result().empty()) {
+                _widget.saveNonlin_loc = res.result();
+            }
+        }
+        ImGui::Text("Scan Location = %s", _widget.saveNonlin_loc.c_str());
+
+        if (ImGui::CollapsingHeader("Scan properties")) {
+            ImGui::Text("Nonlinear scan plane");
+            ImGui::RadioButton("xy", &_widget.radio_save_nonlin_xsection, 2);
+            ImGui::SameLine();
+            ImGui::RadioButton("yz", &_widget.radio_save_nonlin_xsection, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("xz", &_widget.radio_save_nonlin_xsection, 1);
+
+
+            if (_widget.nonlinCircular) {
+                ImGui::Text("[-] Nonlinear theta (deg)");
+            }
+            else {
+                ImGui::PushItemWidth(100.0f);
+                ImGui::SliderFloat("Nonlinear theta (deg)", &_widget.nonlinTheta, 0.0f, 365.0f);
+                ImGui::PopItemWidth();
+            }
+            ImGui::SameLine();
+            ImGui::Checkbox("Nonlinear circular polarization", &_widget.nonlinCircular);
+
+        }
+        if (ImGui::Button("Scan")) {
+
+            // Scan the volume
+            using namespace LC::FrankOseen;
+            using namespace LC::Imaging;
+            using T4 = ElasticOnly::FOFDSolver::Tensor4;
+
+            Dataset* data = (Dataset*)(_solver->GetDataPtr());
+            T4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+            Float alpha = _widget.alpha;
+            int id = _widget.radio_save_nonlin_xsection;
+
+            // Get file name
+            std::string name = getLoadFile();
+
+            // Get just the file name
+            while (1) {
+                auto index1 = name.find("/");
+                auto index2 = name.find("\\");
+
+                if (index1 != std::string::npos) {
+                    name = name.substr(index1 + 1);
+                }
+                else if (index2 != std::string::npos) {
+                    name = name.substr(index2 + 1);
+                }
+                else break;
+
+            }
+
+            // Remove the .type if it exists
+            {
+                auto index = name.find(".");
+                if (index != std::string::npos) {
+                    name = name.substr(0, index);
+                }
+            }
+
+            std::string str_xsection;
+            if (id == 0) str_xsection = "yz";
+            else if (id == 1) str_xsection = "xz";
+            else str_xsection = "xy";
+
+            int xx = (static_cast<Axis>(id) == Axis::x) ? 1 : 0;
+            int yy = (static_cast<Axis>(id) == Axis::y) ? 2 : xx + 1;
+
+            // Determine the xsection dimensions
+            int Ni = data->voxels[xx];
+            int Nj = data->voxels[yy];
+
+            // Create the image series
+            _nonlin_image_series = LC::Imaging::ImageSeries((std::int32_t)Ni, (std::int32_t)Nj);
+
+            std::string suffix;
+            if (_widget.nonlinCircular) suffix = "-circ";
+            else suffix = "-d" + std::to_string(_widget.nonlinTheta);
+
+            if (name.empty()) name = "default";
+            _nonlin_image_series.write_file = _widget.saveNonlin_loc + "/" + name + "-" + str_xsection + suffix;
+            
+
+            std::size_t permutedSlice = data->voxels[xx];
+
+            auto cross_idx = [permutedSlice](int i, int j) {
+                return permutedSlice * j + i;
+            };
+
+            // Determine director components
+            auto dir = [id, xx, yy, nn](int i, int j, int d, int fixed) {
+                float result;
+                // yz plane
+                if (id == 0) {
+                    result = nn(fixed, i, j, d);
+                }
+                // xz plane
+                else if (id == 1) {
+                    result = nn(i, fixed, j, d);
+                }
+                // xy plane
+                else {
+                    result = nn(i, j, fixed, d);
+                }
+                return result;
+            };
+
+
+
+            unsigned int sz = Ni * Nj;
+
+            std::unique_ptr<ImageSeries::COLOR[]> plane(new ImageSeries::COLOR[sz]);
+
+
+            // Green 3 photon nonlinear imaging
+            auto linear = [](float nx, float ny, float theta) {
+                return Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(theta) + ny * sin(theta), 6.0f) });
+            };
+            auto circular = [](float nz) {
+                return Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) });
+            };
+
+            Color3 color;
+
+            // Number of scans = voxels[id]
+            for (int k = 0; k < data->voxels[id]; k++) {
+
+                // Fill the plane data for each scan
+                for (int i = 0; i < data->voxels[xx]; i++) {
+                    for (int j = 0; j < data->voxels[yy]; j++) {
+                        unsigned int idx = cross_idx(i, j);
+
+                        // Get director components for current slice
+                        float nx = dir(i, j, 0, k);
+                        float ny = dir(i, j, 1, k);
+                        float nz = dir(i, j, 2, k);
+
+                        if (_widget.nonlinCircular) color = circular(nz);
+                        else color = linear(nx, ny, M_PI / 180. * _widget.nonlinTheta);
+
+                        plane[idx].R = color[0] * 255;
+                        plane[idx].G = color[1] * 255;
+                        plane[idx].B = color[2] * 255;
+                        plane[idx].A = alpha * 255;
+                    }
+                }
+
+                // Generate image
+
+                LC_INFO("Saving nonlinear scan as <{0}>", _nonlin_image_series.write_file.c_str());
+                _nonlin_image_series.GenerateAndWriteFrame(plane.get(), data->voxels[xx], data->voxels[yy]);
+            }
+
+        }
+        ImGui::End();
+    }
+}
+
 void Sandbox::handleLCINFOWindow() {
     if (_widget.showLCINFO) {
         using namespace LC::FrankOseen;
@@ -1084,6 +1283,7 @@ void Sandbox::handleLCINFOWindow() {
 
         // Show LC information
         ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
+        ImGui::Text("Topological Charge = %.3f", _widget.computed_topological_charge);
         ImGui::Text("Voltage = %f", dV);
         ImGui::Text("Voxels = %d %d %d", data->voxels[0], data->voxels[1], data->voxels[2]);
         ImGui::Text("Cell dimensions = %.2f %.2f %.2f", data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
@@ -1336,10 +1536,153 @@ void Sandbox::handleModificationWindow() {
             for (int d = 0; d < 3; d++) data->voxels[d] = vNew[d];
             data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
             data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
+            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0]* vNew[1]* vNew[2]]);
 
             initVisuals();
             _widget.updateImageFromLoad = true;
         }
+
+        ImGui::SameLine();
+
+        // Duplicate the volume along the x axis
+        if (ImGui::Button("Repeat (x)")) {
+            auto voxi = data->voxels;
+            auto vNew = voxi;
+            vNew[0] *= 2;
+
+            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
+            std::unique_ptr<LC::scalar[]> field_vv(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), voxi[0], voxi[1], voxi[2], 3);
+            // Check if voltage is initialized
+            if (!data->voltage.get()) {
+                solver->SetVoltage(1.0);
+            }
+            FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
+
+            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
+
+            for (int rep = 0; rep < 2; rep++)
+                for (int i = 0; i < voxi[0]; i++)
+                    for (int j = 0; j < voxi[1]; j++)
+                        for (int k = 0; k < voxi[2]; k++) {
+
+                            for (int d = 0; d < 3; d++)
+                                nn_new(i + voxi[0] * rep, j, k, d) = nn(i, j, k, d);
+
+                        }
+
+
+
+            LC::scalar v0 = vv(0, 0, voxi[2] - 1);
+            data->cell_dims[0] *= 2;
+
+            // Replace data
+            for (int d = 0; d < 3; d++) data->voxels[d] = vNew[d];
+            data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
+            data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
+            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+            solver->SetVoltage(v0);
+            initVisuals();
+            _widget.updateImageFromLoad = true;
+
+        }
+        ImGui::SameLine();
+
+        // Duplicate the volume along the y axis
+        if (ImGui::Button("Repeat (y)")) {
+            auto voxi = data->voxels;
+            auto vNew = voxi;
+            vNew[1] *= 2;
+
+            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
+            std::unique_ptr<LC::scalar[]> field_vv(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), voxi[0], voxi[1], voxi[2], 3);
+            // Check if voltage is initialized
+            if (!data->voltage.get()) {
+                solver->SetVoltage(1.0);
+            }
+            FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
+
+            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
+
+            for (int rep = 0; rep < 2; rep++)
+                for (int i = 0; i < voxi[0]; i++)
+                    for (int j = 0; j < voxi[1]; j++)
+                        for (int k = 0; k < voxi[2]; k++) {
+
+                            for (int d = 0; d < 3; d++)
+                                nn_new(i, j + voxi[1] * rep, k, d) = nn(i, j, k, d);
+
+                        }
+
+
+
+            LC::scalar v0 = vv(0, 0, voxi[2] - 1);
+            data->cell_dims[1] *= 2;
+
+            // Replace data
+            for (int d = 0; d < 3; d++) data->voxels[d] = vNew[d];
+            data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
+            data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
+            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+            solver->SetVoltage(v0);
+            initVisuals();
+            _widget.updateImageFromLoad = true;
+
+        }
+
+        ImGui::SameLine();
+
+        // Duplicate the volume along the z axis
+        if (ImGui::Button("Repeat (z)")) {
+            auto voxi = data->voxels;
+            auto vNew = voxi;
+            vNew[2] *= 2;
+
+            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
+            std::unique_ptr<LC::scalar[]> field_vv(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), voxi[0], voxi[1], voxi[2], 3);
+            // Check if voltage is initialized
+            if (!data->voltage.get()) {
+                solver->SetVoltage(1.0);
+            }
+            FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
+
+            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
+
+            for (int rep = 0; rep < 2; rep++)
+                for (int i = 0; i < voxi[0]; i++)
+                    for (int j = 0; j < voxi[1]; j++)
+                        for (int k = 0; k < voxi[2]; k++) {
+
+                            for (int d = 0; d < 3; d++)
+                                nn_new(i, j, k + voxi[2] * rep, d) = nn(i, j, k, d);
+
+                        }
+
+            
+
+            LC::scalar v0 = 2. * vv(0, 0, voxi[2] - 1);
+            data->cell_dims[2] *= 2;
+
+            // Replace data
+            for (int d = 0; d < 3; d++) data->voxels[d] = vNew[d];
+            data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
+            data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
+            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+            solver->SetVoltage(v0);
+            initVisuals();
+            _widget.updateImageFromLoad = true;
+
+        }
+
+
 
         ImGui::End();
     }

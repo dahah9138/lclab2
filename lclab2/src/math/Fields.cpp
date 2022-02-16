@@ -88,6 +88,7 @@ namespace LC { namespace Math {
 
 				Eigen::Matrix<scalar, 3, 1> nn;
 
+
 				nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
 				nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
 				nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
@@ -100,7 +101,7 @@ namespace LC { namespace Math {
 
 
 				// Rotate directors
-
+				
 				scalar nxtemp = cos(omega) * nn[0] - sin(omega) * nn[1];
 				nytemp = sin(omega) * nn[0] + cos(omega) * nn[1];
 

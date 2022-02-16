@@ -12,7 +12,10 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
 
     std::array<std::size_t, 3> cumVoxProdSlice = { voxels[0], voxels[1], voxels[2] };
-    std::array<double, 3> lambda = {lightRGB[0] * 1e-9, lightRGB[1] * 1e-9, lightRGB[2] * 1e-9 };
+
+    // Convert wavelengths to meters
+    auto lambda = lights;
+    for (auto& lmb : lambda) lmb.wavelength *= 1e-9;
 
     // slices
     for (int i = 1; i < 3; i++)
@@ -28,13 +31,14 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
     int scan_layer_depth = z_scan_ratio * voxels[2];
 
-    Eigen::Vector2cd Eo_plane[] = { {1.0, 0.0}, {1.0, 0.0}, {1.0, 0.0} };
+    std::vector<Eigen::Vector2cd> Eo_plane(lights.size(), { 1.0, 0.0 });
+
     // Add the additional layers if they exist
     if (additional_layers) {
-        for (int rgb = 0; rgb < 3; rgb++) {
+        for (int rgb = 0; rgb < lights.size(); rgb++) {
             for (int t = 0; t < nodes_in_layers - 1; t++) {
-                const scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
-                const scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne;
+                const scalar delta0 = 2.0 * M_PI / lambda[rgb].wavelength * dz * n0;
+                const scalar deltaE = 2.0 * M_PI / lambda[rgb].wavelength * dz * ne;
                 scalar phi = M_PI * dPhi * t + M_PI / 2.0;
                 const std::complex<scalar> eidE = std::exp(ii * deltaE);
                 const std::complex<scalar> eid0 = std::exp(ii * delta0);
@@ -56,8 +60,7 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
             for (int j = 0; j < voxels[1]; j++) {
 
                 // Polarization states for rgb colors
-                Eigen::Vector2cd Eo[] = { Eo_plane[0], Eo_plane[1], Eo_plane[2] };
-
+                std::vector<Eigen::Vector2cd> Eo = Eo_plane;
                 
                 for (int k = 0; k < scan_layer_depth; k++) {
 
@@ -75,10 +78,10 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                     const scalar sp = sin(phi);
 
 
-                    for (int rgb = 0; rgb < 3; rgb++) {
-                        const scalar delta0 = 2.0 * M_PI / lambda[rgb] * dz * n0;
+                    for (int rgb = 0; rgb < lights.size(); rgb++) {
+                        const scalar delta0 = 2.0 * M_PI / lambda[rgb].wavelength * dz * n0;
                         const scalar ne_th = ne * n0 / sqrt(pow(n0 * st, 2.0) + pow(ne * ct, 2.0));
-                        const scalar deltaE = 2.0 * M_PI / lambda[rgb] * dz * ne_th;
+                        const scalar deltaE = 2.0 * M_PI / lambda[rgb].wavelength * dz * ne_th;
 
                         const std::complex<scalar> eidE = std::exp(ii * deltaE);
                         const std::complex<scalar> eid0 = std::exp(ii * delta0);
@@ -97,14 +100,15 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                 // Additional waveplate
                 if (waveplate == Waveplate::Full530nm) {
 
-                    constexpr std::array<int, 2> rb = { 0, 2 };
+                    // Assumes that light 0 is always red and final light is always blue
+                    std::array<int, 2> rb = { 0, lights.size() - 1 };
                     constexpr scalar thick = 5.8889e-05;// * 7.0;
 
 
                     for (const auto& col : rb) {
                         // 1.55338 (extraordinary), 1.54425 (ordinary) are optical axes of quarts
-                        const scalar de_wp = 2.0 * M_PI / lambda[col] * thick * 1.55338;
-                        const scalar do_ep = 2.0 * M_PI / lambda[col] * thick * 1.54425;
+                        const scalar de_wp = 2.0 * M_PI / lambda[col].wavelength * thick * 1.55338;
+                        const scalar do_ep = 2.0 * M_PI / lambda[col].wavelength * thick * 1.54425;
 
                         m(0, 0) = 0.5 * (exp(ii * de_wp) + exp(ii * do_ep));
                         m(0, 1) = 0.5 * (exp(ii * de_wp) - exp(ii * do_ep));
@@ -122,8 +126,8 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
 
                     for (const auto& col : rb) {
-                        const scalar de_wp = 2.0 * M_PI / lambda[col] * thick * 1.55338;
-                        const scalar do_ep = 2.0 * M_PI / lambda[col] * thick * 1.54425;
+                        const scalar de_wp = 2.0 * M_PI / lambda[col].wavelength * thick * 1.55338;
+                        const scalar do_ep = 2.0 * M_PI / lambda[col].wavelength * thick * 1.54425;
 
                         m(0, 0) = 0.5 * (exp(ii * de_wp) + exp(ii * do_ep));
                         m(0, 1) = 0.5 * (exp(ii * de_wp) - exp(ii * do_ep));
@@ -136,10 +140,10 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
                 std::array<float, 4> color;
 
-                for (int rgb = 0; rgb < 3; rgb++) {
+                for (int rgb = 0; rgb < lights.size(); rgb++) {
                     scalar I = std::abs(Eo[rgb](0) * cos(th) + Eo[rgb](1) * sin(th));
                     I *= I;
-                    color[rgb] = pow(intensity[rgb] * I, gamma);
+                    color[rgb] = pow(lights[rgb].intensity * I, gamma);
                 }
 
                 color[3] = alpha;

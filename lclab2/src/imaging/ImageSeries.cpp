@@ -2,7 +2,7 @@
 
 namespace LC { namespace Imaging {
 	
-	ImageSeries::ImageSeries(std::int32_t w, std::int32_t h, std::string file) : width(w), height(h), write_file(file) {
+	ImageSeries::ImageSeries(std::int32_t w, std::int32_t h, std::string file) : width(w), height(h), write_file(file), count(0) {
 		bmp = BMP(w, h);
 	}
 	

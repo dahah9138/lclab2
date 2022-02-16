@@ -6,18 +6,21 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = 'deformed_dimer';
+file = '../data/mat/loop_torus_cropped';
 
 % Cone error
 eps = 0.15;
-seconds = 5;
-numframes = seconds*30;
+fps = 20;
+thetaframes = 20;
+phiframes = 50;
+numframes = thetaframes * phiframes;
 
 % Sampling rate for isosurfaces of preimages
-sample = 3; 
+sample = 1; 
 preimg_alpha = 1;
 
-video = VideoWriter('keychain2-test.avi', 'MPEG-4');
+video = VideoWriter('../data/videos/test');
+video.FrameRate = fps;
 open(video);
 
 
@@ -44,7 +47,7 @@ m01 = int32(m0 * 2/9);
 m02 = int32(m0 * 7/9);
 
 cutnn = nn(n01:n02,m01:m02,1:p02,:);
-nn = cutnn;
+%nn = cutnn;
 
 viewangle = [0,0];
 xsection_alpha = 0.4;
@@ -53,14 +56,26 @@ xsection_alpha = 0.4;
 ratexs = 4; 
 
 % parametrized reference vector
-numpreimages = 2;
-thetad = repmat([60, 60],numframes,1);
+numpreimages = 1;
+%thetad = repmat([60, 60],numframes,1);
+thetad = zeros(numframes, numpreimages);
 %thetad(:,1) = 0;
 %thetad(:,2) = linspace(0, 180, numframes);
 
 phid = zeros(numframes, numpreimages);
-phid(:,1) = linspace(0, 360, numframes);
-phid(:,2) = linspace(180, 540, numframes);
+%phid(:,1) = linspace(0, 360, numframes);
+%phid(:,2) = linspace(180, 540, numframes);
+
+% Map id = phi * THETA + theta
+for p = 1:phiframes
+    ph0 = (p-1) * 2*pi / (phiframes - 1) * 180/pi;
+   for t = 1:thetaframes
+        id = (t-1) * phiframes + p;
+        thetad(id,1) = (t-1) * pi / (thetaframes - 1) * 180/pi;
+        phid(id,1) = ph0;
+   end
+end
+
 
 epsilon = eps*ones(1,numpreimages);
 
@@ -99,11 +114,17 @@ nn2 = nn_int;
 for k=1:numframes
     clf('reset')
     
+
+
+    phi_cur = phid(k, 1);
+    theta_cur = thetad(k, 1);
+    
+    
     
     % Draw the sphere
     kk = 10;
     map = hsv(2^kk);
-    radius = 7;
+    radius = sqrt(ma + na + pa);
     
     
     for cone=1:numpreimages
@@ -245,6 +266,7 @@ for k=1:numframes
     axis off
 
     set(gcf,'Color','w')
+    text(ma/2,-na/2,sprintf("(theta, phi) = (%.1f, %.1f)", theta_cur, phi_cur));
     ax.XTick = [];
     ax.YTick = [];
     ax.ZTick = [];

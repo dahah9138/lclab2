@@ -5,6 +5,8 @@
 #include "FOAssets.h"
 #include "Header.h"
 
+#include <Eigen/Geometry>
+
 /*
 	Basic LC elastic FD solver type
 */
@@ -385,7 +387,7 @@ namespace Electric {
 				
 				// Create a lambda func that squishes z coordinate where z in [-1,1]
 				auto lmb = [=](scalar x, scalar y, scalar z) {
-					return (scalar)1.;
+					return (scalar)lambda;
 				};
 
 				
@@ -395,8 +397,6 @@ namespace Electric {
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0] - 1) - 0.5, (scalar)j / (scalar)(voxels[1] - 1) - 0.5, (scalar)k / (scalar)(voxels[2] - 1) - 0.5 };
 					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
 
-					scalar phi = atan2(p[1], p[0]);
-					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
 					scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
 
 					if (p.dot(p) == 0.0) p[2] = 1.0;
@@ -407,37 +407,31 @@ namespace Electric {
 					scalar rsq = p.dot(p);
 					scalar r = sqrt(rsq);
 
-					// Rotate each z - plane
-					p[0] = rrpolar * cos(phi - omega);
-					p[1] = p[2] / lim;
-					p[2] = rrpolar * sin(phi - omega);
+					scalar ptemp = p[1];
+					p[1] = p[2];
+					p[2] = ptemp;
 
 					if (r < lambda) {
 
-						scalar theta = 2 * M_PI * r * Q / lmb(p[0], p[1], p[2]);
+						scalar theta = 2 * M_PI * r * Q / lmb(p[0],p[1],p[2]);
 
 						Eigen::Matrix<scalar, 3, 1> nn;
 
-						nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
-						nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
-						nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
+						scalar cost2 = cos(theta / 2.);
+						scalar sint2 = sin(theta / 2.);
 
-						// flip handedness
-
-						scalar nytemp = nn[1];
-						nn[1] = nn[2];
-						nn[2] = -nytemp;
+						Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
+						Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
+						Eigen::Quaternion<scalar> v(0., -sin(omega), 0., cos(omega));
 
 
-						// Rotate directors
+						auto result = q * v * qinv;
 
-						scalar nxtemp = cos(omega) * nn[0] - sin(omega) * nn[1];
-						nytemp = sin(omega) * nn[0] + cos(omega) * nn[1];
+						// Needs to break a symmetry...
+						nn[0] = result.x();
+						nn[1] = result.z();
+						nn[2] = -result.y();
 
-						nn[0] = nxtemp;
-						nn[1] = nytemp;
-
-						// Normalize
 
 						nn.normalize();
 

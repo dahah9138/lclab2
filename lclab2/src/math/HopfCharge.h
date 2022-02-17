@@ -90,11 +90,13 @@ namespace LC { namespace Math {
 			}
 		}
 
-		for (int x = 0; x < dims_reduced[0]; x++) {
+		density1D[0] = 0.0;
+
+		for (int x = 1; x < dims_reduced[0]; x++) {
 			density1D[x] = 0.0;
 			scalar znew = 0.0;
 			scalar zprev = 0.0;
-
+			
 			for (int y = 1; y < dims_reduced[1]; y++) {
 				zprev = density2D[x - 1 + y * dims_reduced[0]];
 				znew = density2D[x + y * dims_reduced[0]];

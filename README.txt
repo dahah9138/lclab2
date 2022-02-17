@@ -10,6 +10,12 @@ Building:
 - spdlog <https://github.com/gabime/spdlog>
 - Eigen <https://github.com/libigl/eigen>
 - SDL2 <https://github.com/libsdl-org/SDL>
+- hemi <https://github.com/harrism/hemi>
+- CUDA
+
+<Implemented code>
+- kNN <https://github.com/vincentfpgarcia/kNN-CUDA>
+
 
 * For macOS and linux
 - If you do not have SDL installed follow the instructions below

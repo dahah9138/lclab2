@@ -41,6 +41,8 @@ struct Preimage {
     float phi = 0.0f;
     bool draw = true;
     float isoLevel = 0.07f;
+    float alpha = 1.0f;
+    bool opentab = true;
     LC::Surface surface;
 
     Containers::Optional<GL::Mesh> mesh;
@@ -70,6 +72,7 @@ private:
     void handleLCINFOWindow();
     void handleModificationWindow();
     void generateIsosurface();
+    void computeEnergy();
 
     template <typename T>
     void dropDownMenu(const char* menuName, T& currentSelectable, std::map<T, std::string>& map);
@@ -254,6 +257,7 @@ Sandbox::~Sandbox() {
     Main simulation loop
 */
 void Sandbox::drawEvent() {
+    GL::Renderer::setClearColor(_widget.clearColor);
     GL::defaultFramebuffer.clear(
         GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
@@ -288,6 +292,11 @@ void Sandbox::drawEvent() {
                 };
                 saveMenu(_widget.updateImageFromLoad, loadAction);
             }
+
+            // Background color
+            ImGui::Text("Background Color");
+            ImGui::SameLine();
+            ImGui::ColorEdit4("##RefColor", &_widget.clearColor[0], ImGuiColorEditFlags_NoInputs);
 
             imageMenu();
 
@@ -389,7 +398,7 @@ void Sandbox::drawEvent() {
                 if (ImGui::BeginPopup("plane_selector")) {
                     ImGui::Text("Draw planes");
                     ImGui::Separator();
-                    for (const auto& p : planes) {
+                    for (auto& p : planes) {
                         ImGui::MenuItem(p.first.first.c_str(), "", &p.second);
                     }
                     ImGui::EndPopup();
@@ -438,10 +447,9 @@ void Sandbox::drawEvent() {
             // Pressed the relax button
             _widget.relax = ImGui::Button("Relax");
             ImGui::SameLine();
-            if (ImGui::Button("Compute Charge")) _widget.sampleCharge = true;
+            ImGui::Checkbox("Compute Charge", &_widget.sampleCharge);
 
             if (_widget.relax) {
-                _widget.sampleCharge = true;
                 _widget.updateImage = true;
             }
 
@@ -458,19 +466,13 @@ void Sandbox::drawEvent() {
                 difference = *it - *it2;
             }
 
-            bool bThreshMet = (abs(difference) < _widget.energyErrorThreshold) ? 1 : 0;
-
             // Triggered continuous relax
             if (_widget.relax && _widget.autoRelax)
                 _widget.continuousRelax = true;
             // Disabled continuous relax
             else if (!_widget.autoRelax)
                 _widget.continuousRelax = false;
-            else if (bThreshMet) {
-                _widget.continuousRelax = false;
-                _widget.autoRelax = false;
-                
-            }
+
             
 
             if (_relaxFuture.second) {
@@ -546,53 +548,21 @@ void Sandbox::drawEvent() {
         _widget.updateImage = true;
     }
 
-    if (_widget.updateImage || _widget.sampleCharge || _relaxFuture.second) {
+    if (_widget.updateImage || _relaxFuture.second) {
 
         bool ready = checkRelax();
 
         if (ready) {
             if (_widget.updateImage) {
                 updateColor();
+                computeEnergy();
+                // Compute topological charge
+                if (_widget.sampleCharge) {
+                    _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
+                }
                 _widget.updateImage = false;
             }
             
-            // Compute topological charge
-            if (_widget.sampleCharge) {
-                _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
-                _widget.sampleCharge = false;
-            }
-            
-            // Update list
-            LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / (data->voxels[0] * data->voxels[1] * data->voxels[2]);
-
-            LC::scalar energy = 0.0;
-
-            if (_widget.radioEn == 0)
-                energy = solver->TotalEnergy();
-            else if (_widget.radioEn == 1)
-                energy = solver->TotalEnergyFunctionalDerivativeAbsSum();
-
-            _widget.energy_series.push_back(energy * unit_density);
-            _widget.series_x_axis.push_back(data->numIterations);
-
-            // Update time series for free energy
-
-            if (_widget.energy_series.size() == MAX_GRAPH_POINTS) {
-                _widget.energy_series.pop_front();
-                _widget.series_x_axis.pop_front();
-            }
-
-            // Feed lists into vectors
-            int i = 0;
-            for (const auto &en : _widget.energy_series) {
-                _widget.energy_series_vec[i++] = en;
-            }
-
-            // Repeat for x-axis
-            i = 0;
-            for (const auto& it : _widget.series_x_axis) {
-                _widget.series_x_axis_vec[i++] = it;
-            }
         }
 
     }
@@ -970,8 +940,6 @@ void Sandbox::handlePOMWindow() {
 
 
         // Show additional options in a dropdown (TODO)
-        //ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
-        //ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
         ImGui::InputFloat("Gamma", &_pomImager.gamma);
         ImGui::InputFloat("z-depth", &_pomImager.z_scan_ratio);
         ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers);
@@ -993,9 +961,12 @@ void Sandbox::handlePreimageWindow() {
         ImGui::PushItemWidth(100.0f);
 
         if (ImGui::CollapsingHeader("Global Properties")) {
-            ImGui::SliderFloat("Alpha", &_widget.preimage_alpha, 0.0f, 1.0f);
 
-            ImGui::PopItemWidth(); 
+            ImGui::SliderFloat("Preimage Alpha", &_widget.preimage_alpha, 0.0f, 1.0f);
+            ImGui::SameLine();
+            ImGui::Checkbox("Global preimage alpha", &_widget.global_preimage_alpha);
+
+            ImGui::PopItemWidth();
             int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2] });
             ImGui::SliderInt3("Start Indices", &_widget.shrink_interval_begin[0], 0, maxVox);
             ImGui::SliderInt3("End Indices", &_widget.shrink_interval_end[0], 0, maxVox);
@@ -1028,39 +999,69 @@ void Sandbox::handlePreimageWindow() {
 
         ImGui::PopItemWidth();
 
-        _widget.addPreimage = ImGui::Button("Add Preimage");
-
-        ImGui::SameLine();
-
-        _widget.removePreimage = ImGui::Button("Remove Preimage");
-
-
-        if (_widget.addPreimage) {
+        if (ImGui::Button("Add Preimage")) {
             // Append a preimage to the list
 
             // Make sure the preimage doesn't already exist!
             bool found = false;
             for (auto& p : _preimages) {
+
                 if (p.theta == _widget.ptheta && p.phi == _widget.pphi) {
                     found = true;
                     p.isoLevel = _widget.isoLevel;
+                    
                 }
             }
             if (!found)
                 _preimages.emplace_back((float)_widget.ptheta, (float)_widget.pphi, _widget.isoLevel);
         }
-        else if (_widget.removePreimage) {
 
-            _preimages.remove(Preimage{ (float)_widget.ptheta, (float)_widget.pphi });
+
+        std::vector <std::array<float, 2>> remove_list;
+
+        for (const auto &p : _preimages)
+            if (!p.opentab) {
+                remove_list.push_back({ p.theta, p.phi });
+            }
+
+        // Now we can remove
+        for (const auto& p : remove_list)
+            _preimages.remove(Preimage{ p[0], p[1] });
                 
-        }
+        // Check if using global alpha
+        if (_widget.global_preimage_alpha)
+            for (auto& p : _preimages) 
+                p.alpha = _widget.preimage_alpha;
 
 
         // Show list to manage preimages
         ImGui::Text("(Theta, Phi) (isolevel)");
-        for (const auto& p : _preimages) {
-            ImGui::Text("(%.0f, %.0f) (%f)", p.theta, p.phi, p.isoLevel);
+        char txtbuffer1[30];
+        char txtbuffer2[30];
+        if (ImGui::BeginTabBar("Selected preimages", ImGuiTabBarFlags_Reorderable)) {
+            for (auto& p : _preimages) {
+
+                int n1 = sprintf(txtbuffer1, "(%.0f, %.0f) (%f)", p.theta, p.phi, p.isoLevel);
+                int n2 = sprintf(txtbuffer2, "(%.0f, %.0f)", p.theta, p.phi);
+                // Copy to string
+                std::string txt1, txt2;
+                for (int i = 0; i < n1; i++) txt1 += txtbuffer1[i];
+                for (int i = 0; i < n2; i++) txt2 += txtbuffer2[i];
+
+                if (p.opentab && ImGui::BeginTabItem(txt1.c_str(), &p.opentab, ImGuiTabItemFlags_None))
+                {
+                    ImGui::Text("%s", txt1.c_str());
+                    // Allow isoLevel to be adjusted
+                    if (!_widget.global_preimage_alpha)
+                        ImGui::SliderFloat(("Iso Alpha " + txt2).c_str(), &p.alpha, 0.0f, 1.0f);
+                    ImGui::SliderFloat(("Iso Level " + txt2).c_str(), &p.isoLevel, 0.0f, 0.3f);
+
+                    ImGui::EndTabItem();
+                }
+            }
+            ImGui::EndTabBar();
         }
+
 
         if (ImGui::Button("Generate Isosurfaces")) {
             generateIsosurface();
@@ -1763,7 +1764,7 @@ void Sandbox::generateIsosurface() {
             for (int d = 0; d < 3; d++)
                 color[d] = col[d];
 
-            color[3] = _widget.preimage_alpha;
+            color[3] = pimage.alpha;
         }
 
 #if TESTINTERP
@@ -1802,6 +1803,43 @@ void Sandbox::generateIsosurface() {
             new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *pimage.mesh, pimage.draw, _transparentNormalDrawables };
         }
 
+    }
+}
+
+void Sandbox::computeEnergy() {
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    FOFDSolver* solver = (FOFDSolver*)(_solver.get());
+
+    // Update list
+    LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / ((data->voxels[0] - 1) * (data->voxels[1] - 1) * (data->voxels[2] - 1));
+
+    LC::scalar energy = 0.0;
+
+    if (_widget.radioEn == 0)
+        energy = solver->TotalEnergy();
+    else if (_widget.radioEn == 1)
+        energy = solver->TotalEnergyFunctionalDerivativeAbsSum();
+
+    _widget.energy_series.push_back(energy * unit_density);
+    _widget.series_x_axis.push_back(data->numIterations);
+
+    // Update time series for free energy
+
+    if (_widget.energy_series.size() == MAX_GRAPH_POINTS) {
+        _widget.energy_series.pop_front();
+        _widget.series_x_axis.pop_front();
+    }
+
+    // Feed lists into vectors
+    int i = 0;
+    for (const auto& en : _widget.energy_series) {
+        _widget.energy_series_vec[i++] = en;
+    }
+
+    // Repeat for x-axis
+    i = 0;
+    for (const auto& it : _widget.series_x_axis) {
+        _widget.series_x_axis_vec[i++] = it;
     }
 }
 

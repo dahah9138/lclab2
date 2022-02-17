@@ -820,6 +820,7 @@ namespace Electric { namespace FD {
 		
 	}
 
+	// Average abs average free energy functional derivative density
 	HEMI_DEV_CALLABLE
 		void FreeEnergyFunctionalDerivativeO2_Device(scalar* en_func_der, const scalar* nn, const scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality) {
 		using namespace LC::Cuda;
@@ -913,7 +914,7 @@ namespace Electric { namespace FD {
 				(k22 - k33) * ny010 * nz001 + (-3 * k22 + k33) * ny001 * nz010 + (2. * k22 - k33) * pow(nz010, 2.) - (k22 + k33) * nx001 * nz100 + k33 * pow(nz100, 2.) - pow(v001, 2.) * Xi) +
 			ny000 * (-((k22 - k33) * (2. * ny001 * ny010 + 2. * nx001 * (nx010 - ny100) - (nx100 + 2. * ny010) * nz010 - (nx010 - 2. * ny100) * nz100 + nx000 * (nx011 + ny101 - 2. * nz110))) - v001 * v010 * Xi));
 
-
+		en_func_der[idx] /= 3.;
 	}
 
 	void FreeEnergyDensityO2(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {

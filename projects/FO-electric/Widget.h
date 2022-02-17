@@ -14,6 +14,8 @@ struct Widget {
 	bool showDemoWindow = false;
 	bool showLCINFO = false;
 
+	Magnum::Color4 clearColor{0.5f, 0.5f, 0.5f, 0.5f};
+
 	bool showSettings = true;
 	bool showPOMSettings = false;
 	bool showPreimageSettings = false;
@@ -22,8 +24,6 @@ struct Widget {
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
-	bool addPreimage = false;
-	bool removePreimage = false;
 	float preimage_alpha = 1.0f;
 	float isoLevel = 0.0625f;
 	Magnum::Vector3 preimage_translate = Magnum::Vector3{ 0.0f, 0.0f, 0.0f };
@@ -50,6 +50,7 @@ struct Widget {
 	bool midplane = true;
 
 	bool updateImage = false;
+	bool global_preimage_alpha = false;
 	bool nonlinear = false;
 	bool nonlinCircular = false;
 	float nonlinTheta = 0.0f;
@@ -71,7 +72,7 @@ struct Widget {
 
 	// Parameters that can be modified in GUI
 	int topological_charge = 1;
-	int npp = 30;
+	int npp = 20;
 	std::array<float, 3> celldims = { 3.0f, 3.0f, 3.0f };
 	std::array<int, 3> boundaries = { 1, 1, 0 };
 
@@ -86,7 +87,7 @@ struct Widget {
 
 
 	bool POM = false;
-	float alpha = 0.5f;
+	float alpha = 0.75f;
 
 	bool GPU = true;
 

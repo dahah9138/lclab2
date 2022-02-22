@@ -1041,7 +1041,8 @@ void Sandbox::handlePreimageWindow() {
         ImGui::Text("(Theta, Phi) (isolevel)");
         char txtbuffer1[30];
         char txtbuffer2[30];
-        if (ImGui::BeginTabBar("Selected preimages", ImGuiTabBarFlags_Reorderable)) {
+
+        if (ImGui::BeginTabBar("Selected preimages", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll)) {
             for (auto& p : _preimages) {
 
                 int n1 = sprintf(txtbuffer1, "(%.0f, %.0f) (%f)", p.theta, p.phi, p.isoLevel);

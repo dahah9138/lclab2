@@ -46,7 +46,6 @@ struct Preimage {
     LC::Surface surface;
 
     Containers::Optional<GL::Mesh> mesh;
-
 };
 
 class Sandbox : public LC::Application
@@ -119,7 +118,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     Utility::Arguments args;
     args.addOption('q', "topological-charge", "1")
         .setHelp("topological-charge", "topological charge", "Q")
-        .addOption('n', "nodes-per-pitch", "30")
+        .addOption('n', "nodes-per-pitch", "15")
         .setHelp("nodes-per-pitch", "Nodes per pitch", "N")
         .addOption('v', "voltage", "1.0")
         .setHelp("voltage", "Voltage", "V")
@@ -725,7 +724,8 @@ void Sandbox::updateColor() {
 
                 // Compute theta and phi
                 theta = acos(nz);
-                phi = M_PI + atan2(ny, nx);
+                phi = atan2(ny, nx);
+                if (phi < 0) phi += 2.f * M_PI;
 
                 std::size_t cidx = cross_idx(i, j);
 
@@ -1019,14 +1019,17 @@ void Sandbox::handlePreimageWindow() {
 
         std::vector <std::array<float, 2>> remove_list;
 
-        for (const auto &p : _preimages)
+        for (auto &p : _preimages)
             if (!p.opentab) {
+                // Set to not draw (bad things will happen otherwise):
+                p.draw = false;
                 remove_list.push_back({ p.theta, p.phi });
             }
 
         // Now we can remove
-        for (const auto& p : remove_list)
+        for (const auto& p : remove_list) {
             _preimages.remove(Preimage{ p[0], p[1] });
+        }
                 
         // Check if using global alpha
         if (_widget.global_preimage_alpha)
@@ -1048,13 +1051,15 @@ void Sandbox::handlePreimageWindow() {
                 for (int i = 0; i < n1; i++) txt1 += txtbuffer1[i];
                 for (int i = 0; i < n2; i++) txt2 += txtbuffer2[i];
 
-                if (p.opentab && ImGui::BeginTabItem(txt1.c_str(), &p.opentab, ImGuiTabItemFlags_None))
+                if (p.opentab && ImGui::BeginTabItem(txt2.c_str(), &p.opentab, ImGuiTabItemFlags_None))
                 {
                     ImGui::Text("%s", txt1.c_str());
-                    // Allow isoLevel to be adjusted
+                    // Allow isoLevel and alpha to be adjusted
+                    ImGui::SliderFloat(("Iso Level " + txt2).c_str(), &p.isoLevel, 0.0f, 0.3f);
                     if (!_widget.global_preimage_alpha)
                         ImGui::SliderFloat(("Iso Alpha " + txt2).c_str(), &p.alpha, 0.0f, 1.0f);
-                    ImGui::SliderFloat(("Iso Level " + txt2).c_str(), &p.isoLevel, 0.0f, 0.3f);
+
+                    ImGui::Checkbox("Draw surface", &p.draw);
 
                     ImGui::EndTabItem();
                 }
@@ -1307,6 +1312,9 @@ void Sandbox::handleModificationWindow() {
         ImGui::InputInt3("PBCs", &_widget.boundaries[0]);
         ImGui::InputInt("npp", &_widget.npp);
         ImGui::InputInt("Q", &_widget.topological_charge);
+        ImGui::RadioButton("Heliknoton", &_widget.hopfion_type, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Hopfion", &_widget.hopfion_type, 1);
 
         int Q = _widget.topological_charge;
         int npp = _widget.npp;
@@ -1314,10 +1322,16 @@ void Sandbox::handleModificationWindow() {
 
         if (ImGui::Button("Generate")) {
 
+            Dataset::Config cfg;
+
+            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
+            else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
+            else cfg = Dataset::Toron();
+
             (*data).Voxels(_widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp)
                 .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
                 .Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2])
-                .Configuration(Dataset::Heliknoton(Q));
+                .Configuration(cfg);
 
             // Reset data
             (*data).numIterations = 0;
@@ -1752,11 +1766,27 @@ void Sandbox::generateIsosurface() {
         float phi = pimage.phi / 180.f * M_PI;
 
         N = { sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta) };
+
         for (unsigned int i = 0; i < size; i++) {
             field[i] = (field_nn[i] - N[0]) * (field_nn[i] - N[0]) +
                 (field_nn[i + size] - N[1]) * (field_nn[i + size] - N[1]) +
                 (field_nn[i + 2 * size] - N[2]) * (field_nn[i + 2 * size] - N[2]);
+
         }
+
+        // Count the number of points within the preimage
+        unsigned int numPointsFound = 0;
+        for (unsigned int i = 0; i < size; i++) if (field[i] < pimage.isoLevel) ++numPointsFound;
+
+        // If points found is greater than half of volume, then invert domain
+        if (numPointsFound > size / 2) {
+            LC_INFO("Preimage points found [{0}/{1}] exceeds half of volume: Inverting domain", numPointsFound, size);
+            for (unsigned int i = 0; i < size; i++) {
+                if (field[i] > pimage.isoLevel) field[i] = 0.0f;
+                else field[i] = 10.0f;
+            }
+        }
+
 
         std::array<float, 4> color;
         {

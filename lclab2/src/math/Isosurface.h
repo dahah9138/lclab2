@@ -56,6 +56,11 @@ namespace LC { namespace Math {
 			color[3] = v.color[3];
 		}
 
+		friend std::ostream& operator << (std::ostream& os, const IsoVertex &vert) {
+			return os << "P = (" << vert.position[0] << ", " << vert.position[1] << ", " << vert.position[2] << ")" << std::endl
+				<< "N = (" << vert.normal[0] << ", " << vert.normal[1] << ", " << vert.normal[2] << ")";
+		}
+
 		POINT3D position;
 		VECTOR3D normal;
 		COLOR4 color;
@@ -466,21 +471,21 @@ namespace LC { namespace Math {
 					unsigned int tableIndex = 0;
 
 
-					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel && m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + x] > 0.0f)
+					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel)
 						tableIndex |= 1;
-					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel && m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + x] > 0.0f)
+					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel)
 						tableIndex |= 2;
-					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel && m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] > 0.0f)
+					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
 						tableIndex |= 4;
-					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel && m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + (x + 1)] > 0.0f)
+					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
 						tableIndex |= 8;
-					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel && m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + x] > 0.0f)
+					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel)
 						tableIndex |= 16;
-					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel && m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + x] > 0.0f)
+					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel)
 						tableIndex |= 32;
-					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel && m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] > 0.0f)
+					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
 						tableIndex |= 64;
-					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel && m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + (x + 1)] > 0.0f)
+					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
 						tableIndex |= 128;
 
 					// Now create a triangulation of the isosurface in this

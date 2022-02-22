@@ -76,6 +76,9 @@ struct Widget {
 	std::array<float, 3> celldims = { 3.0f, 3.0f, 3.0f };
 	std::array<int, 3> boundaries = { 1, 1, 0 };
 
+	// 0 = heliknoton, 1 = hopfion
+	int hopfion_type = 0;
+
 	int interpolate = 1;
 	std::array<int, 3> shrink_interval_begin = { 1, 1, 1 };
 	std::array<int, 3> shrink_interval_end = { 2, 2, 2 };

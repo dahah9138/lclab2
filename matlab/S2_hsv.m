@@ -6,8 +6,8 @@ format long e
 hold all
 
 % reference vector
-cthetad = [90];
-cphid = [180];
+cthetad = [];
+cphid = [];
 
 
 % viewangle = [0 0];

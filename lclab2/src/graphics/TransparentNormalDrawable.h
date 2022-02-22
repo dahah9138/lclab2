@@ -38,7 +38,8 @@ namespace LC {	namespace Drawable {
 
         if (!_draw) return;
 
-        //GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
+        
+        //GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
         //GL::Renderer::enable(GL::Renderer::Feature::Blending);
         _shader.setTransformationMatrix(transformationMatrix)
 			   .setNormalMatrix(transformationMatrix.normalMatrix())

@@ -383,6 +383,62 @@ namespace Electric {
 				};
 			}
 
+			static Config Hopfion(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
+
+				// Create a lambda func that squishes z coordinate where z in [-1,1]
+				auto lmb = [=](scalar x, scalar y, scalar z) {
+					return (scalar)lambda;
+				};
+
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0] - 1) - 0.5, (scalar)j / (scalar)(voxels[1] - 1) - 0.5, (scalar)k / (scalar)(voxels[2] - 1) - 0.5 };
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
+
+					if (p.dot(p) == 0.0) p[2] = 1.0;
+
+					// Rescale
+					p = lim * p;
+
+					scalar rsq = p.dot(p);
+					scalar r = sqrt(rsq);
+
+					if (r < lambda) {
+
+						scalar theta = 2 * M_PI * r * Q / lmb(p[0], p[1], p[2]);
+
+						Eigen::Matrix<scalar, 3, 1> nn;
+
+						scalar cost2 = cos(theta / 2.);
+						scalar sint2 = sin(theta / 2.);
+
+						Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
+						Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
+						Eigen::Quaternion<scalar> v(0., 0., 0., 1.);
+
+
+						auto result = q * v * qinv;
+
+						// Needs to break a symmetry...
+						nn[0] = result.x();
+						nn[1] = result.y();
+						nn[2] = result.z();
+
+
+						nn.normalize();
+
+						for (int d = 0; d < 3; d++)
+							n(i, j, k, d) = nn[d];
+					}
+					else if (background) {
+						n(i, j, k, 0) = 0.0;
+						n(i, j, k, 1) = 0.0;
+						n(i, j, k, 2) = 1.0;
+					}
+				};
+			}
+
 			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
 				
 				// Create a lambda func that squishes z coordinate where z in [-1,1]

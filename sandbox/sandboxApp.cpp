@@ -325,8 +325,8 @@ void Sandbox::drawEvent() {
 
 
                     // Show additional options in a dropdown (TODO)
-                    ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
-                    ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
+                    //ImGui::InputFloat3("Lamp intensity", &_pomImager.intensity[0]);
+                    //ImGui::InputFloat3("RGB", &_pomImager.lightRGB[0]);
                     ImGui::InputFloat("Gamma", &_pomImager.gamma);
                     ImGui::InputFloat("z-depth", &_pomImager.z_scan_ratio);
                     ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers);

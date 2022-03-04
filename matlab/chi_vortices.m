@@ -8,25 +8,27 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = 'dimer';
-file_chi = strcat(file, '_chi');
+file_loc = '../data/mat/';
+file = 'loop_torus_cropped';
+file_chi = strcat(file_loc, file, '_chi');
+file_nn = strcat(file_loc, file);
 
 Starget = 0.533;
-epsilon = 0.1;
+epsilon = 0.2;
 
 % Looks the same either way for heliknoton
-three_fields = 0;
+three_fields = 1;
 
 % Sampling rate for the xz-xsection
 ratexs = 4; 
 
 % Sampling rate for isosurfaces of preimages
-sample = 5; 
+sample = 2; 
 xs_xz = 0;
 xs_xy = 0;
 xs_yz = 0;
 
-load(file, 'nn');
+load(file_nn, 'nn');
 load(file_chi, 'chi');
 
 % make nn same size as chi
@@ -65,45 +67,18 @@ xsection_alpha = 0.4;
 
 preimg_alpha = 1;
 
+% Interpolate S1
+S1 = sfieldInterp(S1, sample);
+nn = vfieldInterp(nn, sample);
 
-[m,n,p,d] = size(nn);
-m_int = m*sample;
-n_int = n*sample;
-p_int = p*sample;
-
-xx = linspace(1,m,m*sample);
-yy = linspace(1,n,n*sample);
-zz = linspace(1,p,p*sample);
-
-[xx,yy,zz] = ndgrid(xx,yy,zz);
-
-disp('Created ndgrid')
-
-nn_int(:,:,:,1) = interp3(nn(:,:,:,1),yy,xx,zz,'cubic');
-nn_int(:,:,:,2) = interp3(nn(:,:,:,2),yy,xx,zz,'cubic');
-nn_int(:,:,:,3) = interp3(nn(:,:,:,3),yy,xx,zz,'cubic');
+[m,n,p,~] = size(nn);
 
 
-s1_int(:,:,:) = interp3(S1(:,:,:),yy,xx,zz,'cubic');
-
-
-disp('interpolated')
-% % normalize director field after interpolation
-modnn = sqrt(nn_int(:,:,:,1).^2+nn_int(:,:,:,2).^2+nn_int(:,:,:,3).^2);
-nn_int(:,:,:,1) = nn_int(:,:,:,1)./modnn;
-nn_int(:,:,:,2) = nn_int(:,:,:,2)./modnn;
-nn_int(:,:,:,3) = nn_int(:,:,:,3)./modnn;
-
-disp('finished normalization')
-
-nn2 = nn_int;
-[ma,na,pa,~] = size(nn2);
-
-
-diffmag = abs(s1_int-Starget);
+diffmag = abs(S1-Starget);
 
 disp('Finished diffmag')
 
+[xx,yy,zz] = ndgrid(1:m,1:n,1:p);
 fv = isosurface(xx,yy,zz,diffmag,epsilon);
 
 disp('Created isosurface')
@@ -137,141 +112,105 @@ end
 
 
 % Call f_preimage now
-f_preimage(nn, sample);
+f_preimage(nn, 1);
     
+if xs_xz
+    
+    x = linspace(1,m,m*ratexs);
+    z = linspace(1,p,p*ratexs);
+    % 
+    [zz,xx] = meshgrid(z,x);
+    nn_int2(:,:,1) = interp2(squeeze(nn(:,:,:,1)),zz,xx,'cubic');
+    nn_int2(:,:,2) = interp2(squeeze(nn(:,:,:,2)),zz,xx,'cubic');
+    nn_int2(:,:,3) = interp2(squeeze(nn(:,:,:,3)),zz,xx,'cubic');
 
+    modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
+    nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
+    nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
+    nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
 
-switch xs_xz
-    case 1
+    thetaxs = real(acos(nn_int2(:,:,3))); % theta 
+    phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
+    phixs(isnan(phixs)) = 0;
+    phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
+    CData = zeros(m*ratexs,p*ratexs,3);
 
-[yy0,xx0,zz0] = meshgrid(1:n,1:m,1:p);
-[yyq,xxq,zzq] = meshgrid((1+n)/2,1:m,1:p);
+    CData(:,:,1) = phixs/2/pi;
+    CData(:,:,2) = thetaxs/(pi/2);
+    CData(:,:,3) = 2 - thetaxs/(pi/2);
+    CData(CData > 1) = 1;
+    CData = hsv2rgb(CData);
 
-% % field on the midplane
-nnxzmid(:,:,:,1) = interp3(yy0,xx0,zz0,nn(:,:,:,1),yyq,xxq,zzq,'cubic');
-nnxzmid(:,:,:,2) = interp3(yy0,xx0,zz0,nn(:,:,:,2),yyq,xxq,zzq,'cubic');
-nnxzmid(:,:,:,3) = interp3(yy0,xx0,zz0,nn(:,:,:,3),yyq,xxq,zzq,'cubic');
-
-% % 
-x = linspace(1,m,m*ratexs);
-z = linspace(1,p,p*ratexs);
-% 
-[zz,xx] = meshgrid(z,x);
-nn_int2(:,:,1) = interp2(squeeze(nnxzmid(:,:,:,1)),zz,xx,'cubic');
-nn_int2(:,:,2) = interp2(squeeze(nnxzmid(:,:,:,2)),zz,xx,'cubic');
-nn_int2(:,:,3) = interp2(squeeze(nnxzmid(:,:,:,3)),zz,xx,'cubic');
-
-modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
-nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
-nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
-nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
-
-thetaxs = real(acos(nn_int2(:,:,3))); % theta 
-phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
-phixs(isnan(phixs)) = 0;
-phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
-CData = zeros(m*ratexs,p*ratexs,3);
-
-CData(:,:,1) = phixs/2/pi;
-CData(:,:,2) = thetaxs/(pi/2);
-CData(:,:,3) = 2 - thetaxs/(pi/2);
-CData(CData > 1) = 1;
-CData = hsv2rgb(CData);
-
-S = surf(xx,(n+1)/2*ones(size(xx)),zz,CData);
-S.EdgeColor = 'none';
-S.AmbientStrength = 0.3;
-S.FaceAlpha = xsection_alpha;
-    case 0
+    S = surf(xx,(n+1)/2*ones(size(xx)),zz,CData);
+    S.EdgeColor = 'none';
+    S.AmbientStrength = 0.3;
+    S.FaceAlpha = xsection_alpha;
 end
 
-switch xs_xy
-    case 1
+if xs_xy
+    % % 
+    x = linspace(1,m,m*ratexs);
+    y = linspace(1,n,n*ratexs);
+    % 
+    [yy,xx] = meshgrid(y,x);
+    clear nn_int2
+    nn_int2(:,:,1) = interp2(squeeze(nn(:,:,:,1)),yy,xx,'cubic');
+    nn_int2(:,:,2) = interp2(squeeze(nn(:,:,:,2)),yy,xx,'cubic');
+    nn_int2(:,:,3) = interp2(squeeze(nn(:,:,:,3)),yy,xx,'cubic');
 
-[yy0,xx0,zz0] = meshgrid(1:n,1:m,1:p);
-[yyq,xxq,zzq] = meshgrid(1:n,1:m,(p+1)/2);
+    modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
+    nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
+    nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
+    nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
 
-% % field on the midplane
-nnxymid(:,:,:,1) = interp3(yy0,xx0,zz0,nn(:,:,:,1),yyq,xxq,zzq,'cubic');
-nnxymid(:,:,:,2) = interp3(yy0,xx0,zz0,nn(:,:,:,2),yyq,xxq,zzq,'cubic');
-nnxymid(:,:,:,3) = interp3(yy0,xx0,zz0,nn(:,:,:,3),yyq,xxq,zzq,'cubic');
+    thetaxs = real(acos(nn_int2(:,:,3))); % theta 
+    phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
+    phixs(isnan(phixs)) = 0;
+    phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
+    CData = zeros(m*ratexs,n*ratexs,3);
 
-% % 
-x = linspace(1,m,m*ratexs);
-y = linspace(1,n,n*ratexs);
-% 
-[yy,xx] = meshgrid(y,x);
-clear nn_int2
-nn_int2(:,:,1) = interp2(squeeze(nnxymid(:,:,:,1)),yy,xx,'cubic');
-nn_int2(:,:,2) = interp2(squeeze(nnxymid(:,:,:,2)),yy,xx,'cubic');
-nn_int2(:,:,3) = interp2(squeeze(nnxymid(:,:,:,3)),yy,xx,'cubic');
+    CData(:,:,1) = phixs/2/pi;
+    CData(:,:,2) = thetaxs/(pi/2);
+    CData(:,:,3) = 2 - thetaxs/(pi/2);
+    CData(CData > 1) = 1;
+    CData = hsv2rgb(CData);
 
-modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
-nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
-nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
-nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
-
-thetaxs = real(acos(nn_int2(:,:,3))); % theta 
-phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
-phixs(isnan(phixs)) = 0;
-phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
-CData = zeros(m*ratexs,n*ratexs,3);
-
-CData(:,:,1) = phixs/2/pi;
-CData(:,:,2) = thetaxs/(pi/2);
-CData(:,:,3) = 2 - thetaxs/(pi/2);
-CData(CData > 1) = 1;
-CData = hsv2rgb(CData);
-
-S = surf(xx,yy,(p+1)/2*ones(size(xx)),CData);
-S.EdgeColor = 'none';
-S.AmbientStrength = 0.3;
-S.FaceAlpha = xsection_alpha;
-    case 0
+    S = surf(xx,yy,(p+1)/2*ones(size(xx)),CData);
+    S.EdgeColor = 'none';
+    S.AmbientStrength = 0.3;
+    S.FaceAlpha = xsection_alpha;
 end
 
-switch xs_yz
-    case 1
+if xs_yz
+    y = linspace(1,n,n*ratexs);
+    z = linspace(1,p,p*ratexs);
+    % 
+    [zz,yy] = meshgrid(z,y);
+    clear nn_int2
+    nn_int2(:,:,1) = interp2(squeeze(nn(:,:,:,1)),zz,yy,'cubic');
+    nn_int2(:,:,2) = interp2(squeeze(nn(:,:,:,2)),zz,yy,'cubic');
+    nn_int2(:,:,3) = interp2(squeeze(nn(:,:,:,3)),zz,yy,'cubic');
 
-[yy0,xx0,zz0] = meshgrid(1:n,1:m,1:p);
-[yyq,xxq,zzq] = meshgrid(1:n,(m+1)/2,1:p);
+    modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
+    nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
+    nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
+    nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
 
-% % field on the midplane
-nnyzmid(:,:,:,1) = interp3(yy0,xx0,zz0,nn(:,:,:,1),yyq,xxq,zzq,'cubic');
-nnyzmid(:,:,:,2) = interp3(yy0,xx0,zz0,nn(:,:,:,2),yyq,xxq,zzq,'cubic');
-nnyzmid(:,:,:,3) = interp3(yy0,xx0,zz0,nn(:,:,:,3),yyq,xxq,zzq,'cubic');
+    thetaxs = real(acos(nn_int2(:,:,3))); % theta 
+    phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
+    phixs(isnan(phixs)) = 0;
+    phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
+    CData = zeros(n*ratexs,p*ratexs,3);
+    CData(:,:,1) = phixs/2/pi;
+    CData(:,:,2) = thetaxs/(pi/2);
+    CData(:,:,3) = 2 - thetaxs/(pi/2);
+    CData(CData > 1) = 1;
+    CData = hsv2rgb(CData);
 
-% % 
-y = linspace(1,n,n*ratexs);
-z = linspace(1,p,p*ratexs);
-% 
-[zz,yy] = meshgrid(z,y);
-clear nn_int2
-nn_int2(:,:,1) = interp2(squeeze(nnyzmid(:,:,:,1)),zz,yy,'cubic');
-nn_int2(:,:,2) = interp2(squeeze(nnyzmid(:,:,:,2)),zz,yy,'cubic');
-nn_int2(:,:,3) = interp2(squeeze(nnyzmid(:,:,:,3)),zz,yy,'cubic');
-
-modnn = sqrt(nn_int2(:,:,1).^2+nn_int2(:,:,2).^2+nn_int2(:,:,3).^2);
-nn_int2(:,:,1) = nn_int2(:,:,1)./modnn;
-nn_int2(:,:,2) = nn_int2(:,:,2)./modnn;
-nn_int2(:,:,3) = nn_int2(:,:,3)./modnn;
-
-thetaxs = real(acos(nn_int2(:,:,3))); % theta 
-phixs = fatan(nn_int2(:,:,1),nn_int2(:,:,2)); % branch cut at pi, -pi
-phixs(isnan(phixs)) = 0;
-phixs(phixs < 0) = phixs(phixs < 0) + 2*pi;
-CData = zeros(n*ratexs,p*ratexs,3);
-CData(:,:,1) = phixs/2/pi;
-CData(:,:,2) = thetaxs/(pi/2);
-CData(:,:,3) = 2 - thetaxs/(pi/2);
-CData(CData > 1) = 1;
-CData = hsv2rgb(CData);
-
-S = surf((m+1)/2*ones(size(yy)),yy,zz,CData);
-S.EdgeColor = 'none';
-S.AmbientStrength = 0.3;
-S.FaceAlpha = xsection_alpha;
-    case 0
+    S = surf((m+1)/2*ones(size(yy)),yy,zz,CData);
+    S.EdgeColor = 'none';
+    S.AmbientStrength = 0.3;
+    S.FaceAlpha = xsection_alpha;
 end
  
 % xlabel('x')
@@ -352,4 +291,40 @@ avgcos2 = (dot(n,n([2:end 1],:,:,:),4).^2+...
            dot(n,n(:,:,[2:end 1],:),4).^2)/nb;
        
 S = 0.5*(3*avgcos2-1);
+end
+
+function f = vfieldInterp(field, sample)
+
+    [m,n,p,~] = size(field);
+    xx = linspace(1,m,m*sample);
+    yy = linspace(1,n,n*sample);
+    zz = linspace(1,p,p*sample);
+
+    [xx,yy,zz] = ndgrid(xx,yy,zz);
+
+    f = zeros(m*sample,n*sample,p*sample,3);
+    
+    f(:,:,:,1) = interp3(field(:,:,:,1),yy,xx,zz,'cubic');
+    f(:,:,:,2) = interp3(field(:,:,:,2),yy,xx,zz,'cubic');
+    f(:,:,:,3) = interp3(field(:,:,:,3),yy,xx,zz,'cubic');
+
+    % % normalize director field after interpolation
+    modnn = sqrt(f(:,:,:,1).^2+f(:,:,:,2).^2+f(:,:,:,3).^2);
+    f(:,:,:,1) = f(:,:,:,1)./modnn;
+    f(:,:,:,2) = f(:,:,:,2)./modnn;
+    f(:,:,:,3) = f(:,:,:,3)./modnn;
+end
+
+function f = sfieldInterp(field, sample)
+
+    [m,n,p,~] = size(field);
+    xx = linspace(1,m,m*sample);
+    yy = linspace(1,n,n*sample);
+    zz = linspace(1,p,p*sample);
+
+    [xx,yy,zz] = ndgrid(xx,yy,zz);
+
+    f = zeros(m*sample,n*sample,p*sample);
+    
+    f(:,:,:,1) = interp3(field,yy,xx,zz,'cubic');
 end

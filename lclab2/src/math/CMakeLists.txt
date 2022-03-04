@@ -12,7 +12,12 @@ add_library(lclab2_math Choose.h Choose.cpp
 						Vector.h Vector.cpp
 						HopfCharge.h
 						CumulativeTrapIntegral.h CumulativeTrapIntegral.cpp
+						MaxEigen.h
+						ChiralityTensor.h
+						Derivative.h
+						ChiralityField.h
 						Isosurface.h Isosurface.cpp
+						ScalarOrderParameter.h
 						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}

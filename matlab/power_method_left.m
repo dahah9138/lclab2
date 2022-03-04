@@ -1,6 +1,6 @@
 % Darian Hall
 % Computes the dominant left eigenvector and eigenvalue of M with specified tolerance
-function [eigenvector, eigenvalue] = power_method_left(M, tolerance)
+function [eigenvector, eigenvalue] = power_method_left(M, tolerance, stop_after)
 
     % Initial Guess
     eigenvector = 0.5*ones(size(M(1,:)));
@@ -9,6 +9,8 @@ function [eigenvector, eigenvalue] = power_method_left(M, tolerance)
     eigenvalue = 1;
     
     loop = 1;
+    
+    count = 0;
     
     while(loop)
         
@@ -21,7 +23,12 @@ function [eigenvector, eigenvalue] = power_method_left(M, tolerance)
         eigenvector = eigenvector / eigenvalue;
         
         % Check if we should continue
-        loop = (abs(prev_eigenvalue - eigenvalue) > tolerance);
+        loop = (abs(prev_eigenvalue - eigenvalue) > tolerance) && (abs(prev_eigenvalue + eigenvalue) > tolerance);
+        count = count + 1;
+        
+        if count > stop_after
+            loop = 0;
+        end
         
     end
     

@@ -23,12 +23,15 @@ namespace LC {	namespace Drawable {
 
     class TransparentNormalDrawable : public SceneGraph::Drawable3D {
     public:
-        explicit TransparentNormalDrawable(Object3D& object, Shaders::PhongGL& shader, GL::Mesh& mesh, bool& draw, SceneGraph::DrawableGroup3D& group) : SceneGraph::Drawable3D{ object, &group }, _shader(shader), _mesh(mesh), _draw{draw} {}
-
+        explicit TransparentNormalDrawable(Object3D& object, Shaders::PhongGL& shader, GL::Mesh& mesh, bool& draw, SceneGraph::DrawableGroup3D& group)
+            : SceneGraph::Drawable3D{ object, &group }, _shader(shader), _mesh(mesh), _draw{draw} {}
+        explicit TransparentNormalDrawable(Object3D& object, Shaders::PhongGL& shader, GL::Mesh& mesh, bool& draw, bool& noCull, SceneGraph::DrawableGroup3D& group)
+            : SceneGraph::Drawable3D{ object, &group }, _shader(shader), _mesh(mesh), _draw{ draw }, _noFaceCull( &noCull ) {}
     private:
         void draw(const Matrix4& transformationMatrix, SceneGraph::Camera3D& camera) override;
 
         Shaders::PhongGL& _shader;
+        bool* _noFaceCull = 0;
         bool& _draw;
         GL::Mesh& _mesh;
     };
@@ -38,14 +41,20 @@ namespace LC {	namespace Drawable {
 
         if (!_draw) return;
 
-        
-        //GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
+        bool noCull = false;
+
+        if (_noFaceCull) /* Check if exists */
+            noCull = *_noFaceCull;
+
+        if (noCull)
+            GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
         //GL::Renderer::enable(GL::Renderer::Feature::Blending);
         _shader.setTransformationMatrix(transformationMatrix)
 			   .setNormalMatrix(transformationMatrix.normalMatrix())
 			   .setProjectionMatrix(camera.projectionMatrix())
 			   .draw(_mesh);
-        //GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
+        if (noCull)
+            GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
         //GL::Renderer::disable(GL::Renderer::Feature::Blending);
     }
 

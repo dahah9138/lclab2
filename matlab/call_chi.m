@@ -3,14 +3,15 @@
 clear
 clc
 
-file_loc = "";
-file = "dimer";
+file_loc = "../data/mat/";
+file = "loop_torus_cropped";
 file_type = ".mat";
 
 method = 'tensor';
 
 % Eigenvalue error tolerance
 tol = 0.0001;
+stop_it = 20;
 
 try
     load(strcat(file_loc, file, file_type), 'nn');
@@ -84,7 +85,7 @@ switch(method)
             %[~,D,W] = eig(Chi_tensor);
             %[eig_value,eig_label] = max(max(real(D)));
 
-            [eig_vec, eig_value] = power_method_left(Chi_tensor, tol);
+            [eig_vec, eig_value] = power_method_left(Chi_tensor, tol, stop_it);
             
             eigenvalue(i,j,k) = eig_value;
 

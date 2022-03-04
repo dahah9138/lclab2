@@ -48,6 +48,36 @@ struct Preimage {
     Containers::Optional<GL::Mesh> mesh;
 };
 
+struct VortexKnot {
+    VortexKnot(float iso = 0.07f) : isoLevel(iso) {}
+
+    friend bool operator == (const VortexKnot& v1, const VortexKnot& v2) {
+        return (v1.isoLevel == v2.isoLevel) ? 1 : 0;
+    }
+
+    bool draw = true;
+    float alpha = 1.0f;
+    float isoLevel;
+    LC::Surface surface;
+    Containers::Optional<GL::Mesh> mesh;
+};
+
+struct VortexShell {
+    VortexShell(float iso = 0.07f) : isoLevel(iso) {}
+
+    friend bool operator == (const VortexShell& v1, const VortexShell& v2) {
+        return (v1.isoLevel == v2.isoLevel) ? 1 : 0;
+    }
+
+    bool draw = true;
+    bool noCull = false;
+    float alpha = 0.5f;
+    float isoLevel;
+    LC::Surface surface;
+    Containers::Optional<GL::Mesh> mesh;
+};
+
+
 class Sandbox : public LC::Application
 {
 public:
@@ -105,6 +135,8 @@ private:
     LC::Math::Isosurface<float*, float> _isoGenerator;
 #endif
     std::list<Preimage> _preimages;
+    Containers::Optional<VortexKnot> _vortexKnot;
+    Containers::Optional<VortexShell> _vortexShell;
 
     LC::Imaging::ImageSeries _image_series, _nonlin_image_series;
 };
@@ -128,7 +160,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _transparentShader = Shaders::VertexColorGL3D{};
 
     _phongShader = Shaders::PhongGL{ Shaders::PhongGL::Flag::VertexColor };
-
 
     /* Setup the GUI */
     setupGUI();
@@ -1009,13 +1040,67 @@ void Sandbox::handlePreimageWindow() {
                 if (p.theta == _widget.ptheta && p.phi == _widget.pphi) {
                     found = true;
                     p.isoLevel = _widget.isoLevel;
-                    
+
                 }
             }
             if (!found)
                 _preimages.emplace_back((float)_widget.ptheta, (float)_widget.pphi, _widget.isoLevel);
         }
 
+        if (ImGui::Button("Create Vortex Shell")) {
+            // Create a new vortex knot
+            _vortexShell = VortexShell{};
+            _vortexShell->isoLevel = _widget.isoLevel;
+        }
+
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Remove Vortex Shell")) {
+            if (_vortexShell)
+                _vortexShell->draw = false;
+            _vortexShell = {};
+        }
+
+        if (_vortexShell) {
+            ImGui::SameLine();
+            ImGui::Checkbox("No cull", &_vortexShell->noCull);
+            ImGui::SameLine();
+            ImGui::Checkbox("Draw shell", &_vortexShell->draw);
+            ImGui::PushItemWidth(100.0f);
+            ImGui::SliderFloat("Shell alpha", &_vortexShell->alpha, 0.0f, 1.0f);
+            ImGui::PopItemWidth();
+        }
+
+
+        if (ImGui::Button("Create Vortex Knot")) {
+            // Create a new vortex knot
+            _vortexKnot = VortexKnot{};
+            _vortexKnot->isoLevel = _widget.isoLevel;
+        }
+
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Remove Vortex Knot")) {
+            if (_vortexKnot)
+                _vortexKnot->draw = false;
+            _vortexKnot = {};
+        }
+
+        if (_vortexKnot) {
+            ImGui::SameLine();
+            ImGui::Checkbox("Draw knot", &_vortexKnot->draw);
+        }
+
+
+
+        ImGui::PushItemWidth(100.0f);
+        ImGui::SliderFloat("SOP probe value", &_widget.SOPprobe_value, 0.0f, 0.7f);
+        ImGui::PopItemWidth();
+        ImGui::SameLine();
+        ImGui::Checkbox("Abs. SOP", &_widget.SOPabs);
+        
 
         std::vector <std::array<float, 2>> remove_list;
 
@@ -1118,137 +1203,141 @@ void Sandbox::handleNonlinearImagingWindow() {
             ImGui::Checkbox("Nonlinear circular polarization", &_widget.nonlinCircular);
 
         }
-        if (ImGui::Button("Scan")) {
 
-            // Scan the volume
-            using namespace LC::FrankOseen;
-            using namespace LC::Imaging;
-            using T4 = ElasticOnly::FOFDSolver::Tensor4;
+        // Only show scan if location has been chosen
+        if (_widget.saveNonlin_loc.size()) {
+            if (ImGui::Button("Scan")) {
 
-            Dataset* data = (Dataset*)(_solver->GetDataPtr());
-            T4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            Float alpha = _widget.alpha;
-            int id = _widget.radio_save_nonlin_xsection;
+                // Scan the volume
+                using namespace LC::FrankOseen;
+                using namespace LC::Imaging;
+                using T4 = ElasticOnly::FOFDSolver::Tensor4;
 
-            // Get file name
-            std::string name = getLoadFile();
+                Dataset* data = (Dataset*)(_solver->GetDataPtr());
+                T4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+                Float alpha = _widget.alpha;
+                int id = _widget.radio_save_nonlin_xsection;
 
-            // Get just the file name
-            while (1) {
-                auto index1 = name.find("/");
-                auto index2 = name.find("\\");
+                // Get file name
+                std::string name = getLoadFile();
 
-                if (index1 != std::string::npos) {
-                    name = name.substr(index1 + 1);
+                // Get just the file name
+                while (1) {
+                    auto index1 = name.find("/");
+                    auto index2 = name.find("\\");
+
+                    if (index1 != std::string::npos) {
+                        name = name.substr(index1 + 1);
+                    }
+                    else if (index2 != std::string::npos) {
+                        name = name.substr(index2 + 1);
+                    }
+                    else break;
+
                 }
-                else if (index2 != std::string::npos) {
-                    name = name.substr(index2 + 1);
-                }
-                else break;
 
-            }
-
-            // Remove the .type if it exists
-            {
-                auto index = name.find(".");
-                if (index != std::string::npos) {
-                    name = name.substr(0, index);
-                }
-            }
-
-            std::string str_xsection;
-            if (id == 0) str_xsection = "yz";
-            else if (id == 1) str_xsection = "xz";
-            else str_xsection = "xy";
-
-            int xx = (static_cast<Axis>(id) == Axis::x) ? 1 : 0;
-            int yy = (static_cast<Axis>(id) == Axis::y) ? 2 : xx + 1;
-
-            // Determine the xsection dimensions
-            int Ni = data->voxels[xx];
-            int Nj = data->voxels[yy];
-
-            // Create the image series
-            _nonlin_image_series = LC::Imaging::ImageSeries((std::int32_t)Ni, (std::int32_t)Nj);
-
-            std::string suffix;
-            if (_widget.nonlinCircular) suffix = "-circ";
-            else suffix = "-d" + std::to_string(_widget.nonlinTheta);
-
-            if (name.empty()) name = "default";
-            _nonlin_image_series.write_file = _widget.saveNonlin_loc + "/" + name + "-" + str_xsection + suffix;
-            
-
-            std::size_t permutedSlice = data->voxels[xx];
-
-            auto cross_idx = [permutedSlice](int i, int j) {
-                return permutedSlice * j + i;
-            };
-
-            // Determine director components
-            auto dir = [id, xx, yy, nn](int i, int j, int d, int fixed) {
-                float result;
-                // yz plane
-                if (id == 0) {
-                    result = nn(fixed, i, j, d);
-                }
-                // xz plane
-                else if (id == 1) {
-                    result = nn(i, fixed, j, d);
-                }
-                // xy plane
-                else {
-                    result = nn(i, j, fixed, d);
-                }
-                return result;
-            };
-
-
-
-            unsigned int sz = Ni * Nj;
-
-            std::unique_ptr<ImageSeries::COLOR[]> plane(new ImageSeries::COLOR[sz]);
-
-
-            // Green 3 photon nonlinear imaging
-            auto linear = [](float nx, float ny, float theta) {
-                return Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(theta) + ny * sin(theta), 6.0f) });
-            };
-            auto circular = [](float nz) {
-                return Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) });
-            };
-
-            Color3 color;
-
-            // Number of scans = voxels[id]
-            for (int k = 0; k < data->voxels[id]; k++) {
-
-                // Fill the plane data for each scan
-                for (int i = 0; i < data->voxels[xx]; i++) {
-                    for (int j = 0; j < data->voxels[yy]; j++) {
-                        unsigned int idx = cross_idx(i, j);
-
-                        // Get director components for current slice
-                        float nx = dir(i, j, 0, k);
-                        float ny = dir(i, j, 1, k);
-                        float nz = dir(i, j, 2, k);
-
-                        if (_widget.nonlinCircular) color = circular(nz);
-                        else color = linear(nx, ny, M_PI / 180. * _widget.nonlinTheta);
-
-                        plane[idx].R = color[0] * 255;
-                        plane[idx].G = color[1] * 255;
-                        plane[idx].B = color[2] * 255;
-                        plane[idx].A = alpha * 255;
+                // Remove the .type if it exists
+                {
+                    auto index = name.find(".");
+                    if (index != std::string::npos) {
+                        name = name.substr(0, index);
                     }
                 }
 
-                // Generate image
+                std::string str_xsection;
+                if (id == 0) str_xsection = "yz";
+                else if (id == 1) str_xsection = "xz";
+                else str_xsection = "xy";
 
-                LC_INFO("Saving nonlinear scan as <{0}>", _nonlin_image_series.write_file.c_str());
-                _nonlin_image_series.GenerateAndWriteFrame(plane.get(), data->voxels[xx], data->voxels[yy]);
+                int xx = (static_cast<Axis>(id) == Axis::x) ? 1 : 0;
+                int yy = (static_cast<Axis>(id) == Axis::y) ? 2 : xx + 1;
+
+                // Determine the xsection dimensions
+                int Ni = data->voxels[xx];
+                int Nj = data->voxels[yy];
+
+                // Create the image series
+                _nonlin_image_series = LC::Imaging::ImageSeries((std::int32_t)Ni, (std::int32_t)Nj);
+
+                std::string suffix;
+                if (_widget.nonlinCircular) suffix = "-circ";
+                else suffix = "-d" + std::to_string(_widget.nonlinTheta);
+
+                if (name.empty()) name = "default";
+                _nonlin_image_series.write_file = _widget.saveNonlin_loc + "/" + name + "-" + str_xsection + suffix;
+
+
+                std::size_t permutedSlice = data->voxels[xx];
+
+                auto cross_idx = [permutedSlice](int i, int j) {
+                    return permutedSlice * j + i;
+                };
+
+                // Determine director components
+                auto dir = [id, xx, yy, nn](int i, int j, int d, int fixed) {
+                    float result;
+                    // yz plane
+                    if (id == 0) {
+                        result = nn(fixed, i, j, d);
+                    }
+                    // xz plane
+                    else if (id == 1) {
+                        result = nn(i, fixed, j, d);
+                    }
+                    // xy plane
+                    else {
+                        result = nn(i, j, fixed, d);
+                    }
+                    return result;
+                };
+
+
+
+                unsigned int sz = Ni * Nj;
+
+                std::unique_ptr<ImageSeries::COLOR[]> plane(new ImageSeries::COLOR[sz]);
+
+
+                // Green 3 photon nonlinear imaging
+                auto linear = [](float nx, float ny, float theta) {
+                    return Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(theta) + ny * sin(theta), 6.0f) });
+                };
+                auto circular = [](float nz) {
+                    return Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) });
+                };
+
+                Color3 color;
+
+                // Number of scans = voxels[id]
+                for (int k = 0; k < data->voxels[id]; k++) {
+
+                    // Fill the plane data for each scan
+                    for (int i = 0; i < data->voxels[xx]; i++) {
+                        for (int j = 0; j < data->voxels[yy]; j++) {
+                            unsigned int idx = cross_idx(i, j);
+
+                            // Get director components for current slice
+                            float nx = dir(i, j, 0, k);
+                            float ny = dir(i, j, 1, k);
+                            float nz = dir(i, j, 2, k);
+
+                            if (_widget.nonlinCircular) color = circular(nz);
+                            else color = linear(nx, ny, M_PI / 180. * _widget.nonlinTheta);
+
+                            plane[idx].R = color[0] * 255;
+                            plane[idx].G = color[1] * 255;
+                            plane[idx].B = color[2] * 255;
+                            plane[idx].A = alpha * 255;
+                        }
+                    }
+
+                    // Generate image
+
+                    LC_INFO("Saving nonlinear scan as <{0}>", _nonlin_image_series.write_file.c_str());
+                    _nonlin_image_series.GenerateAndWriteFrame(plane.get(), data->voxels[xx], data->voxels[yy]);
+                }
+
             }
-
         }
         ImGui::End();
     }
@@ -1727,10 +1816,10 @@ void Sandbox::generateIsosurface() {
 
 
     unsigned int size = vNew[0] * vNew[1] * vNew[2];
-    std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * size]);
+    std::unique_ptr<float[]> field_nn(new float[3 * size]);
     FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-    FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
-
+    Eigen::TensorMap<Eigen::Tensor<float, 4>> nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+    
     for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
         for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
             for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
@@ -1835,6 +1924,107 @@ void Sandbox::generateIsosurface() {
         }
 
     }
+
+    // Make Vortex Knot isosurface
+    std::array<float, 4> color1 = { 1., 1., 0., 1. }, color2 = { 1., 1., 1., 1. };
+    std::unique_ptr<float[]> chi_field, SOPfield, shell;
+    std::unique_ptr<short[]> valid_field;
+    LC::Math::Isosurface<float*, float> gen;
+
+    std::array<int, 3> reduced_dims = vNew;
+    for (int i = 0; i < 3; i++) reduced_dims[i] -= 4;
+
+    unsigned int reduced_slice = reduced_dims[0] * reduced_dims[1];
+    unsigned int reduced_vol = reduced_dims[2] * reduced_slice;
+
+    if (_vortexKnot || _vortexShell) {
+        LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, { (float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2] }, valid_field, true);
+    }
+
+    if (_vortexKnot) {
+
+        LC::Math::ScalarOrderParameter(chi_field.get(), SOPfield, reduced_dims, _widget.SOPprobe_value, _widget.SOPabs, true);
+
+        gen.GenerateSurface(SOPfield.get(), _vortexKnot->isoLevel, reduced_dims, cell, color1);
+
+        if (gen.isSurfaceValid()) {
+
+            unsigned int nVert = gen.NumSurfaceVertices();
+            unsigned int nInd = gen.NumSurfaceIndices();
+
+            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
+            unsigned int* indices = gen.ReleaseSurfaceIndices();
+
+            LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
+
+            // Fill magnum class with generated surface data
+            _vortexKnot->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
+
+            // Delete data
+            delete[] verts;
+            delete[] indices;
+
+            _vortexKnot->mesh = _vortexKnot->surface.Mesh();
+
+            // Add mesh to the scene
+            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexKnot->mesh), _vortexKnot->draw, _transparentNormalDrawables };
+
+        }
+
+        gen.DeleteSurface();
+
+    }
+
+    if (_vortexShell) {
+        color2[3] = _vortexShell->alpha;
+        shell = std::unique_ptr<float[]>(new float[reduced_vol]);
+
+        for (int i = 0; i < reduced_vol; i++) {
+            // Diffmag for helical axis
+            shell[i] = (chi_field[i + 2 * reduced_vol] - 1.0f) * (chi_field[i + 2 * reduced_vol] - 1.0f);
+        }
+
+
+        // Count the number of points within the preimage
+        unsigned int helicalPointsFound = 0;
+        for (unsigned int i = 0; i < reduced_vol; i++) if (shell[i] < _vortexShell->isoLevel) ++helicalPointsFound;
+
+        // If points found is greater than half of volume, then invert domain
+        if (helicalPointsFound > reduced_vol / 2) {
+            LC_INFO("Preimage points found [{0}/{1}] exceeds half of volume: Inverting domain", helicalPointsFound, reduced_vol);
+            for (unsigned int i = 0; i < reduced_vol; i++) {
+                if (shell[i] > _vortexShell->isoLevel) shell[i] = 0.0f;
+                else shell[i] = 10.0f;
+            }
+        }
+
+
+        gen.GenerateSurface(shell.get(), _vortexShell->isoLevel, reduced_dims, cell, color2);
+
+        if (gen.isSurfaceValid()) {
+
+            unsigned int nVert = gen.NumSurfaceVertices();
+            unsigned int nInd = gen.NumSurfaceIndices();
+
+            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
+            unsigned int* indices = gen.ReleaseSurfaceIndices();
+
+            LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
+
+            // Fill magnum class with generated surface data
+            _vortexShell->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
+
+            // Delete data
+            delete[] verts;
+            delete[] indices;
+
+            _vortexShell->mesh = _vortexShell->surface.Mesh();
+
+            // Add mesh to the scene
+            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexShell->mesh), _vortexShell->draw, _vortexShell->noCull, _transparentNormalDrawables };
+        }
+    }
+
 }
 
 void Sandbox::computeEnergy() {

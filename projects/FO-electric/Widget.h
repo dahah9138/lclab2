@@ -28,6 +28,9 @@ struct Widget {
 	float isoLevel = 0.0625f;
 	Magnum::Vector3 preimage_translate = Magnum::Vector3{ 0.0f, 0.0f, 0.0f };
 
+	bool SOPabs = true;
+	float SOPprobe_value = 0.533f;
+
 	bool drawSurfaces = true;
 
 	// For simulation

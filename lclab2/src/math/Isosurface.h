@@ -471,21 +471,21 @@ namespace LC { namespace Math {
 					unsigned int tableIndex = 0;
 
 
-					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel)
+					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + x] <= m_tIsoLevel)
 						tableIndex |= 1;
-					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel)
+					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + x] <= m_tIsoLevel)
 						tableIndex |= 2;
-					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
+					if (m_scalarField[z * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] <= m_tIsoLevel)
 						tableIndex |= 4;
-					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
+					if (m_scalarField[z * nPointsInSlice + y * nPointsInXDirection + (x + 1)] <= m_tIsoLevel)
 						tableIndex |= 8;
-					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + x] < m_tIsoLevel)
+					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + x] <= m_tIsoLevel)
 						tableIndex |= 16;
-					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + x] < m_tIsoLevel)
+					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + x] <= m_tIsoLevel)
 						tableIndex |= 32;
-					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
+					if (m_scalarField[(z + 1) * nPointsInSlice + (y + 1) * nPointsInXDirection + (x + 1)] <= m_tIsoLevel)
 						tableIndex |= 64;
-					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + (x + 1)] < m_tIsoLevel)
+					if (m_scalarField[(z + 1) * nPointsInSlice + y * nPointsInXDirection + (x + 1)] <= m_tIsoLevel)
 						tableIndex |= 128;
 
 					// Now create a triangulation of the isosurface in this

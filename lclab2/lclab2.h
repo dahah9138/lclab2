@@ -37,6 +37,11 @@
 #include "src/math/StencilWeights.h"
 #include "src/math/CumulativeTrapIntegral.h"
 #include "src/math/HopfCharge.h"
+#include "src/math/MaxEigen.h"
+#include "src/math/ChiralityTensor.h"
+#include "src/math/Derivative.h"
+#include "src/math/ChiralityField.h"
+#include "src/math/ScalarOrderParameter.h"
 
 // Algorithms
 #include "src/algorithm/cpuknn.h"
@@ -57,14 +62,14 @@
 
 	//implot impl
 	#include "src/implementation/ImContext.h"
-
-	// Imaging
-	#include "src/imaging/POM.h"
-	#include "src/imaging/RungeSphere.h"
 #endif
 
-	#include "src/imaging/BMP.h"
-	#include "src/imaging/ImageSeries.h"
+// Imaging
+#include "src/imaging/POM.h"
+#include "src/imaging/RungeSphere.h"
+
+#include "src/imaging/BMP.h"
+#include "src/imaging/ImageSeries.h"
 
 // CUDA
 #ifdef LCLAB2_CUDA_AVAIL

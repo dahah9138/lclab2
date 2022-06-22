@@ -561,6 +561,44 @@ namespace Electric {
 				return *this;
 			}
 
+			void Embed(const std::array<int, 3>& start, const std::array<int, 3>& stop, Config &cfg) {
+
+				if (directors) {
+					// Use configuration to embed configuration
+					std::array<int, 3> vembed;
+					for (int i = 0; i < 3; i++)
+						vembed[i] = stop[i] - start[i] + 1;
+
+					// Create temporary subset of director field
+					unsigned int vol = vembed[0] * vembed[1] * vembed[2];
+					std::unique_ptr<scalar> dir_subset(new scalar[vol * 3]);
+
+					Tensor4 n_sub(dir_subset.get(), vembed[0], vembed[1], vembed[2], 3);
+					Tensor4 nn(directors.get(), voxels[0], voxels[1], voxels[2], 3);
+
+					// fill n_sub
+					for (int i = start[0] - 1; i < stop[0]; i++) {
+						for (int j = start[1] - 1; j < stop[1]; j++) {
+							for (int k = start[2] - 1; k < stop[2]; k++) {
+
+								int ishift = i - start[0] + 1;
+								int jshift = j - start[1] + 1;
+								int kshift = k - start[2] + 1;
+
+								// sample director field at sublocation n_sub(ishift, jshift, kshift, :)
+								cfg(n_sub, ishift, jshift, kshift, &vembed[0]);
+
+								// copy to nn(i,j,k,:)
+								for (int d = 0; d < 3; d++)
+									nn(i, j, k, d) = n_sub(ishift, jshift, kshift, d);
+							}
+						}
+					}
+
+				}
+
+			}
+
 		};
 
 

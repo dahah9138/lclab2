@@ -41,14 +41,22 @@ void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& a
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
     polyShader
-        .setShininess(10000.0f)
-        .setLightPositions({ Vector4{-20.0, 0.0f, 0.0f, 0.0f}, Vector4{20.0, 0.0f, 0.0f, 0.0f},
-            Vector4{0.0, -20.0f, 0.0f, 0.0f}, Vector4{0.0, 20.0f, 0.0f, 0.0f},
-            Vector4{0.0, 0.0f, -20.0f, 0.0f}, Vector4{0.0, 0.0f, 20.0f, 0.0f}
-            })
+        .setSpecularColor({0.f, 0.f, 0.f, 0.f})
         .setProjectionMatrix(projection)
         .setTransformationMatrix(arcball->viewMatrix())
         .setNormalMatrix(arcball->viewMatrix().normalMatrix())
+        .draw(polyMesh);
+}
+
+void EllipsoidArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection) {
+    using namespace Magnum;
+
+    polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
+    polyShader
+        .setProjectionMatrix(projection)
+        .setSpecularColor({ 0.f, 0.f, 0.f, 0.f })
+        .setTransformationMatrix(viewMatrix)
+        .setNormalMatrix(viewMatrix.normalMatrix())
         .draw(polyMesh);
 }
 

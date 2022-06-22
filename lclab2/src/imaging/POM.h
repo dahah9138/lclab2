@@ -47,7 +47,8 @@ struct POM {
     };
 
     Waveplate waveplate = Waveplate::None;
-    bool polarizers = true;
+    bool polarizer = true;
+    bool analyzer = true;
     float polarizerAngle = 90.0f;
     double thickness = 0.0;
     double dz = 0.0;
@@ -55,7 +56,7 @@ struct POM {
 
     float z_scan_ratio = 1.0f;
     int additional_layers = 0;
-    int dop = 0;
+    float dop = 0.;
 
     double n0 = 0.0;
     double ne = 0.0;
@@ -66,7 +67,6 @@ struct POM {
 
     // Dimension order
     std::array<int, 3> indexOrder = { 0, 1, 2 };
-
 
 
 };

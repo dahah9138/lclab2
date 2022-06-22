@@ -7,7 +7,7 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
     // Jones matrices
     Eigen::Matrix2cd M, m;
 
-    scalar th = polarizers * polarizerAngle * M_PI / 180.0;
+    scalar th = polarizer * polarizerAngle * M_PI / 180.0;
     const std::complex<scalar> ii(0, 1);
 
 
@@ -31,7 +31,18 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
 
     int scan_layer_depth = z_scan_ratio * voxels[2];
 
-    std::vector<Eigen::Vector2cd> Eo_plane(lights.size(), { 1.0, 0.0 });
+    typedef std::vector<Eigen::Vector2cd> PolarizationState;
+
+    std::vector<PolarizationState> Eo_states;
+    int numStates = 4;
+
+    if (polarizer)
+        numStates = 1;
+
+    for (int i = 0; i < numStates; i++) {
+        double th = M_PI * i / numStates;
+        Eo_states.push_back({ lights.size(), { cos(th), sin(th) } });
+    }
 
     // Add the additional layers if they exist
     if (additional_layers) {
@@ -50,7 +61,8 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                 M(1, 0) = M(0, 1);
                 M(1, 1) = sp * sp * eidE + cp * cp * eid0;
 
-                Eo_plane[rgb] = M * Eo_plane[rgb];
+                for (auto & Eo_plane : Eo_states)
+                    Eo_plane[rgb] = M * Eo_plane[rgb];
             }
         }
     }
@@ -60,7 +72,7 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
             for (int j = 0; j < voxels[1]; j++) {
 
                 // Polarization states for rgb colors
-                std::vector<Eigen::Vector2cd> Eo = Eo_plane;
+                auto Eo_vector = Eo_states;
                 
                 for (int k = 0; k < scan_layer_depth; k++) {
 
@@ -91,7 +103,8 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                         M(1, 0) = M(0, 1);
                         M(1, 1) = sp * sp * eidE + cp * cp * eid0;
 
-                        Eo[rgb] = M * Eo[rgb];
+                        for (auto & Eo : Eo_vector)
+                            Eo[rgb] = M * Eo[rgb];
                     }
 
 
@@ -115,7 +128,8 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                         m(1, 0) = m(0, 1);
                         m(1, 1) = m(0, 0);
 
-                        Eo[col] = m * Eo[col];
+                        for (auto& Eo : Eo_vector)
+                            Eo[col] = m * Eo[col];
                     }
 
                 }
@@ -134,14 +148,30 @@ void POM::Compute(scalar *nn, const std::array<int, 3> &voxels, void *CData, Col
                         m(1, 0) = m(0, 1);
                         m(1, 1) = m(0, 0);
 
-                        Eo[col] = m * Eo[col];
+                        for (auto& Eo : Eo_vector)
+                            Eo[col] = m * Eo[col];
                     }
                 }
 
                 std::array<float, 4> color;
 
                 for (int rgb = 0; rgb < lights.size(); rgb++) {
-                    scalar I = std::abs(Eo[rgb](0) * cos(th) + Eo[rgb](1) * sin(th));
+                    scalar I = 0;
+                    Eigen::Vector2cd Etotal = {0., 0.};
+                    for (auto& Eo : Eo_vector) {
+                        Etotal = Etotal + 1./ sqrt(numStates) * Eo[rgb];
+                    }
+
+                    if (analyzer) {
+                        I = std::abs(Etotal(0) * cos(th) + Etotal(1) * sin(th));
+                    }
+                    else {
+                        // Everything will always look bright
+                        // w/o analyzer...
+                        I = Etotal.norm();
+                        
+                    }
+
                     I *= I;
                     color[rgb] = pow(lights[rgb].intensity * I, gamma);
                 }

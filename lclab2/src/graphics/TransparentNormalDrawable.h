@@ -50,6 +50,7 @@ namespace LC {	namespace Drawable {
             GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
         //GL::Renderer::enable(GL::Renderer::Feature::Blending);
         _shader.setTransformationMatrix(transformationMatrix)
+               .setSpecularColor({0.f, 0.f, 0.f, 0.f})
 			   .setNormalMatrix(transformationMatrix.normalMatrix())
 			   .setProjectionMatrix(camera.projectionMatrix())
 			   .draw(_mesh);

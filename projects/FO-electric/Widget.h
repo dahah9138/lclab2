@@ -21,6 +21,25 @@ struct Widget {
 	bool showPreimageSettings = false;
 	bool showModificationWindow = false;
 	bool showNonlinearSettings = false;
+	bool couplePlaneAndNematic = true;
+
+	bool showZProfileWindow = false;
+	bool drawProfile = false;
+	bool generateProfile = false;
+	float thermalRandomization = 0.0f;
+	float expansionCoeff = 0.f;
+	float contractionCoeff = 1.0f;
+	int radioZProfileAxis = 0;
+	int radioZProfileIndex = -1;
+	float temperature = 293.0f;
+	float omegabar = 0.5f;
+	float inversion_temp = 314.0f;
+	int chain_units = 5;
+
+	int tilt_angle = 0;
+	int tilt_direction = 0;
+	int translationNumber = 1;
+	bool helicalTranslation = true;
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
@@ -28,10 +47,8 @@ struct Widget {
 	float isoLevel = 0.0625f;
 	Magnum::Vector3 preimage_translate = Magnum::Vector3{ 0.0f, 0.0f, 0.0f };
 
-	bool SOPabs = true;
-	float SOPprobe_value = 0.533f;
-
 	bool drawSurfaces = true;
+	bool showCellBd = false;
 
 	// For simulation
 	bool relax = false;
@@ -42,8 +59,6 @@ struct Widget {
 	bool continuousRelax = false;
 
 	float energyErrorThreshold = 1e-8f;
-
-
 	int axis = 2;
 
 	// Num cycles before next draw call

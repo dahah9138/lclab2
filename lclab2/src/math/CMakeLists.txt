@@ -10,7 +10,7 @@ add_library(lclab2_math Choose.h Choose.cpp
 						LinearInterpolate.h LinearInterpolate.cpp
 						LinearInterpolator.h LinearInterpolator.cpp
 						Vector.h Vector.cpp
-						HopfCharge.h
+						HopfCharge.h BaryonDensity.h
 						CumulativeTrapIntegral.h CumulativeTrapIntegral.cpp
 						MaxEigen.h
 						ChiralityTensor.h

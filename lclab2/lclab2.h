@@ -18,6 +18,9 @@
 #include "src/solver/frankoseen/FOFDSolver.h"
 #include "src/solver/frankoseen/RBFFDSolver.h"
 
+#include "src/solver/qtensor/QTensorAssets.h"
+#include "src/solver/qtensor/QTensorSolver.h"
+
 // Utilities
 #include "src/utility/range_pair.h"
 #include "src/utility/searchlist.h"
@@ -37,6 +40,7 @@
 #include "src/math/StencilWeights.h"
 #include "src/math/CumulativeTrapIntegral.h"
 #include "src/math/HopfCharge.h"
+#include "src/math/BaryonDensity.h"
 #include "src/math/MaxEigen.h"
 #include "src/math/ChiralityTensor.h"
 #include "src/math/Derivative.h"

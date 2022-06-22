@@ -1,6 +1,8 @@
 add_library(lclab2_solver Solver.h frankoseen/FOAssets.h
 					frankoseen/FOFDSolver.h frankoseen/FOFDSolver.cpp
-					frankoseen/RBFFDSolver.h frankoseen/RBFFDSolver.cpp)
+					frankoseen/RBFFDSolver.h frankoseen/RBFFDSolver.cpp
+					qtensor/QTensorAssets.h
+					qtensor/QTensorSolver.h qtensor/QTensorSolver.cpp)
 target_include_directories(lclab2_solver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 	                                     ${CMAKE_CURRENT_SOURCE_DIR}/../base
 				                         ${CMAKE_SOURCE_DIR}/external/portable-file-dialogs

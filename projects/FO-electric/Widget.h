@@ -22,6 +22,8 @@ struct Widget {
 	bool showModificationWindow = false;
 	bool showNonlinearSettings = false;
 	bool couplePlaneAndNematic = true;
+	int chiColorScheme = true;
+	std::array<float, 3> pionComponents = { 0.f, 0.f, 1.0f };
 
 	bool showZProfileWindow = false;
 	bool drawProfile = false;
@@ -91,6 +93,7 @@ struct Widget {
 	// Parameters that can be modified in GUI
 	int topological_charge = 1;
 	int npp = 20;
+	int chirality = 1;
 	std::array<float, 3> celldims = { 3.0f, 3.0f, 3.0f };
 	std::array<int, 3> boundaries = { 1, 1, 0 };
 

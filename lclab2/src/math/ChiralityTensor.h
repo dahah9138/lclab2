@@ -25,7 +25,7 @@ namespace LC { namespace Math {
 				// Sum over k and l
 				for (int k = 0; k < 3; k++) 
 					for (int l = 0; l < 3; l++)
-						chi(i, j) += Dn(i, k) * eps(j, l, k) * n(l);
+						chi(i, j) += Dn(i, l) * eps(j, l, k) * n(k);
 			}
 		
 	}

@@ -31,7 +31,7 @@ struct SphereArray {
 
     void Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions = 2);
     void InitPositions(void* positions, const std::function<Magnum::Vector3(void*, std::size_t)> &Access, std::size_t size);
-    void ZProfileColor(const float &hue1 = 240.f, const float &hue2 = 60.f);
+    void ZProfileColor(const float &hue1 = 240.f, const float &hue2 = 0.f);
     void Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4 &projection);
     void Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection);
 

@@ -60,7 +60,7 @@ namespace LC { namespace Math {
 				if (std::abs(prev_eig - eigenvalue) < tolerance || std::abs(prev_eig + eigenvalue) < tolerance) break;
 
 				// Eigenvalue failed to converge
-				if (++count > 20) {
+				if (++count > 30) {
 					if (verbose)
 						LC_CORE_WARN("An eigenvalue failed to converge.");
 					return false;

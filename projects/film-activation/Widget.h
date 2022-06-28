@@ -12,8 +12,16 @@ struct Widget {
 	// Show main window
 	bool showSettings = true;
 	bool updateFilm = false;
-	float positionScale = .145f;
+	float dT;
 	int updateCycle = 10;
+	bool continuousUpdate = false;
+	bool drawFilm = false;
+	bool drawZProfile = true;
+	bool updateGraphics = true;
+	float pitch = 3.f; // um
+
+	int radioZProfileAxis = 0;
+	int radioZProfileIndex = -1;
 };
 
 

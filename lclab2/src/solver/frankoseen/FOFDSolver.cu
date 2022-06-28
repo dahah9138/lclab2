@@ -540,6 +540,14 @@ namespace Electric { namespace FD {
 
 			const int a = (d + 1) % 3;
 			const int b = (d + 2) % 3;
+
+			// K|R|^2/2
+			//if (d == 0)
+			//	curl = nD[b][a];
+			//else if (d == 1)
+			//	curl = -nD[a][b];
+			//else
+			//	curl = 0.0;
 			curl = nD[a][b] - nD[b][a];
 
 			scalar na = nn[sub2ind(r[0], r[1], r[2], vXi) + Nd * a];

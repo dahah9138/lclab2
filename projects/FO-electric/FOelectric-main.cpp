@@ -51,6 +51,28 @@ struct Preimage {
     Containers::Optional<GL::Mesh> mesh;
 };
 
+struct PionPreimage {
+    PionPreimage() {}
+    PionPreimage(float p1, float p2, float p3, float iso = 0.07f) : pi1(p1), pi2(p2), pi3(p3), isoLevel(iso) {}
+    PionPreimage(const std::array<float, 3> &pi, float iso = 0.07f) : pi1(pi[0]), pi2(pi[1]), pi3(pi[2]), isoLevel(iso) {}
+
+    friend bool operator == (const PionPreimage& p1, const PionPreimage& p2) {
+        return (p1.pi1 == p2.pi1 && p1.pi2 == p2.pi2 && p1.pi3 == p2.pi3) ? 1 : 0;
+    }
+
+    float pi1 = 0.0f;
+    float pi2 = 0.0f;
+    float pi3 = 1.0f;
+    bool draw = true;
+    bool noCull = false;
+    float isoLevel = 0.07f;
+    float alpha = 1.0f;
+    bool opentab = true;
+    LC::Surface surface;
+
+    Containers::Optional<GL::Mesh> mesh;
+};
+
 struct VortexLine {
     LC::Math::Interpolant<LC::scalar> interpolant;
     std::unique_ptr<LC::scalar[]> positions;
@@ -84,8 +106,10 @@ struct VortexShell {
 
     bool draw = true;
     bool noCull = false;
+    bool invertNormals = false;
     float alpha = 0.5f;
     float isoLevel;
+    float queryValue = 0.0f;
     LC::Surface surface;
     Containers::Optional<GL::Mesh> mesh;
 };
@@ -116,8 +140,6 @@ struct Zprofile {
     struct Box {
         Vector3 dims, translation;
     };
-
-#define TEST_PROFILE 1
 
     void GenerateProfile(const LC::scalar* nn, std::array<int,3> vox, std::array<LC::scalar,3> cell, float alpha = 0.0f, int chain_units = 30, float temp = 298.0f, float omegabar = 1.0f, float inversion_temp = 300.0f) {
         
@@ -344,6 +366,7 @@ private:
     std::list<Preimage> _preimages;
     Containers::Optional<VortexKnot> _vortexKnot;
     Containers::Optional<VortexShell> _vortexShell;
+    Containers::Optional<PionPreimage> _pionPreimage;
     Containers::Optional<BaryonIsosurface> _baryonIsosurface;
 
     std::unique_ptr<Eigen::Quaternion<LC::scalar>[]> _quaternion_field;
@@ -997,20 +1020,13 @@ void Sandbox::generatePionTriplet() {
                 
                 unsigned int full_idx = i + j * data->voxels[0] + k * slice;
 
-                if (i < 2 || j < 2 || k < 2 || i > data->voxels[0] - 3 || j > data->voxels[1] - 3 || k > data->voxels[2] - 3) {
-                    _quaternion_field[full_idx] = { 0.0, 0.f, 0.f, 1.f };
-                    continue;
-                }
-
-                unsigned int sub_idx = (i - 2) + (j - 2) * vNew[0] + (k - 2) * reduced_slice;
-
                 Eigen::Vector3f chi, tau;
 
                 Eigen::Vector3f lambda{ nn[full_idx], nn[full_idx + vol], nn[full_idx + 2 * vol] };
-                if (!valid_field[sub_idx])
+                if (!valid_field[full_idx])
                     chi = Eigen::Vector3f{ 0.f, 0.f, 1.0f };
                 else
-                    chi = Eigen::Vector3f{ chi_field[sub_idx], chi_field[sub_idx + reduced_vol], chi_field[sub_idx + 2 * reduced_vol] };
+                    chi = Eigen::Vector3f{ chi_field[full_idx], chi_field[full_idx + vol], chi_field[full_idx + 2 * vol] };
 
                 tau = -lambda.cross(chi);
                 tau.normalize();
@@ -1042,18 +1058,18 @@ void Sandbox::generatePionTriplet() {
 
     // This visualization is not very useful...
     // Need to take the isosurface now
-    std::unique_ptr<Magnum::Vector3[]> grid(new Magnum::Vector3[reduced_slice]);
-    std::unique_ptr<Eigen::Quaternion<float>[]> quaternions(new Eigen::Quaternion<float>[vNew[0] * vNew[1]]);
-    for (int x = 0; x < vNew[0]; x++) {
-        for (int y = 0; y < vNew[1]; y++) {
-            grid[x + vNew[0] *y] = Magnum::Vector3(-data->cell_dims[0] / 2. + (x+2) * dx, -data->cell_dims[1] / 2. + (y+2) * dy, 0.0f);
+    std::unique_ptr<Magnum::Vector3[]> grid(new Magnum::Vector3[slice]);
+    std::unique_ptr<Eigen::Quaternion<float>[]> quaternions(new Eigen::Quaternion<float>[slice]);
+    for (int x = 0; x < data->voxels[0]; x++) {
+        for (int y = 0; y < data->voxels[1]; y++) {
+            grid[x + vNew[0] *y] = Magnum::Vector3(-data->cell_dims[0] / 2. + x * dx, -data->cell_dims[1] / 2. + y * dy, 0.0f);
 
-            auto q = _quaternion_field[(x+2) + (y+2) * data->voxels[0] + int(data->voxels[2] / 2) * slice];
+            auto q = _quaternion_field[x + y * data->voxels[0] + int(data->voxels[2] / 2) * slice];
 
-            quaternions[x + vNew[0] * y].x() = q.x();
-            quaternions[x + vNew[0] * y].y() = q.y();
-            quaternions[x + vNew[0] * y].z() = q.z();
-            quaternions[x + vNew[0] * y].w() = q.w();
+            quaternions[x + data->voxels[0] * y].x() = q.x();
+            quaternions[x + data->voxels[0] * y].y() = q.y();
+            quaternions[x + data->voxels[0] * y].z() = q.z();
+            quaternions[x + data->voxels[0] * y].w() = q.w();
             
         }
     }
@@ -1070,21 +1086,21 @@ void Sandbox::generatePionTriplet() {
         Initialize the midplane of the pion triplet
     */
 
-    _quaternion_plane->dim1 = vNew[0];
-    _quaternion_plane->dim2 = vNew[1];
+    _quaternion_plane->dim1 = data->voxels[0];
+    _quaternion_plane->dim2 = data->voxels[1];
 
     std::function<Magnum::Vector3(void*, std::size_t)> access = [](void *data, std::size_t i) {
         Magnum::Vector3* mdata = (Magnum::Vector3*)data;
         return mdata[i];
     };
 
-    _quaternion_plane->lambda.Init(grid.get(), access, reduced_slice);
-    _quaternion_plane->chi.Init(grid.get(), access, reduced_slice);
-    _quaternion_plane->tau.Init(grid.get(), access, reduced_slice);
+    _quaternion_plane->lambda.Init(grid.get(), access, slice);
+    _quaternion_plane->chi.Init(grid.get(), access, slice);
+    _quaternion_plane->tau.Init(grid.get(), access, slice);
 
     // Change colors
     // Use largest magnitude in space components of quaternion field to color according to (r,g,b)
-    for (int i = 0; i < reduced_slice; i++) {
+    for (int i = 0; i < slice; i++) {
 
         
         auto qmat = quaternions[i].toRotationMatrix();
@@ -1399,7 +1415,19 @@ void Sandbox::initVisuals() {
     
     _zprofile = {};
     _quaternion_plane = {};
+    if (_pionPreimage)
+        _pionPreimage->draw = false;
+    _pionPreimage = {};
     _baryon_density.reset();
+    _quaternion_field.reset();
+
+    // Update widget
+    for (int d = 0; d < 3; d++) {
+        _widget.celldims[d] = data->cell_dims[d];
+        _widget.boundaries[d] = data->bc[d];
+    }
+
+
     // Create a new manipulator and set its parent
     // Reset preimageManipulator as well
 
@@ -1643,8 +1671,16 @@ void Sandbox::handlePreimageWindow() {
             ImGui::Checkbox("No cull", &_vortexShell->noCull);
             ImGui::SameLine();
             ImGui::Checkbox("Draw shell", &_vortexShell->draw);
+            ImGui::SameLine();
+            ImGui::Checkbox("Domain inversion", &_vortexShell->invertNormals);
             ImGui::PushItemWidth(100.0f);
             ImGui::SliderFloat("Shell alpha", &_vortexShell->alpha, 0.0f, 1.0f);
+            ImGui::SameLine();
+            ImGui::SliderFloat("Shell isovalue", &_vortexShell->isoLevel, 0.0f, 1.0f);
+            ImGui::SliderFloat("Shell query value", & _vortexShell->queryValue, -1.f, 1.f);
+            ImGui::RadioButton("Tilt", &_widget.chiColorScheme, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Max quaternion component", &_widget.chiColorScheme, 1);
             ImGui::PopItemWidth();
         }
 
@@ -1689,6 +1725,24 @@ void Sandbox::handlePreimageWindow() {
         if (_vortexKnot) {
             ImGui::SameLine();
             ImGui::Checkbox("Draw knot", &_vortexKnot->draw);
+        }
+
+        // Quaternion preimages
+        ImGui::PushItemWidth(200.0f);
+        ImGui::TextColored({ 1.0f, 1.0f, 0.0f, 1.0f }, "Pion field preimages");
+        ImGui::SliderFloat3("pi", &_widget.pionComponents[0], 0, 1.0f);
+        ImGui::PopItemWidth();
+
+        if (ImGui::Button("Add pion preimage")) {
+            _pionPreimage = PionPreimage{_widget.pionComponents, _widget.isoLevel};
+        }
+        if (_pionPreimage) {
+            ImGui::SameLine();
+            ImGui::PushItemWidth(50.0f);
+            ImGui::SliderFloat("Alpha", &_pionPreimage->alpha, 0.f, 1.f);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            ImGui::Checkbox("Draw", &_pionPreimage->draw);
         }
         
 
@@ -2154,9 +2208,14 @@ void Sandbox::handleModificationWindow() {
         ImGui::Begin("LC Modification window", &_widget.showModificationWindow);
 
         ImGui::InputFloat3("Cell dims", &_widget.celldims[0]);
+        ImGui::PushItemWidth(75.f);
         ImGui::InputInt3("PBCs", &_widget.boundaries[0]);
         ImGui::InputInt("npp", &_widget.npp);
+        ImGui::SameLine();
         ImGui::InputInt("Q", &_widget.topological_charge);
+        ImGui::SameLine();
+        ImGui::InputInt("Chirality", &_widget.chirality);
+        ImGui::PopItemWidth();
         ImGui::RadioButton("Heliknoton", &_widget.hopfion_type, 0);
         ImGui::SameLine();
         ImGui::RadioButton("Hopfion", &_widget.hopfion_type, 1);
@@ -2174,6 +2233,8 @@ void Sandbox::handleModificationWindow() {
             if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
             else cfg = Dataset::Toron();
+
+            data->chirality = _widget.chirality;
 
             (*data).Voxels(_widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp)
                 .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
@@ -2216,6 +2277,7 @@ void Sandbox::handleModificationWindow() {
 
 
         if (ImGui::Button("Edit existing")) {
+            data->chirality = _widget.chirality;
             (*data).Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
                 .Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
             initVisuals();
@@ -2579,7 +2641,8 @@ void Sandbox::generateIsosurface() {
 
 
 
-    unsigned int size = vNew[0] * vNew[1] * vNew[2];
+    unsigned int slc = vNew[0] * vNew[1];
+    unsigned int size = slc * vNew[2];
     std::unique_ptr<float[]> field_nn(new float[3 * size]);
     FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
     Eigen::TensorMap<Eigen::Tensor<float, 4>> nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
@@ -2696,15 +2759,12 @@ void Sandbox::generateIsosurface() {
     LC::Math::Isosurface<float*, float> gen;
     LC::Math::Isosurface<short*, short> gen2;
 
-    std::array<int, 3> reduced_dims = vNew;
-    for (int i = 0; i < 3; i++) reduced_dims[i] -= 4;
 
-    unsigned int reduced_slice = reduced_dims[0] * reduced_dims[1];
-    unsigned int reduced_vol = reduced_dims[2] * reduced_slice;
     unsigned int ill_defined_chi = 0;
+    std::array<float,3> cellf = {(float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2]};
 
-    if (_vortexKnot || _vortexShell) {
-        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, { (float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2] }, valid_field, true);
+    if (_vortexKnot || !_widget.chiColorScheme) {
+        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true);
     }
 
     if (_vortexKnot) {
@@ -2794,9 +2854,7 @@ void Sandbox::generateIsosurface() {
 
         
 #else
-        gen2.GenerateSurface(valid_field.get(), 0, reduced_dims, cell, color1);
-
-        
+        gen2.GenerateSurface(valid_field.get(), 0, vNew, cell, color1);
 
         if (gen2.isSurfaceValid()) {
 
@@ -2828,9 +2886,19 @@ void Sandbox::generateIsosurface() {
     }
 
     if (_vortexShell) {
+
         color2[3] = _vortexShell->alpha;
         unsigned int vol = vNew[0] * vNew[1] * vNew[2];
         shell = std::unique_ptr<float[]>(new float[vol]);
+        Eigen::Matrix3d handedness0;
+        for (int a = 0; a < 3; a++) {
+            for (int b = 0; b < 3; b++) {
+                handedness0(a, b) = 0.0;
+            }
+        }
+
+        // Normalized handedness to -1
+        handedness0(2, 2) = -1.0;
 
         for (int i = 0; i < vNew[0]; i++) {
             for (int j = 0; j < vNew[1]; j++) {
@@ -2838,18 +2906,29 @@ void Sandbox::generateIsosurface() {
                     // Diffmag for helical axis
                     unsigned int idx = i + vNew[0] * j + vNew[0] * vNew[1] * k;
 
-                    // out of bounds
-                    if (i < 2 || j < 2 || k < 2 || i > vNew[0] - 3 || j > vNew[1] - 3 || k > vNew[2] - 3) {
-                        shell[idx] = 0.0;
-                        continue;
+                    // Get Chi matrix
+                    Eigen::Matrix3d handedness;
+                    if ((k <= vNew[2] - 3 && k >= 2) && (j <= vNew[1] - 3 && j >= 2) && (i <= vNew[0] - 3 && i >= 2))
+                        handedness = 0.5 / M_PI * LC::Math::HandednessTensor(i, j, k, field_nn.get(), vNew, cellf);
+                    else
+                        handedness(2, 2) = -1.0;
+                   
+                    
+                    // Compute cost
+                    shell[idx] = 0.0f;
+                    double R2 = 0.;
+                    for (int a = 0; a < 3; a++) {
+                        for (int b = 0; b < 3; b++) {
+                            // R_abR_ab (proportional to "energy" in chi field)
+                           R2 += 0.5f * pow(handedness(a, b) - handedness0(a, b), 2);
+                        }
                     }
+                    shell[idx] = abs(R2 - _vortexShell->queryValue);
 
-                    unsigned int red_idx = (i-2) + reduced_dims[0] * (j-2) + reduced_slice * (k-2);
-                    shell[idx] = pow(chi_field[red_idx + 2 * reduced_vol] - 1.0f, 2);
+                    //shell[idx] = pow(chi_field[idx + 2 * size] - 1.0f, 2);
                 }
             }
         }
-
 
         // Count the number of points within the preimage
         unsigned int helicalPointsFound = 0;
@@ -2885,45 +2964,56 @@ void Sandbox::generateIsosurface() {
                 int zz = (verts[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
 
                 // Get chi
-                /* REPLACE WITH quaternions */
-                
-#if 0
-                unsigned int idx = (xx-2) + (yy-2) * reduced_dims[0] + (zz-2) * reduced_dims[0] * reduced_dims[1];
-                float chi_x = chi_field[idx];
-                float chi_y = chi_field[idx + reduced_vol];
-                float chi_z = chi_field[idx + 2*reduced_vol];
-
                 Color3 tilt_color;
 
-                // Get angle in xy plane
-                {
-                    float theta = acos(chi_z);
-                    float phi = atan2(chi_y, chi_x);
-                    if (phi < 0.0f) phi = phi + 2*M_PI;
-                    
-                    tilt_color = LC::Imaging::Colors::RungeSphere(theta, phi);
-                    //tilt_color = pow(cos(angle2), 2) * purple + pow(sin(angle2),2) * tilt_color;
-                }
-#else
-                unsigned int idx = xx + yy * data->voxels[0] + zz * data->voxels[0] * data->voxels[1];
-                auto q = _quaternion_field[idx];
+                // Chosen color scheme
+                // 0 == tilt coloring
+                // 1 == quaternion coloring
+                if (!_widget.chiColorScheme) {
+                    unsigned int idx = xx + yy * vNew[0] + zz * slc;
+                    float chi_x = chi_field[idx];
+                    float chi_y = chi_field[idx + vol];
+                    float chi_z = chi_field[idx + 2 * vol];
 
 
-                LC::scalar max_comp = abs(q.x());
-                Color3 tilt_color = Color3::blue();
+                    // Get angle in xy plane
+                    {
+                        float theta = acos(chi_z);
+                        float phi = 2 * atan2(chi_y, chi_x);
+                        if (phi < 0.0f) phi = phi + 2 * M_PI;
 
-                if (max_comp < abs(q.y())) {
-                    tilt_color = Color3::red();
-                    max_comp = abs(q.y());
+                        tilt_color = LC::Imaging::Colors::RungeSphere(M_PI / 2., phi);
+                        //tilt_color = pow(cos(angle2), 2) * purple + pow(sin(angle2),2) * tilt_color;
+                    }
                 }
-                if (max_comp < abs(q.z())) {
-                    tilt_color = Color3::green();
+                else {
+                    unsigned int idx = xx + yy * data->voxels[0] + zz * data->voxels[0] * data->voxels[1];
+                    tilt_color = Color3::blue();
+                    Eigen::Quaterniond q{ 0.,0.,0.,1. };
+                    if (_quaternion_field)
+                        q = _quaternion_field[idx];
+
+
+                    LC::scalar max_comp = abs(q.x());
+
+                    if (max_comp < abs(q.y())) {
+                        tilt_color = Color3::red();
+                        max_comp = abs(q.y());
+                    }
+                    if (max_comp < abs(q.z())) {
+                        tilt_color = Color3::green();
+                    }
                 }
-#endif
 
                 // Apply the color
-                for (int d = 0; d < 3; d++)
+                for (int d = 0; d < 3; d++) {
+
                     verts[i].color[d] = tilt_color[d];
+
+                    if (_vortexShell->invertNormals)
+                        verts[i].normal[d] *= -1;
+                }
+
 
 
             }
@@ -3029,6 +3119,100 @@ void Sandbox::generateIsosurface() {
             new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader,
                 *(_baryonIsosurface->mesh), _baryonIsosurface->draw,
                 _baryonIsosurface->noCull, _transparentNormalDrawables };
+        }
+    }
+
+    if (_quaternion_field && _pionPreimage) {
+        std::array<int, 3> voxBaryon = data->voxels;
+        unsigned int baryVol = voxBaryon[0] * voxBaryon[1] * voxBaryon[2];
+
+        color2[3] = _pionPreimage->alpha;
+        std::unique_ptr<float[]> iso = std::unique_ptr<float[]>(new float[baryVol]);
+
+        Eigen::Quaterniond pi(0., _pionPreimage->pi1, _pionPreimage->pi2, _pionPreimage->pi3);
+
+        if (pi.squaredNorm() > 1e-6) pi.normalize();
+
+        for (int i = 0; i < baryVol; i++) {
+            Eigen::Quaterniond q = _quaternion_field[i];
+   
+            iso[i] = pow(q.x() - pi.x(), 2)
+                + pow(q.y() - pi.y(), 2)
+                + pow(q.z() - pi.z(), 2);
+        }
+
+
+        // Count the number of points within the preimage
+        unsigned int domainPoints = 0;
+        for (unsigned int i = 0; i < baryVol; i++) if (iso[i] < _pionPreimage->isoLevel) ++domainPoints;
+
+        // If points found is greater than half of volume, then invert domain
+        if (domainPoints > baryVol / 2) {
+            LC_INFO("Preimage points found [{0}/{1}] exceeds half of volume: Inverting domain", domainPoints, baryVol);
+            for (unsigned int i = 0; i < baryVol; i++) {
+                if (iso[i] > _pionPreimage->isoLevel) iso[i] = 0.0f;
+                else iso[i] = 10.0f;
+            }
+        }
+
+        gen.GenerateSurface(iso.get(), _pionPreimage->isoLevel, voxBaryon, cell, color2);
+
+        if (gen.isSurfaceValid()) {
+
+            unsigned int nVert = gen.NumSurfaceVertices();
+            unsigned int nInd = gen.NumSurfaceIndices();
+
+            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
+            unsigned int* indices = gen.ReleaseSurfaceIndices();
+
+            // Go through vertices and color according to max magnitude pion componenet
+            // Note needs to include preimage_translate since embedded volumes can be chosen!
+
+            for (int i = 0; i < nVert; i++) {
+                // extract indices from position
+                int xx = (verts[i].position[0] / data->cell_dims[0] + 0.5) * (voxBaryon[0] - 1);
+                int yy = (verts[i].position[1] / data->cell_dims[1] + 0.5) * (voxBaryon[1] - 1);
+                int zz = (verts[i].position[2] / data->cell_dims[2] + 0.5) * (voxBaryon[2] - 1);
+
+                // Get chi
+                unsigned int idx = xx + yy * voxBaryon[0] + zz * voxBaryon[0] * voxBaryon[1];
+
+                //std::cout << xx << " " << yy << " " << zz << std::endl;
+                auto q = _quaternion_field[idx];
+
+
+                LC::scalar max_comp = abs(q.x());
+                Color3 tilt_color = Color3::blue();
+
+                if (max_comp < abs(q.y())) {
+                    tilt_color = Color3::red();
+                    max_comp = abs(q.y());
+                }
+                if (max_comp < abs(q.z())) {
+                    tilt_color = Color3::green();
+                }
+
+                // Apply the color
+                for (int d = 0; d < 3; d++)
+                    verts[i].color[d] = tilt_color[d];
+
+            }
+
+            LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
+
+            // Fill magnum class with generated surface data
+            _pionPreimage->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
+
+            // Delete data
+            delete[] verts;
+            delete[] indices;
+
+            _pionPreimage->mesh = _pionPreimage->surface.Mesh();
+
+            // Add mesh to the scene
+            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader,
+                *(_pionPreimage->mesh), _pionPreimage->draw,
+                _pionPreimage->noCull, _transparentNormalDrawables };
         }
     }
 

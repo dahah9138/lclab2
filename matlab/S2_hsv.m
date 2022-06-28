@@ -9,10 +9,12 @@ hold all
 cthetad = [];
 cphid = [];
 
+% Double angle counting
+S2_Z2 = 1;
 
 % viewangle = [0 0];
 % viewangle = [36 30];
-viewangle = [0,20];
+viewangle = [0,90];
 
 conetheta = cthetad*pi/180;
 conephi = cphid*pi/180;
@@ -98,9 +100,16 @@ col = zeros(m*n,3);
 
 % hsv: s = 0 at the north pole; v = 0 at the south pole;
 for i = 1:m*n
-    col(i,1) = (azi_rs(i))/(2*pi); 
-    col(i,2) = the_rs(i)/(pi/2);
-    col(i,3) = 2 - the_rs(i)/(pi/2);
+    
+    if S2_Z2
+        col(i,1) = mod(2*azi_rs(i),2*pi)/(2*pi);
+        col(i,2) = 1;
+        col(i,3) = 1;
+    else
+        col(i,1) = (azi_rs(i))/(2*pi);
+        col(i,2) = the_rs(i)/(pi/2);
+        col(i,3) = 2 - the_rs(i)/(pi/2);
+    end
 
 end
 col(col > 1) = 1;

@@ -5,6 +5,7 @@
 #include "core.h"
 #include "logger.h"
 #include <Eigen/Dense>
+#include <Eigen/Eigenvalues>
 
 namespace LC { namespace Math {
 	
@@ -60,7 +61,7 @@ namespace LC { namespace Math {
 				if (std::abs(prev_eig - eigenvalue) < tolerance || std::abs(prev_eig + eigenvalue) < tolerance) break;
 
 				// Eigenvalue failed to converge
-				if (++count > 30) {
+				if (++count > maxIterations) {
 					if (verbose)
 						LC_CORE_WARN("An eigenvalue failed to converge.");
 					return false;
@@ -72,7 +73,8 @@ namespace LC { namespace Math {
 
 		scalar eigenvalue;
 		Eigen::VectorXd eigenvector;
-		scalar tolerance = 1e-4;
+		scalar tolerance = 1e-8;
+		int maxIterations = 30;
 		Handedness handedness = Handedness::Left;
 		bool verbose = false;
 	};

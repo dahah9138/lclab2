@@ -27,7 +27,7 @@ struct NormalSheet {
 	struct Vertex {
 		Magnum::Vector3 position;
 		Magnum::Vector3 normal;
-		Magnum::Color3 color;
+		Magnum::Color4 color;
 	};
 
 	virtual void Init();

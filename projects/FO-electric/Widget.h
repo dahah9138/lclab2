@@ -42,9 +42,14 @@ struct Widget {
 	int tilt_direction = 0;
 	int translationNumber = 1;
 	bool helicalTranslation = true;
+	float separationDistance = 2.5f;
+	int interactionThetaPoints = 1;
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
+	int smoothingIterations = 1;
+	float smoothingValue = 0.25f;
+	int smoothingType = 2;
 	float preimage_alpha = 1.0f;
 	float isoLevel = 0.0625f;
 	Magnum::Vector3 preimage_translate = Magnum::Vector3{ 0.0f, 0.0f, 0.0f };

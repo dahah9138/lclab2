@@ -6,6 +6,7 @@ add_library(lclab2_graphics ArcBall.h ArcBall.cpp
 			  NormalSheet.h NormalSheet.cpp
 			  Torus.h Torus.cpp
 			  NormalTorus.h NormalTorus.cpp
+			  TubularSurface.h TubularSurface.cpp
 			  DynamicColorSheet.h DynamicColorSheet.cpp
 			  TransparentDrawable.h TransparentNormalDrawable.h
 			  Surface.h Surface.cpp)

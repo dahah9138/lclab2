@@ -6,11 +6,11 @@ namespace LC { namespace Math {
 	VectorField Planar(int layers, scalar cellZ) {
 		
 		scalar totalRad = M_PI * layers;
-		return [layers, totalRad, cellZ](scalar x, scalar y, scalar z) {
+		return [totalRad, cellZ](scalar x, scalar y, scalar z) {
 			
 			std::array<scalar, 3> nn = {0.0, 0.0, 0.0};
-			nn[0] = -sin(totalRad * (z / cellZ  + 0.5));
-			nn[1] = cos(totalRad * (z / cellZ + 0.5));
+			nn[0] = -sin(totalRad * (z / cellZ));
+			nn[1] = cos(totalRad * (z / cellZ));
 
 			return nn;
 		};

@@ -34,12 +34,12 @@ class Simulation {
 		// Shear modulus (Pa)
 		LC::scalar mu = 570e3;
 		// Limiting extension of polymer chains
-		int I_m = 30;
+		int I_m = 10;
 		// Estimated change in the order parameter from nematic to isotropic (Try 0.533 as well)
-		LC::scalar UdS = 80e3; // Pascals
+		LC::scalar UdS = -570e3; // Pascals
 		// Step time (seconds)
-		LC::scalar dT = 1e-7;
-		bool PBCs = false;
+		LC::scalar dT = 1e-8;
+		bool PBCs = true;
 
 		// Initial cell dimensions
 		std::array<LC::scalar, 3> cell_dims;
@@ -303,15 +303,17 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 				if (dr < -0.5 * m_params.cell_dims[d]) {
 					dr = dr + m_params.cell_dims[d];
 				}
-				r_i[i][d] = 2. * (m_nodes[sub_0].position[d] + dr);
+				r_i[i][d] = (m_nodes[sub_0].position[d] + dr);
 			}
 			// No PBCs in z-direction
-			r_i[i][2] = 2. * m_nodes[sub_i].position[2];
+			r_i[i][2] = m_nodes[sub_i].position[2];
 		}
-		else
+		else {
 		// Note each element has a volume of 8 integrated over (a,b,g) space -> Jacobian transformation
 		// requires multiplication by 2 to renormalize volume
-			r_i[i] = 2. * m_nodes[sub_i].position;
+
+			r_i[i] = m_nodes[sub_i].position;
+		}
 	}
 
 	std::array<LC::scalar, 3> dr = { m_params.cell_dims[0] / (m_params.voxels[0] - 1 + PBC),
@@ -338,21 +340,21 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		for (int d = 0; d < 3; d++) {
 			result[d] = ra[d] + b * rab[d] + g * rag[d] + g * b * rabg[d];
 		}
-		return result;
+		return 2. * result;
 	};
 	auto drdb = [rb, rab, rbg, rabg](LC::scalar a, LC::scalar g) {
 		Eigen::Vector3d result;
 		for (int d = 0; d < 3; d++) {
 			result[d] = rb[d] + a * rab[d] + g * rbg[d] + g * a * rabg[d];
 		}
-		return result;
+		return 2. * result;
 	};
 	auto drdg = [rg, rag, rbg, rabg](LC::scalar a, LC::scalar b) {
 		Eigen::Vector3d result;
 		for (int d = 0; d < 3; d++) {
 			result[d] = rg[d] + a * rag[d] + b * rbg[d] + b * a * rabg[d];
 		}
-		return result;
+		return 2. * result;
 	};
 
 	// Compute the invariants of the deformation gradient tensor (Gaussian integration)
@@ -450,7 +452,6 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		auto drdg_eval = drdg(a, b);
 
 		LC::scalar J = drda_eval.dot(drdb_eval.cross(drdg_eval));
-		LC::scalar Jmax = pow(1.2, 3);
 
 		//LC_INFO("J = {0}", J);
 				
@@ -484,7 +485,7 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		Eigen::Vector3d n = m_nodes[sub_i].director;
 
 		gradI = 0.25 * (bg * drda_eval + ag * drdb_eval + ab * drdg_eval);
-		gradJ = 1./8. * (bg * drdb_eval.cross(drdg_eval) + ag * drdg_eval.cross(drda_eval) + ab * drda_eval.cross(drdb_eval));
+		gradJ = 0.125 * (bg * drdb_eval.cross(drdg_eval) + ag * drdg_eval.cross(drda_eval) + ab * drda_eval.cross(drdb_eval));
 		gradQeps = 0.25 * (n[0] * bg + n[1] * ag + n[2] * ab) * (n[0] * drda_eval + n[1] * drdb_eval + n[2] * drdg_eval);
 
 		// Compute the force
@@ -499,7 +500,7 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		// Material resistance to changes in volume
 		Force term2 = -m_params.kappa * log(J) / J * gradJ;
 		// Coupling of material strain to nematic ordering
-		Force term3 = UdS * (1. / J2_3 * gradQeps - gradI / 3. / J2_3 - 2. * (n_an_beps_ab - I1 / 3.) * gradJ / 3. / J5_3);
+		Force term3 = UdS * (gradQeps / J2_3 - gradI / 3. / J2_3 - 2. * (n_an_beps_ab - I1 / 3.) * gradJ / 3. / J5_3);
 
 		force = 
 			term1+ 
@@ -513,7 +514,7 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 
 		// To convert to actual force, multiply by dr^2
 		for (int d = 0; d < 3; d++) {
-			force[d] *= dr[d]* dr[d];
+			force[d] *= pow(dr[d], 2);
 		}
 
 		m_nodes[sub_i].force += force;
@@ -559,7 +560,7 @@ void Simulation::updateNodes() {
 		//}
 
 		// Don't update the z position of glass nodes
-		if (!(m_nodes[i].role & Vertex::Role::Glass))
+		//if (!(m_nodes[i].role & Vertex::Role::Glass))
 			m_nodes[i].position[2] = newPosition[2];
 		
 			// Don't let nodes pass through bottom of glass

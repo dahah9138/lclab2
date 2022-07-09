@@ -121,7 +121,7 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 					scalar phi = atan2(p[1], p[0]);
 					scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
-					scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
+					scalar omega = 2 * M_PI * layersscale * coords[2] / lambda;
 
 					if (p.dot(p) == 0.0) p[2] = 1.0;
 
@@ -453,7 +453,7 @@ namespace Electric {
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0] - 1) - 0.5, (scalar)j / (scalar)(voxels[1] - 1) - 0.5, (scalar)k / (scalar)(voxels[2] - 1) - 0.5 };
 					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
 
-					scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
+					scalar omega = 2 * M_PI * layersscale * coords[2] / lambda;
 
 					if (p.dot(p) == 0.0) p[2] = 1.0;
 

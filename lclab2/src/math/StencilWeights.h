@@ -874,6 +874,146 @@ namespace LC { namespace Math {
 		Matrix H;
 	};
 
+	template <typename T, int FieldDimension>
+	class InterpolantND {
+		using Matrix = Eigen::Matrix<T, -1, -1>;
+		using Vector = Eigen::Matrix<T, -1, 1>;
+		using Map = Eigen::Map<Vector>;
+		using Array = Eigen::Array<T, -1, -1>;
+		//using PartialPivLU = Eigen::PartialPivLU;
+	public:
+		InterpolantND() : numPoints(0) {}
+
+		Eigen::PartialPivLU<Matrix>& GetFactorization(std::size_t index) {
+			return LUMatrices[index];
+		}
+
+		void ComputeFactorization(const T* position, const std::size_t* neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+
+			// Number of nodes to process
+			unsigned int sz = subNodes;
+			numPoints = subNodes;
+			// Total number of nodes everywhere
+			unsigned int pos_sz = totalNodes;
+
+			LUMatrices = std::unique_ptr<Eigen::PartialPivLU<Matrix>[]>(new Eigen::PartialPivLU<Matrix>[sz]);
+
+			for (int i = 0; i < FieldDimension; i++)
+				riWeights[i] = std::unique_ptr<Vector[]>(new Vector[sz]);
+
+			H = Matrix(k, k);
+
+			// Step 1 - iterate through each node on the update list
+			for (size_t idx = 0; idx < subNodes; idx++) {
+				// Step 2 - Compute A matrix and specified derivatives for current node
+
+				T dx, dy, dz, dr;
+
+				for (unsigned int i = 0; i < k; i++) {
+					unsigned int i_idx;
+					unsigned int j_idx;
+
+					// Compute A
+					i_idx = neighbors[i * sz + idx];
+
+					for (unsigned int j = 0; j < k; j++) {
+						j_idx = neighbors[j * sz + idx];
+
+						T ri[] = { position[i_idx], position[i_idx + pos_sz], position[i_idx + 2 * pos_sz] };
+						T rj[] = { position[j_idx], position[j_idx + pos_sz], position[j_idx + 2 * pos_sz] };
+
+						dx = metric.CompDisplacement(ri[0], rj[0], 0);
+						dy = metric.CompDisplacement(ri[1], rj[1], 1);
+						dz = metric.CompDisplacement(ri[2], rj[2], 2);
+
+						dr = sqrt(dx * dx + dy * dy + dz * dz);
+
+						H(i, j) = rbf.Evaluate(dr);
+					}
+				}
+
+				// LU matrix factorization
+				LUMatrices[idx] = H.lu();
+
+				// Initialize weights to vector in R^k
+				for (int i = 0; i < FieldDimension; i++) {
+					riWeights[i][idx] = Vector(k);
+				}
+			}
+
+		}
+
+		void ComputeWeights(const T* field, const std::size_t* neighbors, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+
+			// Evaluate the vector field
+			std::array<Vector, FieldDimension> f;
+			for (auto& fi : f)
+				fi = Vector(k);
+
+			for (auto idx = 0; idx < subNodes; idx++) {
+
+				// Fill the interpolant solution vector
+				for (int i = 0; i < k; i++) {
+					std::size_t nbh = neighbors[i * subNodes + idx];
+					for (int ii = 0; ii < FieldDimension; ii++) {
+						f[ii](i) = field[nbh + ii * totalNodes];
+					}
+				}
+
+				// Solve the interpolant system for each component of the vector field
+				Eigen::PartialPivLU<Matrix> system = LUMatrices[idx];
+				for (int i = 0; i < FieldDimension; i++) {
+					riWeights[i][idx] = system.solve(f[i]);
+				}
+			}
+		}
+
+		std::array<T, FieldDimension> Evaluate(unsigned int idx, const T* position, const T* qpoints, const std::size_t* neighbors, const rbf<T>& rbf, const Metric<T>& metric, unsigned int subNodes, unsigned int totalNodes, unsigned int k) {
+			T x = qpoints[idx];
+			T y = qpoints[idx + subNodes];
+			T z = qpoints[idx + 2 * subNodes];
+
+			std::array<T, FieldDimension> sf;
+			for (auto& s : sf)
+				s = 0.;
+
+			for (int i = 0; i < k; i++) {
+
+				std::size_t nbh = neighbors[i * subNodes + idx];
+
+				T dx = metric.CompDisplacement(x, position[nbh], 0);
+				T dy = metric.CompDisplacement(y, position[nbh + totalNodes], 1);
+				T dz = metric.CompDisplacement(z, position[nbh + 2 * totalNodes], 2);
+				T dr = sqrt(dx * dx + dy * dy + dz * dz);
+
+				T phi = rbf.Evaluate(dr);
+
+				for (int j = 0; j < FieldDimension; j++) {
+					sf[j] += (riWeights[j][idx])(i) * phi;
+				}
+
+			}
+
+			return sf;
+		}
+
+		std::unique_ptr<Eigen::PartialPivLU<Matrix>[]> LUMatrices;
+		std::array<std::unique_ptr<Vector[]>, FieldDimension> riWeights;
+		std::size_t numPoints;
+
+	private:
+		Matrix H;
+	};
+
+	typedef InterpolantND<float, 1> Interpolant_f_1D;
+	typedef InterpolantND<double, 1> Interpolant_d_1D;
+
+	typedef InterpolantND<float, 2> Interpolant_f_2D;
+	typedef InterpolantND<double, 2> Interpolant_d_2D;
+
+	typedef InterpolantND<float, 3> Interpolant_f_3D;
+	typedef InterpolantND<double, 3> Interpolant_d_3D;
+
 }}
 
 

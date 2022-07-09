@@ -10,7 +10,100 @@ using Dataset = FOFDSolver::Dataset;
 // Current use case for interpolating preimages is inefficient,
 // use to interpolate director field THEN copy before passing to isoGenerator
 #define TESTINTERP 0
-#define USE_RBFINTERP 0
+#define USE_RBFINTERP 1
+
+// Smooth isosurfaces
+void SmoothIsosurface(LC::Math::IsoVertex* verts, unsigned int* indices, unsigned int nVert, unsigned int nInd, int iterations, float smoothingValue, int smoothingType) {
+    unsigned int nTriangles = nInd / 3;
+
+    if (iterations < 1)
+        return;
+
+    // Extract vertex data
+    Smoothing::Mesh mesh;
+    mesh._vertices.resize(nVert);
+    mesh._normals.resize(nVert);
+    mesh._triangles.resize(nTriangles);
+
+    for (int i = 0; i < nVert; i++) {
+        mesh._vertices[i].x = verts[i].position[0];
+        mesh._vertices[i].y = verts[i].position[1];
+        mesh._vertices[i].z = verts[i].position[2];
+    }
+
+    for (int i = 0; i < nTriangles; i++) {
+        mesh._triangles[i][0] = indices[3 * i];
+        mesh._triangles[i][1] = indices[3 * i + 1];
+        mesh._triangles[i][2] = indices[3 * i + 2];
+    }
+
+    Smoothing::Vertex_to_1st_ring_vertices first_ring;
+    Smoothing::Vertex_to_face v_to_face;
+    v_to_face.compute(mesh);
+    first_ring.compute(mesh, v_to_face);
+    
+    if (smoothingType == 0)
+        mesh._vertices = Smoothing::explicit_laplacian_smoothing(mesh._vertices, first_ring._rings_per_vertex, iterations, smoothingValue);
+    else if (smoothingType == 1)
+        mesh._vertices = Smoothing::smooth_iterative(mesh._vertices, first_ring._rings_per_vertex, iterations, smoothingValue);
+    else if (smoothingType == 2)
+        mesh._vertices = Smoothing::implicit_laplacian_smoothing(mesh._vertices, first_ring._rings_per_vertex, iterations, smoothingValue);
+
+    // Copy data back
+    for (int i = 0; i < nVert; i++) {
+        verts[i].position[0] = mesh._vertices[i].x;
+        verts[i].position[1] = mesh._vertices[i].y;
+        verts[i].position[2] = mesh._vertices[i].z;
+    }
+
+    // Set normals to zero
+    for (unsigned int i = 0; i < nVert; i++) {
+        verts[i].normal[0] = 0;
+        verts[i].normal[1] = 0;
+        verts[i].normal[2] = 0;
+    }
+
+    // Recompute normals
+    for (int i = 0; i < nTriangles; i++) {
+
+        LC::Math::VECTOR3D vec1, vec2, normal;
+        unsigned int id0, id1, id2;
+        id0 = indices[i * 3];
+        id1 = indices[i * 3 + 1];
+        id2 = indices[i * 3 + 2];
+        vec1[0] = verts[id1].position[0] - verts[id0].position[0];
+        vec1[1] = verts[id1].position[1] - verts[id0].position[1];
+        vec1[2] = verts[id1].position[2] - verts[id0].position[2];
+        vec2[0] = verts[id2].position[0] - verts[id0].position[0];
+        vec2[1] = verts[id2].position[1] - verts[id0].position[1];
+        vec2[2] = verts[id2].position[2] - verts[id0].position[2];
+
+        LC::Math::CrossProduct(vec1, vec2, normal);
+
+        verts[id0].normal[0] += normal[0];
+        verts[id0].normal[1] += normal[1];
+        verts[id0].normal[2] += normal[2];
+        verts[id1].normal[0] += normal[0];
+        verts[id1].normal[1] += normal[1];
+        verts[id1].normal[2] += normal[2];
+        verts[id2].normal[0] += normal[0];
+        verts[id2].normal[1] += normal[1];
+        verts[id2].normal[2] += normal[2];
+    }
+
+    // Normalize normals
+    for (unsigned int i = 0; i < nVert; i++) {
+        float len = 0.0f;
+        for (int d = 0; d < 3; d++)
+            len += verts[i].normal[d] * verts[i].normal[d];
+
+        len = sqrt(len);
+
+        verts[i].normal[0] /= len;
+        verts[i].normal[1] /= len;
+        verts[i].normal[2] /= len;
+    }
+}
 
 enum class Axis { x = 0, y = 1, z = 2 };
 struct CrossX {
@@ -74,13 +167,24 @@ struct PionPreimage {
 };
 
 struct VortexLine {
-    LC::Math::Interpolant<LC::scalar> interpolant;
-    std::unique_ptr<LC::scalar[]> positions;
+
+    LC::Math::Interpolant_d_1D interpolant;
     std::unique_ptr<std::size_t[]> neighbors;
-    std::unique_ptr<LC::SphereArray> geometry;
+    std::unique_ptr<LC::scalar[]> positions;
+    std::unique_ptr<std::size_t[]> queryDomain;
+    Containers::Optional<LC::SphereArray> geometry;
     std::size_t numNodes;
     // 3x3x3
-    std::size_t knn = 27;
+    std::size_t knn = 35;
+    int maxPoints = 150;
+    int maxConic = 30;
+    // 3 times the background grid spacing
+    float pointSeparation = 2.5f;
+    bool draw = true;
+    Color4 knotColor{ 1.f, 0.f, 0.f, 1.f };
+    // Number of times line is post processed with Chaikin's method
+    int upSample = 2;
+    float tubeRadius = 1.f;
 };
 
 struct VortexKnot {
@@ -368,6 +472,7 @@ private:
     Containers::Optional<VortexShell> _vortexShell;
     Containers::Optional<PionPreimage> _pionPreimage;
     Containers::Optional<BaryonIsosurface> _baryonIsosurface;
+    VortexLine line;
 
     std::unique_ptr<Eigen::Quaternion<LC::scalar>[]> _quaternion_field;
     Containers::Optional<NematicVisual> _quaternion_plane;
@@ -827,6 +932,7 @@ void Sandbox::drawEvent() {
 
     polyRenderer();
 
+    
     sortObjects(_transparentNormalDrawables);
     if (_widget.drawSurfaces)
         _camera->draw(_transparentNormalDrawables);
@@ -845,6 +951,11 @@ void Sandbox::drawEvent() {
     if (_widget.drawProfile && _zprofile) {
         _zprofile->Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix());
     }
+
+    // Draw vortex line
+    if (line.geometry && _vortexKnot)
+        if (line.draw)
+            line.geometry->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
 
     if (_quaternion_plane)
         _quaternion_plane->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
@@ -993,8 +1104,6 @@ void Sandbox::generatePionTriplet() {
         nn[i] = data->directors[i];
 
     auto vNew = data->voxels;
-    for (int d = 0; d < 3; d++)
-        vNew[d] -= 4;
 
     unsigned int reduced_slice = vNew[0] * vNew[1];
     unsigned int reduced_vol = reduced_slice * vNew[2];
@@ -1014,24 +1123,38 @@ void Sandbox::generatePionTriplet() {
                            lambda = (0, 1, 0)
                            chi    = (0, 0, 1)
     */
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
+
+    for (int i = 0; i < vNew[0]; i++) {
+        for (int j = 0; j < vNew[1]; j++) {
+            for (int k = 0; k < vNew[2]; k++) {
                 
-                unsigned int full_idx = i + j * data->voxels[0] + k * slice;
+                unsigned int full_idx = i + j * vNew[0] + k * slice;
 
                 Eigen::Vector3f chi, tau;
 
                 Eigen::Vector3f lambda{ nn[full_idx], nn[full_idx + vol], nn[full_idx + 2 * vol] };
-                if (!valid_field[full_idx])
-                    chi = Eigen::Vector3f{ 0.f, 0.f, 1.0f };
+                if (!valid_field[full_idx]) {
+                    // Make chi perpendicular to n
+                    auto zhat = Eigen::Vector3f{ 0.f, 0.f, 1.0f };
+                    auto yhat = Eigen::Vector3f{ 0.f, 1.f, 0.f };
+                    chi = zhat;
+                    
+                    auto temp = lambda.cross(chi);
+                    if (temp.norm() > 0.)
+                        chi = lambda - lambda.dot(zhat) * lambda / lambda.squaredNorm();
+                    else {
+                        // Guaranteed to be nonzero
+                        chi = lambda - lambda.dot(yhat) * lambda / lambda.squaredNorm();
+                    }
+
+                    chi.normalize();
+                }
                 else
                     chi = Eigen::Vector3f{ chi_field[full_idx], chi_field[full_idx + vol], chi_field[full_idx + 2 * vol] };
 
                 tau = -lambda.cross(chi);
                 tau.normalize();
 
-                //auto q = fromBasis(tau, lambda, chi);
                 auto q = fromBasis(lambda,tau,chi);
 
                 _quaternion_field[full_idx].x() = q.x();
@@ -1042,7 +1165,8 @@ void Sandbox::generatePionTriplet() {
                 // normalize
                 _quaternion_field[full_idx].normalize();
 
-                // Note that q and -q refer to the same field configuration
+                if (q.w() != q.w() || q.x() != q.x() || q.y() != q.y() || q.z() != q.z())
+                    LC_WARN("Quaternion NAN");
                 
             }
         }
@@ -1064,12 +1188,12 @@ void Sandbox::generatePionTriplet() {
         for (int y = 0; y < data->voxels[1]; y++) {
             grid[x + vNew[0] *y] = Magnum::Vector3(-data->cell_dims[0] / 2. + x * dx, -data->cell_dims[1] / 2. + y * dy, 0.0f);
 
-            auto q = _quaternion_field[x + y * data->voxels[0] + int(data->voxels[2] / 2) * slice];
+            auto q = _quaternion_field[x + y * vNew[0] + int(vNew[2] / 2) * slice];
 
-            quaternions[x + data->voxels[0] * y].x() = q.x();
-            quaternions[x + data->voxels[0] * y].y() = q.y();
-            quaternions[x + data->voxels[0] * y].z() = q.z();
-            quaternions[x + data->voxels[0] * y].w() = q.w();
+            quaternions[x + vNew[0] * y].x() = q.x();
+            quaternions[x + vNew[0] * y].y() = q.y();
+            quaternions[x + vNew[0] * y].z() = q.z();
+            quaternions[x + vNew[0] * y].w() = q.w();
             
         }
     }
@@ -1086,8 +1210,8 @@ void Sandbox::generatePionTriplet() {
         Initialize the midplane of the pion triplet
     */
 
-    _quaternion_plane->dim1 = data->voxels[0];
-    _quaternion_plane->dim2 = data->voxels[1];
+    _quaternion_plane->dim1 = vNew[0];
+    _quaternion_plane->dim2 = vNew[1];
 
     std::function<Magnum::Vector3(void*, std::size_t)> access = [](void *data, std::size_t i) {
         Magnum::Vector3* mdata = (Magnum::Vector3*)data;
@@ -1600,6 +1724,14 @@ void Sandbox::handlePreimageWindow() {
             ImGui::SliderFloat("Preimage Alpha", &_widget.preimage_alpha, 0.0f, 1.0f);
             ImGui::SameLine();
             ImGui::Checkbox("Global preimage alpha", &_widget.global_preimage_alpha);
+            ImGui::InputInt("Smoothing iterations", &_widget.smoothingIterations);
+            ImGui::SliderFloat("Smoothing value", &_widget.smoothingValue, 0.25f, 200.f);
+            ImGui::TextColored({0.f, 1.f, 0.f, 1.f}, "Smoothing type");
+            ImGui::RadioButton("Explicit", &_widget.smoothingType, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Iterative", &_widget.smoothingType, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("Implicit", &_widget.smoothingType, 2);
 
             ImGui::PopItemWidth();
             int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2] });
@@ -1612,6 +1744,8 @@ void Sandbox::handlePreimageWindow() {
                 drawBoxes();
             }
         }
+
+        ImGui::TextColored({ 1.0f, 1.0f, 0.0f, 1.0f }, "------------------------------");
 
         ImGui::SliderInt("theta", &_widget.ptheta, 0, 180);
         ImGui::SameLine();
@@ -1722,9 +1856,28 @@ void Sandbox::handlePreimageWindow() {
             _vortexKnot = {};
         }
 
+        ImGui::PushItemWidth(100.f);
+        ImGui::InputInt("Max vortex points", &line.maxPoints);
+        ImGui::InputInt("Max conic angle (Deg)", &line.maxConic);
+        {
+            int knn = line.knn;
+            ImGui::InputInt("Nearest neighbors", &knn);
+            if (knn > 3)
+                line.knn = knn;
+        }
+        ImGui::InputFloat("Point separation", &line.pointSeparation);
+        ImGui::InputInt("Post-processing up-sampling", &line.upSample);
+        ImGui::InputFloat("Tube radius", &line.tubeRadius);
+        ImGui::PopItemWidth();
+
+
         if (_vortexKnot) {
+            ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw knot");
+            ImGui::Checkbox("Points", &line.draw);
             ImGui::SameLine();
-            ImGui::Checkbox("Draw knot", &_vortexKnot->draw);
+            ImGui::Checkbox("Tubular", &_vortexKnot->draw);
+            ImGui::SameLine();
+            ImGui::ColorEdit4("##RefColor", &line.knotColor[0], ImGuiColorEditFlags_NoInputs);
         }
 
         // Quaternion preimages
@@ -2410,7 +2563,7 @@ void Sandbox::handleModificationWindow() {
         }
 
         if (ImGui::Button("Helical field")) {
-            auto helical = LC::Math::Planar(2 * data->cell_dims[2], data->cell_dims[2]);
+            auto helical = LC::Math::Planar(2, 1);
             FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
             std::array<float, 3> pos;
@@ -2530,6 +2683,250 @@ void Sandbox::handleModificationWindow() {
             }
 
 
+            _widget.updateImage = true;
+        }
+
+        ImGui::PushItemWidth(100.f);
+        ImGui::InputFloat("Separation Distance", &_widget.separationDistance);
+        ImGui::InputInt("Theta points", &_widget.interactionThetaPoints);
+        ImGui::PopItemWidth();
+
+        if (ImGui::Button("Heliknoton interaction landscape")) {
+            // Get all points belonging to the heliknoton
+            unsigned int vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+
+            typedef Eigen::Vector3d Position;
+            typedef Eigen::Vector3d Director;
+            
+            struct Point {
+                Point() = default;
+                Point(const Position& p, const Director& d) : position(p), director(d) {}
+                Position position; Director director;
+            };
+
+            std::vector<Point> heliknoton;
+            heliknoton.reserve(vol);
+
+            Eigen::Matrix3d handedness0;
+            for (int a = 0; a < 3; a++) {
+                for (int b = 0; b < 3; b++) {
+                    handedness0(a, b) = 0.0;
+                }
+            }
+
+            // Normalized handedness to -1
+            handedness0(2, 2) = -1.0;
+
+            // Extract the heliknoton
+            for (int i = 0; i < data->voxels[0]; i++) {
+                for (int j = 0; j < data->voxels[1]; j++) {
+                    for (int k = 0; k < data->voxels[2]; k++) {
+                        // Diffmag for helical axis
+                        unsigned int idx = i + data->voxels[0] * j + data->voxels[0] * data->voxels[1] * k;
+
+                        // Get Chi matrix
+                        Eigen::Matrix3d handedness;
+                        if ((k <= data->voxels[2] - 3 && k >= 2) && (j <= data->voxels[1] - 3 && j >= 2) && (i <= data->voxels[0] - 3 && i >= 2))
+                            handedness = 0.5 / M_PI * LC::Math::HandednessTensor(i, j, k, data->directors.get(), data->voxels, data->cell_dims);
+                        else
+                            handedness(2, 2) = -1.0;
+
+
+                        // Compute cost
+                        double R2 = 0.;
+                        for (int a = 0; a < 3; a++) {
+                            for (int b = 0; b < 3; b++) {
+                                // R_abR_ab (proportional to "energy" in chi field)
+                                R2 += 0.5f * pow(handedness(a, b) - handedness0(a, b), 2);
+                            }
+                        }
+                        
+                        // Not part of the background
+                        if (R2 > 0.062) {
+                            // Add location to the heliknoton
+                            Position pos;
+                            pos[0] = data->cell_dims[0] * ((LC::scalar)i / (data->voxels[0] - 1) - 0.5);
+                            pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
+                            pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+
+                            Director dir;
+                            dir[0] = data->directors[idx];
+                            dir[1] = data->directors[idx + vol];
+                            dir[2] = data->directors[idx + 2 * vol];
+                            heliknoton.push_back({ pos, dir });
+                        }
+
+                       
+                    }
+                }
+            }
+
+            // Generate the helical background for the cell
+            auto helical = LC::Math::Planar(2, 1);
+            
+            // Create a new volume
+            std::array<LC::scalar, 3> cdims{ 8.,8.,8. };
+            std::array<int, 3> vNew = { int(_widget.npp * cdims[0]), int(_widget.npp * cdims[1]), int(_widget.npp * cdims[2]) };
+            data->directors = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
+            data->voltage = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), vNew[0], vNew[1], vNew[2], 3);
+
+            // Change voxels and cell dims
+            data->voxels = vNew;
+            data->cell_dims = cdims;
+
+            auto clear_heliknotons = [&]() {
+                // Initialize to the uniform helical bg
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int j = 0; j < data->voxels[1]; j++) {
+                        for (int k = 0; k < data->voxels[2]; k++) {
+                            LC::scalar z = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+                            auto bg = helical(0., 0., z);
+
+                            for (int d = 0; d < 3; d++) {
+                                nn(i, j, k, d) = bg[d];
+                            }
+                        }
+                    }
+                }
+            };
+
+            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+            auto embed_heliknoton = [&](const Eigen::Vector3d& translation_vector) {
+                // Embed the heliknoton in the new volume
+                for (const auto &p : heliknoton) {
+
+                    // Apply a rotation + translation to heliknoton position
+                    int translatez = translation_vector[2] / dz;
+                    LC::scalar dtheta = 2. * M_PI * data->chirality * dz;
+                    LC::scalar ctheta = cos(translatez * dtheta);
+                    LC::scalar stheta = sin(translatez * dtheta);
+
+                    Position newPos;
+                    Director newDir;
+
+                    newPos[0] = ctheta * p.position[0] - stheta * p.position[1];
+                    newPos[1] = stheta * p.position[0] + ctheta * p.position[1];
+                    newPos[2] = p.position[2];
+
+                    // Rotate director as well
+                    newDir[0] = ctheta * p.director[0] - stheta * p.director[1];
+                    newDir[1] = stheta * p.director[0] + ctheta * p.director[1];
+                    newDir[2] = p.director[2];
+
+                    // Extract new indices
+                    int i = (newPos[0] + 0.5 * data->cell_dims[0] + translation_vector[0]) / dx;
+                    int j = (newPos[1] + 0.5 * data->cell_dims[1] + translation_vector[1]) / dy;
+                    int k = (newPos[2] + 0.5 * data->cell_dims[2] + translation_vector[2]) / dz;
+
+                    // insert a translated+rotated heliknoton
+                    for (int d = 0; d < 3; d++)
+                        nn(i, j, k, d) = newDir[d];
+                }
+            };
+
+            // Separation distance
+            LC::scalar separation_dist = 1.8;
+            std::vector<Eigen::Vector3d> translations;
+
+            struct InteractionPotential {
+                LC::scalar theta;
+                LC::scalar phi;
+                LC::scalar energy;
+            };
+
+            struct RadialInteractionPotential {
+                LC::scalar radius;
+                LC::scalar theta;
+                LC::scalar energy;
+            };
+
+            // This is the information that will be extracted
+            //std::vector<InteractionPotential> interaction_data;
+            std::vector<RadialInteractionPotential> interaction_data;
+            int thetaPoints = _widget.interactionThetaPoints;
+            //int phiPoints = 10;
+            int rPoints = 1;
+
+            for (int ti = 0; ti < thetaPoints; ti++) {
+                for (int r = 0; r < rPoints; r++) {
+
+                    LC::scalar theta;
+                    if (thetaPoints > 1)
+                        theta = (LC::scalar)ti / (thetaPoints - 1) * M_PI * 0.5;
+                    else
+                        theta = M_PI * 0.5;
+                    LC::scalar x = (LC::scalar)r / rPoints;
+                    LC::scalar rr = _widget.separationDistance;
+
+                    RadialInteractionPotential interaction;
+                    interaction.theta = theta;
+                    interaction.radius = rr;
+
+                    Eigen::Vector3d displacement;
+                    displacement[0] = 0.5 * rr * cos(theta);
+                    displacement[1] = 0.5 * rr * sin(theta);
+                    displacement[2] = 0.0;
+
+                    translations.emplace_back(displacement);
+                    interaction_data.push_back(interaction);
+                }
+            }
+
+            // Iterate through translations, relaxing and computing energies
+
+            // Get the zero point energy
+            LC::scalar density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] /
+                ((data->voxels[0] - 1)* (data->voxels[1] - 1)* (data->voxels[2] - 1));
+
+            clear_heliknotons();
+            LC::scalar zero_point_en = solver->TotalEnergy() * density;
+
+            LC_INFO("Zero point energy = {0}", zero_point_en);
+
+#if 0
+            int count = 0;
+            for (const auto& translation : translations) {
+                clear_heliknotons();
+                embed_heliknoton(translation);
+                embed_heliknoton(-1.0 * translation);
+                // Set voltage to 3 V and update voltage 100 times
+                solver->SetVoltage(3, 100);
+                // Relax for 100 iterations
+                solver->Relax(100, true);
+                // Compute and save the energy
+                interaction_data[count].energy = solver->TotalEnergy() * density - zero_point_en;
+                LC_INFO("Energy: {2}, Iteration {0}/{1}", count+1, thetaPoints * rPoints, interaction_data[count].energy);
+                ++count;
+            }
+
+            // Save data
+            std::string saveName = "D:\\dev\\lclab2\\data\\interaction_data_theta_radius_close.bin";
+            
+            std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
+
+            if (!ofile) {
+                LC_WARN("Failed to save file <{0}>", saveName.c_str());
+            }
+            else {
+                // Write file version
+                ofile.write((char*)&interaction_data[0], interaction_data.size() * sizeof(InteractionPotential));
+            }
+#else
+            // See what the result is without doing the computation
+            for (const auto& translation : translations) {
+                embed_heliknoton(translation);
+                embed_heliknoton(-1.0 * translation);
+            }
+#endif
+
+
+            initVisuals();
             _widget.updateImage = true;
         }
 
@@ -2714,15 +3111,8 @@ void Sandbox::generateIsosurface() {
             color[3] = pimage.alpha;
         }
 
-#if TESTINTERP
-        // First pass field to interpolator...
-        LC::Math::Interp3Map<float> fieldInt(field.get(), vNew, { nterp,nterp,nterp });
-        for (int d = 0; d < 3; d++) vNew[d] *= nterp;
 
-        _isoGenerator.GenerateSurface(fieldInt, pimage.isoLevel, vNew, cell, color);
-#else
         _isoGenerator.GenerateSurface(field.get(), pimage.isoLevel, vNew, cell, color);
-#endif
 
         if (_isoGenerator.isSurfaceValid()) {
 
@@ -2731,6 +3121,8 @@ void Sandbox::generateIsosurface() {
 
             LC::Math::IsoVertex* verts = _isoGenerator.ReleaseSurfaceVertices();
             unsigned int* indices = _isoGenerator.ReleaseSurfaceIndices();
+
+            SmoothIsosurface(verts, indices, nVert, nInd, _widget.smoothingIterations, _widget.smoothingValue, _widget.smoothingType);
 
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
 
@@ -2764,96 +3156,330 @@ void Sandbox::generateIsosurface() {
     std::array<float,3> cellf = {(float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2]};
 
     if (_vortexKnot || !_widget.chiColorScheme) {
-        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true);
+        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _vortexKnot->isoLevel);
     }
 
     if (_vortexKnot) {
 
         // Replace this with RBF interpolant to refine and resolve a very fine vortex line
-        // WARNING: DOES NOT CHECK IF NEIGHBORS ARE IN THE COMPUTED VOLUME!!!
 #if USE_RBFINTERP
-        // Create the vortex line
-        VortexLine line;
-
         // Define the rbf
         LC::Math::poly_spline<LC::scalar> rbf;
         LC::Math::Metric<LC::scalar> metric;
-        metric.SetBCS(LC::Math::PBC({ true, true, true }));
+        metric.SetBCS(LC::Math::PBC({ false, false, false }));
         metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[1]);
+        auto vox = data->voxels;
+        std::size_t slice = vox[0] * vox[1];
+        std::size_t vol = slice * vox[2];
 
         if (ill_defined_chi) {
             line.numNodes = ill_defined_chi;
             // Fill data
-            line.positions = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * line.numNodes]);
             line.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[line.knn * line.numNodes]);
-
-            std::unique_ptr<LC::scalar[]> pos_data(new LC::scalar[3 * reduced_vol]);
-            std::unique_ptr<LC::scalar[]> chi_field_scalar(new LC::scalar[3 * reduced_vol]);
+            line.queryDomain = std::unique_ptr<std::size_t[]>(new std::size_t[line.numNodes]);
+            line.positions = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * line.numNodes]);
+            std::unique_ptr<LC::scalar[]> pos_data(new LC::scalar[3 * vol]);
+            std::unique_ptr<LC::scalar[]> chi_discriminant(new LC::scalar[vol]);
             
             int ill_idx = 0;
-            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
-            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+            LC::scalar dx = data->cell_dims[0] / (vox[0] - 1);
+            LC::scalar dy = data->cell_dims[1] / (vox[1] - 1);
+            LC::scalar dz = data->cell_dims[2] / (vox[2] - 1);
 
-            for (int i = 0; i < reduced_dims[0]; i++) {
-                for (int j = 0; j < reduced_dims[1]; j++) {
-                    for (int k = 0; k < reduced_dims[2]; k++) {
+            Eigen::Matrix3d handedness;
+            Eigen::Vector3d startpoint;
+            unsigned int within_tolerance = 0;
 
-                        unsigned int sub_idx = i + j * reduced_dims[0] + k * reduced_slice;
+            for (int i = 0; i < vox[0]; i++) {
+                for (int j = 0; j < vox[1]; j++) {
+                    for (int k = 0; k < vox[2]; k++) {
+
+                        unsigned int sub_idx = i + j * vox[0] + k * slice;
 
                         // These positions are not correctly translated to the center if there is a cropping...
-                        pos_data[sub_idx] = i * dx - data->cell_dims[0] / 2.;
-                        pos_data[sub_idx + reduced_vol] = j * dy - data->cell_dims[1] / 2.;
-                        pos_data[sub_idx + 2 * reduced_vol] = k * dz - data->cell_dims[2] / 2.;
+                        pos_data[sub_idx] = i * dx - data->cell_dims[0] * 0.5;
+                        pos_data[sub_idx + vol] = j * dy - data->cell_dims[1] * 0.5;
+                        pos_data[sub_idx + 2 * vol] = k * dz - data->cell_dims[2] * 0.5;
 
-                        chi_field_scalar[sub_idx] = chi_field[sub_idx];
-                        chi_field_scalar[sub_idx + reduced_vol] = chi_field[sub_idx + reduced_vol];
-                        chi_field_scalar[sub_idx + 2 * reduced_vol] = chi_field[sub_idx + 2 * reduced_vol];
+                        handedness = 0.5 / M_PI * LC::Math::HandednessTensor(i, j, k, field_nn.get(), vox, cellf);
+
+                        LC::scalar tr2A = pow(handedness.trace(), 2);
+                        LC::scalar trA2 = (handedness * handedness).trace();
+
+                        chi_discriminant[sub_idx] = 2. * trA2 - tr2A;
 
                         // Found a place to interp about with rbf
                         if (!valid_field[sub_idx]) {
-                            // Add it to the list
                             line.positions[ill_idx] = pos_data[sub_idx];
-                            line.positions[ill_idx + line.numNodes] = pos_data[sub_idx + reduced_vol];
-                            line.positions[ill_idx + 2 * line.numNodes] = pos_data[sub_idx + 2 * reduced_vol];
-
-                            ill_idx++;
+                            line.positions[ill_idx + line.numNodes] = pos_data[sub_idx + vol];
+                            line.positions[ill_idx + 2 * line.numNodes] = pos_data[sub_idx + 2 * vol];
+                            line.queryDomain[ill_idx++] = sub_idx;
                         }
+                        else if (abs(1. - chi_discriminant[sub_idx]) < _vortexKnot->isoLevel) {
+                            ++within_tolerance;
+                        }
+
                         
                     }
                 }
-
             }
 
-            // Find nearest knn neighbors
+            LC_INFO("{0}% points within tolerance of {1}% of q^2", (float)within_tolerance/vol * 100.f, 100.f * _vortexKnot->isoLevel);
 
+            startpoint(0) = pos_data[line.queryDomain[0]];
+            startpoint(1) = pos_data[line.queryDomain[0] + vol];
+            startpoint(2) = pos_data[line.queryDomain[0] + 2 * vol];
 
-            // =====================
-            // Note that nodes that are already ill-defined cannot be used in the interpolant!!!
+            std::unique_ptr<std::size_t[]> nbs(new std::size_t[line.numNodes]);
 
-            // Position and nearest neighbor data has been filled!
-            // Compute the factorization!
-            line.interpolant.ComputeFactorization(pos_data.get(), line.neighbors.get(), rbf, metric, line.numNodes, reduced_vol, line.knn);
+            auto EvaluatePoint = [&](Eigen::Vector3d& p) {
+                // Find nearest knn neighbors in global grid corresponding to query point
+                LC::Algorithm::knn_c(pos_data.get(), vol, &p(0), 1, metric, line.knn, (LC::scalar*)0, nbs.get());
 
-            // Compute the weights
-            line.interpolant.ComputeWeights(chi_field_scalar.get(), line.neighbors.get(), line.numNodes, reduced_vol, line.knn);
+                // Position and nearest neighbor data has been filled!
+                // Compute the factorization!
+                line.interpolant.ComputeFactorization(pos_data.get(), nbs.get(), rbf, metric, 1, vol, line.knn);
+
+                // Compute the weights
+                line.interpolant.ComputeWeights(chi_discriminant.get(), nbs.get(), 1, vol, line.knn);
+
+                return line.interpolant.Evaluate(0, pos_data.get(), &p(0), nbs.get(),
+                    rbf, metric, 1, vol, line.knn);
+            };
 
             // Generate singular line
             // **replace line.positions with query points based on line.positions data (maybe just volumetrically
             // increase number of points about line?)
-            LC::scalar* query_points = line.positions.get();
+            // This data can be whatever I want
 
-            for (int idx = 0; idx < line.numNodes; idx++) {
-                auto chi_val = line.interpolant.Evaluate(idx, pos_data.get(), query_points, line.neighbors.get(),
-                    rbf, metric, line.numNodes, reduced_vol, line.knn);
+            std::vector<Eigen::Vector3d> qpoints, qpoints_refined;
+            // Starting point
+            qpoints.emplace_back(startpoint);
+
+            // Admissible angle of deviation
+            LC::scalar deviationAngle = line.maxConic;
+            LC::scalar deviationAngleRad = deviationAngle * M_PI / 180.;
+
+            // Ball radius to choose next node
+            LC::scalar dr = (dx + dy + dz) / 3.;
+            LC::scalar radius = line.pointSeparation * dr;
+
+            auto Convert3DPointToIdx = [&](const Eigen::Vector3d& pt) {
+                // Convert potential point to index space of pos_data
+                int px = (pt.x() / data->cell_dims[0] + 0.5) * (vox[0] - 1);
+                int py = (pt.y() / data->cell_dims[1] + 0.5) * (vox[1] - 1);
+                int pz = (pt.z() / data->cell_dims[2] + 0.5) * (vox[2] - 1);
+
+                return px + vox[0] * py + slice * pz;
+            };
+
+            auto ConvertIdxTo3DPoint = [&](const unsigned int& idx) {
+                // Convert potential point to index space of pos_data
+                int px = idx / slice;
+                int py = (idx - px * slice) / vox[0];
+                int pz = idx - py * vox[0] - px * slice;
+
+                Eigen::Vector3d pt((px / LC::scalar(vox[0] - 1) - 0.5) * data->cell_dims[0],
+                    (py / LC::scalar(vox[1] - 1) - 0.5) * data->cell_dims[1],
+                    (pz / LC::scalar(vox[2] - 1) - 0.5) * data->cell_dims[2]
+                );
+
+                return pt;
+            };
+
+            // Choose second node from most negative neighboring node starting at cube radius * (-1,-1,-1) from current pos
+
+            int resolutionX = 20;
+            int resolutionY = 20;
+            int resProd = resolutionX * resolutionY;
+
+            std::unique_ptr<Eigen::Vector3d[]> solid_angle_pts(new Eigen::Vector3d[resProd]);
+
+
+            // f(chi) values at each solid angle point
+            std::unique_ptr<LC::scalar[]> solid_angle_f(new LC::scalar[resProd]);
+
+            auto NextPosition = [&](const Eigen::Vector3d& e1, const Eigen::Vector3d& e2, const Eigen::Vector3d& e3, LC::scalar deviation) {
+               
+                // Parametrize set of points within solid angle that coincide with pos_data
+                Eigen::Vector3d potential_point;
+
+                for (int j = 0; j < resolutionY; j++) {
+                    for (int i = 0; i < resolutionX; i++) {
+                        LC::scalar theta = (j+1) / LC::scalar(resolutionY + 1) * deviation;
+                        LC::scalar phi = i / LC::scalar(resolutionX) * 2. * M_PI;
+                        potential_point = qpoints[qpoints.size() - 1]
+                            + radius * sin(theta) * cos(phi) * e1
+                            + radius * sin(theta) * sin(phi) * e2
+                        + radius * cos(theta) * e3;
+
+                        solid_angle_pts[i + resolutionX * j] = potential_point;
+                        solid_angle_f[i + resolutionX * j] = EvaluatePoint(potential_point)[0];
+
+                    }
+                }
+
+                LC::scalar fmin = solid_angle_f[0];
+                unsigned int bestIdx = 0;
+
+                // Look at all solid angle points for the most negative
+                // Can change this to be Monte Carlo
+                for (int i = 1; i < resProd; i++) {
+
+                    if (solid_angle_f[i] < fmin) {
+                        fmin = solid_angle_f[i];
+                        bestIdx = i;
+                    }
+                }
+
+                return solid_angle_pts[bestIdx];
+            };
+
+            {
+                Eigen::Vector3d xhat{ 1., 0., 0. };
+                Eigen::Vector3d yhat{ 0., 1., 0. };
+                Eigen::Vector3d zhat{ 0., 0., 1. };
+                Eigen::Vector3d bestPos = NextPosition(xhat, yhat, zhat, M_PI);
+
+                if (qpoints[0] == bestPos)
+                    LC_INFO("Error: Circulation direction is zero");
+
+                qpoints.emplace_back(bestPos);
+
+                LC_INFO("Point added (Total = {0})", qpoints.size());
             }
 
-            // Create tubular surface from singular line
+
+            // With two points, a circulation direction can now be established
+            Eigen::Vector3d circulationDirection = qpoints[1] - qpoints[0];
+            circulationDirection.normalize();
+            // Initial circulation direction (needed to close the loop)
+            Eigen::Vector3d circulationDirection0 = circulationDirection;
+            Eigen::Vector3d perp1, perp2;
+
+            auto FindOrthonormalBasis = [&]() {
+                perp1 = circulationDirection.cross(Eigen::Vector3d(0., 0., 1.));
+                LC::scalar p1norm2 = perp1.squaredNorm();
+
+                if (p1norm2) {
+                    perp1 = perp1 / sqrt(p1norm2);
+                }
+                else {
+                    // 0,1,0 is guaranteed nonzero since circ dir is collinear to 0,0,1
+                    perp1 = circulationDirection.cross(Eigen::Vector3d(0., 1., 0.));
+                    perp1.normalize();
+                }
+
+                // Compute perp2
+                perp2 = circulationDirection.cross(perp1);
+            };
+
+            // Begin path finding algorithm
+            // 1. Look for most optimal direction (most negative) within solid angle about circulation direction
+            // - Parametrize disk by finding two perpendicular axes to circulationDirection
+            // - Look for most optimal point
+            // 2. Add point to qpoints
+            // 3. Update circulation direction
+            // 4. Repeat
+
+            resolutionX = 10;
+            resolutionY = 6;
+            resProd = resolutionX * resolutionY;
+
+            solid_angle_pts = std::unique_ptr<Eigen::Vector3d[]>(new Eigen::Vector3d[resProd]);
+
+            
+            // f(chi) values at each solid angle point
+            solid_angle_f = std::unique_ptr<LC::scalar[]>(new LC::scalar[resProd]);
+
+            // Repeat until loop has been fully traversed
+            while (qpoints.size() < line.maxPoints) {
+                // Using circulation direction as the zhat axis, define two orthogonal directions
+                FindOrthonormalBasis();
+
+                Eigen::Vector3d pos = NextPosition(perp1, perp2, circulationDirection, deviationAngleRad);
+
+                // Update circulation direction and add point
+                circulationDirection = pos - qpoints[qpoints.size() - 1];
+                circulationDirection.normalize();
+
+                if ((pos - qpoints[0]).norm() <= 1.5 * radius 
+                    && circulationDirection0.dot(circulationDirection) > 0. 
+                    && (qpoints[0] - pos).dot(circulationDirection0) > 0.) {
+                    // End of the line
+                    // Remove the initial point and add the final point (better estimate)
+                    // Note that this could be used used to create a passover of the line
+                    // with increased accuracy
+                    qpoints.erase(qpoints.begin());
+                    qpoints.emplace_back(pos);
+                    break;
+                }
+                else {
+                    // Keep adding points like usual
+                    qpoints.emplace_back(pos);
+                    LC_INFO("Point added (Total = {0})", qpoints.size());
+                }
+            }
+
+            // Refine points via Chaikin's method twice
+
+            for (int it = 0; it < line.upSample; it++) {
+
+                qpoints_refined.resize(2 * qpoints.size());
+
+                for (int i = 0; i < qpoints.size(); i++) {
+                    int ip1 = (i + 1) % qpoints.size();
+                    qpoints_refined[2 * i] = 0.75 * qpoints[i] + 0.25 * qpoints[ip1];
+                    qpoints_refined[2 * i + 1] = 0.25 * qpoints[i] + 0.75 * qpoints[ip1];
+                }
+                qpoints = qpoints_refined;
+            }
+
+            // Export points
+            line.geometry = LC::SphereArray{};
+
+            std::function<Vector3(void*, std::size_t)> access = [](void *points, std::size_t i) {
+                Vector3 result;
+                result[0] = ((Eigen::Vector3d*)points + i)->x();
+                result[1] = ((Eigen::Vector3d*)points + i)->y();
+                result[2] = ((Eigen::Vector3d*)points + i)->z();
+                return result;
+            };
+
+            line.geometry->polyRadius = 0.25f / (float)line.upSample * radius;
+            line.geometry->Init(&qpoints_refined[0].x(), access, qpoints_refined.size());
+
+            // Pass points to tubular surface
+            LC::TubularSurface tsurface;
+            tsurface.curve = qpoints_refined;
+            tsurface.radius = line.tubeRadius * 0.5f * dr;
+            // Note tubular surface is not compiled, vertices and indices are only generated
+            tsurface.Init();
+
+            // Set colors
+            for (int i = 0; i < tsurface.data.size(); i++)
+                tsurface.data[i].color = line.knotColor;
+
+            if (tsurface.data.size() && tsurface.indices.size()) {
+
+                LC::Math::IsoVertex* verts = (LC::Math::IsoVertex*)&tsurface.data[0];
+                unsigned int* indices = &tsurface.indices[0];
+
+                // Create the usual surface
+                _vortexKnot->surface.Init((LC::Surface::Vertex*)verts, tsurface.data.size(),
+                    indices, tsurface.indices.size(), _widget.preimage_translate);
+
+                _vortexKnot->mesh = _vortexKnot->surface.Mesh();
+
+                // Add mesh to the scene
+                new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexKnot->mesh), _vortexKnot->draw, _transparentNormalDrawables };
+            }
         }
 
 
         
 #else
+
         gen2.GenerateSurface(valid_field.get(), 0, vNew, cell, color1);
 
         if (gen2.isSurfaceValid()) {
@@ -2863,6 +3489,8 @@ void Sandbox::generateIsosurface() {
 
             LC::Math::IsoVertex* verts = gen2.ReleaseSurfaceVertices();
             unsigned int* indices = gen2.ReleaseSurfaceIndices();
+
+            SmoothIsosurface(verts, indices, nVert, nInd, _widget.smoothingIterations, _widget.smoothingValue, _widget.smoothingType);
 
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
 
@@ -2890,7 +3518,7 @@ void Sandbox::generateIsosurface() {
         color2[3] = _vortexShell->alpha;
         unsigned int vol = vNew[0] * vNew[1] * vNew[2];
         shell = std::unique_ptr<float[]>(new float[vol]);
-        Eigen::Matrix3d handedness0;
+        Eigen::Matrix3d handedness0, handedness;
         for (int a = 0; a < 3; a++) {
             for (int b = 0; b < 3; b++) {
                 handedness0(a, b) = 0.0;
@@ -2905,15 +3533,12 @@ void Sandbox::generateIsosurface() {
                 for (int k = 0; k < vNew[2]; k++) {
                     // Diffmag for helical axis
                     unsigned int idx = i + vNew[0] * j + vNew[0] * vNew[1] * k;
-
-                    // Get Chi matrix
-                    Eigen::Matrix3d handedness;
+                    
                     if ((k <= vNew[2] - 3 && k >= 2) && (j <= vNew[1] - 3 && j >= 2) && (i <= vNew[0] - 3 && i >= 2))
                         handedness = 0.5 / M_PI * LC::Math::HandednessTensor(i, j, k, field_nn.get(), vNew, cellf);
                     else
-                        handedness(2, 2) = -1.0;
+                        handedness(2, 2) = -1.;
                    
-                    
                     // Compute cost
                     shell[idx] = 0.0f;
                     double R2 = 0.;
@@ -2923,6 +3548,7 @@ void Sandbox::generateIsosurface() {
                            R2 += 0.5f * pow(handedness(a, b) - handedness0(a, b), 2);
                         }
                     }
+
                     shell[idx] = abs(R2 - _vortexShell->queryValue);
 
                     //shell[idx] = pow(chi_field[idx + 2 * size] - 1.0f, 2);
@@ -2951,12 +3577,23 @@ void Sandbox::generateIsosurface() {
 
             unsigned int nVert = gen.NumSurfaceVertices();
             unsigned int nInd = gen.NumSurfaceIndices();
+            unsigned int nTriangles = nInd / 3;
 
             LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
             unsigned int* indices = gen.ReleaseSurfaceIndices();
 
+            SmoothIsosurface(verts, indices, nVert, nInd, 1, 200.f, 2);
+
             // Go through vertices and color according to vortex shell tilt
             // Note needs to include preimage_translate since embedded volumes can be chosen!
+
+            // Reduced quaternion space SU2/Q8
+            Eigen::Matrix3d I3, A1, A2, A3;
+            I3 = Eigen::Matrix3d::Identity();
+            A1 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(1., -1., -1.);
+            A2 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., 1., -1.);
+            A3 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., -1., 1.);
+
             for (int i = 0; i < nVert; i++) {
                 // extract indices from position
                 int xx = (verts[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
@@ -2971,6 +3608,7 @@ void Sandbox::generateIsosurface() {
                 // 1 == quaternion coloring
                 if (!_widget.chiColorScheme) {
                     unsigned int idx = xx + yy * vNew[0] + zz * slc;
+
                     float chi_x = chi_field[idx];
                     float chi_y = chi_field[idx + vol];
                     float chi_z = chi_field[idx + 2 * vol];
@@ -2993,16 +3631,25 @@ void Sandbox::generateIsosurface() {
                     if (_quaternion_field)
                         q = _quaternion_field[idx];
 
+                    // Project q onto SU2/Q8
+                    auto projection = q.w() * I3 + q.x() * A1 + q.y() * A2 + q.z() * A3;
 
-                    LC::scalar max_comp = abs(q.x());
+                    // Make comparisons based on different components
 
-                    if (max_comp < abs(q.y())) {
+                    // 2q.x() - 2q.y() < 0 ? then y > x
+                    int comp = 0;
+                    if (projection(0,0) - projection(1,1) > 0.0) {
+                        comp = 1;
+                    }
+                    // 2q.x/y() - 2q.z() < 0 ? then z > x/y
+                    if (projection(comp, comp) - projection(2, 2) > 0.0) {
+                        comp = 2;
+                    }
+
+                    if (comp == 1)
                         tilt_color = Color3::red();
-                        max_comp = abs(q.y());
-                    }
-                    if (max_comp < abs(q.z())) {
+                    else if (comp == 2)
                         tilt_color = Color3::green();
-                    }
                 }
 
                 // Apply the color
@@ -3131,14 +3778,17 @@ void Sandbox::generateIsosurface() {
 
         Eigen::Quaterniond pi(0., _pionPreimage->pi1, _pionPreimage->pi2, _pionPreimage->pi3);
 
-        if (pi.squaredNorm() > 1e-6) pi.normalize();
-
         for (int i = 0; i < baryVol; i++) {
             Eigen::Quaterniond q = _quaternion_field[i];
+
+            // Get sin(theta/2)
+            double pix = abs(q.x());
+            double piy = abs(q.y());
+            double piz = abs(q.z());
    
-            iso[i] = pow(q.x() - pi.x(), 2)
-                + pow(q.y() - pi.y(), 2)
-                + pow(q.z() - pi.z(), 2);
+            iso[i] = q.w() * q.w() + pow(pix - abs(pi.x()), 2)
+                + pow(piy - abs(pi.y()), 2)
+                + pow(piz - abs(pi.z()), 2);
         }
 
 

@@ -8,16 +8,23 @@
 namespace LC { namespace Math {
 	
 	// Compute the handedness tensor relative to the director field
-	Eigen::Matrix3d HandednessTensor(int i, int j, int k, const float* nn, const std::array<int, 3>& N, const std::array<float, 3>& cell) {
+	template <typename T>
+	Eigen::Matrix3d HandednessTensor(int i, int j, int k, const T* nn, const std::array<int, 3>& N, const std::array<T, 3>& cell) {
 
 		int Nx = N[0];
 		int Ny = N[1];
 		int Nz = N[2];
 
+		if (i < 2 || j < 2 || k < 2 || i > Nx - 3 || j > Ny - 3 || k > Nz - 3) {
+			Eigen::Matrix3d chi = Eigen::Matrix3d::Zero();
+			chi(2, 2) = -2. * M_PI;
+			return chi;
+		}
+
 		unsigned int slice = N[1] * N[0];
 		unsigned int vol = N[2] * slice;
 
-		std::array<float, 3> dr = { cell[0] / (N[0] - 1), cell[1] / (N[1] - 1), cell[2] / (N[2] - 1) };
+		std::array<T, 3> dr = { cell[0] / (N[0] - 1), cell[1] / (N[1] - 1), cell[2] / (N[2] - 1) };
 		Eigen::Matrix3d Dn;
 		Eigen::Matrix3d chi;
 		Eigen::Vector3d n;
@@ -108,7 +115,7 @@ namespace LC { namespace Math {
 	}
 
 	// Compute the chirality (helical) field relative to the director field
-	unsigned int ChiralityField(const float *nn, std::unique_ptr<float[]> &chi_field, const std::array<int, 3> &N, const std::array<float, 3> &cell, std::unique_ptr<short[]>& valid_field, bool init = false) {
+	unsigned int ChiralityField(const float *nn, std::unique_ptr<float[]> &chi_field, const std::array<int, 3> &N, const std::array<float, 3> &cell, std::unique_ptr<short[]>& valid_field, bool init = false, float vortexTolerance = 0.05f) {
 		
 		int Nx = N[0];
 		int Ny = N[1];
@@ -155,13 +162,23 @@ namespace LC { namespace Math {
 					}
 					else {
 						chi = HandednessTensor(i, j, k, nn, N, cell);
-
-						// Compute eigenvalue/eigenvector
-						if (!eig.Compute(chi)) {
+						scalar trA2 = (chi * chi).trace();
+						scalar tr2A = pow(chi.trace(), 2);
+						// Normalized to 1
+						scalar discriminant = (2. * trA2 - tr2A) * 0.25 / M_PI / M_PI;
+						
+						// Behavior:
+						// Discriminant is q^2 = 1 for nonsingular field
+						// Discriminant is 0 for singular field
+						// 
+						// Invalid eigenvalue condition (default is 5% tolerance)
+						if (discriminant <= vortexTolerance) {
 							valid_field[cur_idx] = 0;
+							eig.eigenvector = Eigen::Vector3d{ 0., 0., 1. };
 							bad_eig++;
 						}
 						else {
+							eig.Compute(chi);
 							valid_field[cur_idx] = 1;
 						}
 

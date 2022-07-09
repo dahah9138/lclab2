@@ -46,9 +46,13 @@
 #include "src/math/Derivative.h"
 #include "src/math/ChiralityField.h"
 #include "src/math/ScalarOrderParameter.h"
+#include "src/math/Graph.h"
 
 // Algorithms
 #include "src/algorithm/cpuknn.h"
+
+// Smoothing algorithm
+#include "src/smoothing/smooth_alg.hpp"
 
 #ifndef LC_CONSOLE_APP
 	// Graphics
@@ -59,6 +63,7 @@
 	#include "src/graphics/NormalSheet.h"
 	#include "src/graphics/Torus.h"
 	#include "src/graphics/NormalTorus.h"
+	#include "src/graphics/TubularSurface.h"
 	#include "src/graphics/DynamicColorSheet.h"
 	#include "src/graphics/Surface.h"
 	#include "src/graphics/TransparentDrawable.h"

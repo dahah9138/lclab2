@@ -77,7 +77,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _solver = std::make_unique<AppSolver>();
 
     // Load a director file
-    _header.readFile = "D:\\dev\\lclab2\\data\\simulations\\homeotropic\\small_toron1.lmt";
+    _header.readFile = "D:\\dev\\lclab2\\data\\simulations\\homeotropic\\smallest_toron.lmt";
     _solver->Import(_header);
     LC_INFO("Imported file {0}", _header.readFile.c_str());
 
@@ -87,10 +87,24 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
     // Cell dims stored as d/p
     auto celldims = data->cell_dims;
+    LC::scalar cvol = 1.;
     LC::scalar pitch = _widget.pitch * 1e-6; // m
     for (int d = 0; d < 3; d++) {
         celldims[d] *= pitch;
+        cvol *= celldims[d] / (data->voxels[d] - 1);
     }
+
+
+    // Update element masses
+    // Note a 10 um x 10 um x 10 um element
+    // has a mass of 10^-12 kg
+
+    //_sim->Parameters().bulkMass *= cvol / 10e-15;
+    //_sim->Parameters().surfaceMass *= cvol / 10e-15;
+    //_sim->Parameters().edgeMass *= cvol / 10e-15;
+    //_sim->Parameters().cornerMass *= cvol / 10e-15;
+
+
     _sim->InitVerticesAndElements(data->directors.get(), data->voxels, celldims);
 
 
@@ -308,7 +322,21 @@ void Sandbox::mainWindow() {
 
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar;
     ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::Begin("lclab2", 0, window_flags);
+    ImGui::Begin("film activation", 0, window_flags);
+
+    // Simulation details
+    {
+        std::string pitch = "pitch = " + std::to_string(_widget.pitch) + " um";
+        ImGui::TextColored({ 0.f, 1.f, 0.f, 1.f }, pitch.c_str());
+        std::string dims = "Cell dimensions = ("
+            + std::to_string(_sim->Parameters().cell_dims[0] * 1e6)
+            + " um X "
+            + std::to_string(_sim->Parameters().cell_dims[1] * 1e6)
+            + " um X "
+            + std::to_string(_sim->Parameters().cell_dims[2] * 1e6)
+            + " um)";
+        ImGui::TextColored({ 0.f, 1.f, 0.f, 1.f }, dims.c_str());
+    }
 
     ImGui::SliderFloat("Node scale", &_film->scale, 0.125f, 10.0f);
     ImGui::SliderInt("Chain extensibility", &_sim->Parameters().I_m, 4, 30);
@@ -322,7 +350,7 @@ void Sandbox::mainWindow() {
     _sim->Parameters().mu = mu * 1e3;
 
     float UdS = _sim->Parameters().UdS *1e-3;
-    ImGui::SliderFloat("UdS (kPa)", &UdS, -80.f, 800.f);
+    ImGui::SliderFloat("UdS (kPa)", &UdS, -800.f, 800.f);
     _sim->Parameters().UdS = UdS * 1e3;
 
     float dT = _sim->Parameters().dT * 1e9;

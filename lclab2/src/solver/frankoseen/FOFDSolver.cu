@@ -788,11 +788,17 @@ namespace Electric { namespace FD {
 		for (int d = 0; d < 3; d++)
 			if (r[d] == 0 || r[d] == vXi[d] - 1) return;
 
+		scalar K = (k11 + k22 + k33) / 3.;
+
+		// Reduced elastic constants
+		k11 /= K;
+		k22 /= K;
+		k33 /= K;
 
 		scalar nx000 = nn[idx];
 		scalar ny000 = nn[idx + Nd];
 		scalar nz000 = nn[idx + 2 * Nd];
-		scalar Xi = 8.8541878 * ea / (k11 + k22 + k33) * 3.;
+		scalar Xi = 8.8541878 * ea / K;
 
 		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
 		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);

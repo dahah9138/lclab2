@@ -697,15 +697,55 @@ namespace Electric {
 			data.epar, data.eper, &data.cell_dims[0], data.chirality);
 #endif
 
-		scalar sum = 0.0;
+		scalar total_energy = 0.0;
 
-		std::size_t N = data.voxels[0] * data.voxels[1] * data.voxels[2];
+		std::size_t slice = data.voxels[0] * data.voxels[1];
+		std::size_t N = slice * data.voxels[2];
 
-		for (int i = 0; i < N; i++) {
-			sum += data.en_density[i];
+		std::unique_ptr<scalar[]> density2D(new scalar[data.voxels[0] * data.voxels[1]]);
+		std::unique_ptr<scalar[]> density1D(new scalar[data.voxels[0]]);
+
+		auto index = [&](int i, int j, int k) {
+			unsigned int idx = i + data.voxels[0] * j + slice * k;
+			return idx;
+		};
+
+		for (int x = 0; x < data.voxels[0]; x++) {
+			for (int y = 0; y < data.voxels[1]; y++) {
+				scalar znew = 0.0;
+				scalar zprev = 0.0;
+				density2D[x + y * data.voxels[0]] = 0.0;
+
+				for (int z = 1; z < data.voxels[2]; z++) {
+
+					zprev = data.en_density[index(x, y, z - 1)];
+					znew = data.en_density[index(x, y, z)];
+					density2D[x + y * data.voxels[0]] += 0.5 * (zprev + znew);
+
+				}
+			}
 		}
 
-		return sum;
+		density1D[0] = 0.0;
+
+		for (int x = 1; x < data.voxels[0]; x++) {
+			density1D[x] = 0.0;
+			scalar znew = 0.0;
+			scalar zprev = 0.0;
+
+			for (int y = 1; y < data.voxels[1]; y++) {
+				zprev = density2D[x - 1 + y * data.voxels[0]];
+				znew = density2D[x + y * data.voxels[0]];
+				density1D[x] += 0.5 * (zprev + znew);
+			}
+		}
+		for (int x = 1; x < data.voxels[0]; x++) {
+			scalar zprev = density1D[x - 1];
+			scalar znew = density1D[x];
+			total_energy += 0.5 * (zprev + znew);
+		}
+
+		return total_energy;
 	}
 
 	scalar FOFDSolver::TotalEnergyFunctionalDerivativeAbsSum() {
@@ -729,15 +769,55 @@ namespace Electric {
 			data.epar, data.eper, &data.cell_dims[0], data.chirality);
 #endif
 
-		long double sum = 0.0;
+		scalar total_energy = 0.0;
 
-		std::size_t N = data.voxels[0] * data.voxels[1] * data.voxels[2];
+		std::size_t slice = data.voxels[0] * data.voxels[1];
+		std::size_t N = slice * data.voxels[2];
 
-		for (int i = 0; i < N; i++) {
-			sum += (long double)data.en_density[i];
+		std::unique_ptr<scalar[]> density2D(new scalar[data.voxels[0] * data.voxels[1]]);
+		std::unique_ptr<scalar[]> density1D(new scalar[data.voxels[0]]);
+
+		auto index = [&](int i, int j, int k) {
+			unsigned int idx = i + data.voxels[0] * j + slice * k;
+			return idx;
+		};
+
+		for (int x = 0; x < data.voxels[0]; x++) {
+			for (int y = 0; y < data.voxels[1]; y++) {
+				scalar znew = 0.0;
+				scalar zprev = 0.0;
+				density2D[x + y * data.voxels[0]] = 0.0;
+
+				for (int z = 1; z < data.voxels[2]; z++) {
+
+					zprev = data.en_density[index(x, y, z - 1)];
+					znew = data.en_density[index(x, y, z)];
+					density2D[x + y * data.voxels[0]] += 0.5 * (zprev + znew);
+
+				}
+			}
 		}
 
-		return sum;
+		density1D[0] = 0.0;
+
+		for (int x = 1; x < data.voxels[0]; x++) {
+			density1D[x] = 0.0;
+			scalar znew = 0.0;
+			scalar zprev = 0.0;
+
+			for (int y = 1; y < data.voxels[1]; y++) {
+				zprev = density2D[x - 1 + y * data.voxels[0]];
+				znew = density2D[x + y * data.voxels[0]];
+				density1D[x] += 0.5 * (zprev + znew);
+			}
+		}
+		for (int x = 1; x < data.voxels[0]; x++) {
+			scalar zprev = density1D[x - 1];
+			scalar znew = density1D[x];
+			total_energy += 0.5 * (zprev + znew);
+		}
+
+		return total_energy;
 	}
 
 	void FOFDSolver::SetVoltage(scalar v, int iterations) {

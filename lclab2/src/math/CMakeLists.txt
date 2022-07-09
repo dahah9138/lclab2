@@ -15,9 +15,10 @@ add_library(lclab2_math Choose.h Choose.cpp
 						MaxEigen.h
 						ChiralityTensor.h
 						Derivative.h
-						ChiralityField.h
+						ChiralityField.h ChiralityField.cpp
 						Isosurface.h Isosurface.cpp
 						ScalarOrderParameter.h
+						Graph.h
 						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}

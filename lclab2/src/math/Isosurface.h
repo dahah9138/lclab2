@@ -578,7 +578,9 @@ namespace LC { namespace Math {
 
 		RenameVerticesAndTriangles();
 		CalculateNormals();
-		m_bValidSurface = true;
+
+		if (m_nVerts > 10)
+			m_bValidSurface = true;
 	}
 
 	template <typename F, class T> bool Isosurface<F, T>::isSurfaceValid() {

@@ -2,7 +2,7 @@
 
 namespace LC {
 
-void TubularSurface::Init() {
+void TubularSurface::Init(const bool &closedTube) {
     
 	using namespace Magnum;
 	
@@ -22,7 +22,7 @@ void TubularSurface::Init() {
     UnsignedInt iMody = NY - 1;
 
     UnsignedInt numVerts = NX * NY;
-    UnsignedInt numInds = 6 * NX * NY;
+    UnsignedInt numInds = 6 * NX * (NY - !closedTube);
 
     // Invalid curve
     if (!numVerts) return;
@@ -123,13 +123,18 @@ void TubularSurface::Init() {
         UnsignedInt ind_right = t * NX + right;
         UnsignedInt ind_down_right = down * NX + right;
 
-        indices.emplace_back(i);
-        indices.emplace_back(ind_right);
-        indices.emplace_back(ind_down);
+        // Either tube is closed (PBCs) or t is one row from bottom ring
+        if (closedTube || t < NY - 1) {
+
+            indices.emplace_back(i);
+            indices.emplace_back(ind_right);
+            indices.emplace_back(ind_down);
         
-        indices.emplace_back(ind_down);
-        indices.emplace_back(ind_right);
-        indices.emplace_back(ind_down_right);
+            indices.emplace_back(ind_down);
+            indices.emplace_back(ind_right);
+            indices.emplace_back(ind_down_right);
+
+        }
     }
 
     // Tube smoothing
@@ -195,7 +200,7 @@ void TubularSurface::Init() {
 
     for (int steps = 0; steps < relaxIterations; steps++)
         // Step 2. Rotate each ring to an equilibrium position
-        for (int j = 0; j < NY; j++) { // jth ring
+        for (int j = 0; j < NY - !closedTube; j++) { // jth ring
 
             int jp1 = (j + 1) % NY;
 

@@ -11,7 +11,7 @@ namespace LC {
 
 struct TubularSurface: public NormalSheet {
 
-    void Init() override;
+    void Init(const bool & closedTube);
 
 
     // Points used to create tubular surface

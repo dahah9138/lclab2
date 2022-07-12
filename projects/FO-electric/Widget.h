@@ -38,6 +38,13 @@ struct Widget {
 	float inversion_temp = 314.0f;
 	int chain_units = 5;
 
+	bool generateKnots = false;
+	int maxVortexComponents = 1;
+	int minComponentSize = 5;
+	float knotCompletionDist = 1.5f;
+	int knotRefinementIterations = 10;
+
+
 	int tilt_angle = 0;
 	int tilt_direction = 0;
 	int translationNumber = 1;

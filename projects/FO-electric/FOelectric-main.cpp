@@ -1,5 +1,6 @@
 #include <lclab2.h>
 #include "Widget.h"
+#include "find_components.h"
 
 using namespace Magnum;
 using namespace Math::Literals;
@@ -172,16 +173,13 @@ struct VortexLine {
     std::unique_ptr<std::size_t[]> neighbors;
     std::unique_ptr<LC::scalar[]> positions;
     std::unique_ptr<std::size_t[]> queryDomain;
-    Containers::Optional<LC::SphereArray> geometry;
     std::size_t numNodes;
     // 3x3x3
     std::size_t knn = 35;
     int maxPoints = 150;
     int maxConic = 30;
     // 3 times the background grid spacing
-    float pointSeparation = 2.5f;
-    bool draw = true;
-    Color4 knotColor{ 1.f, 0.f, 0.f, 1.f };
+    float pointSeparation = 1.5f;
     // Number of times line is post processed with Chaikin's method
     int upSample = 2;
     float tubeRadius = 1.f;
@@ -194,11 +192,23 @@ struct VortexKnot {
         return (v1.isoLevel == v2.isoLevel) ? 1 : 0;
     }
 
+    void UpdateColor() {
+        for (auto& v : surface.vertices) {
+            v.color = knotColor;
+        }
+        
+        mesh = surface.Mesh();
+    }
+
+
     bool draw = true;
+    bool drawSpheres = true;
     float alpha = 1.0f;
     float isoLevel;
     LC::Surface surface;
     Containers::Optional<GL::Mesh> mesh;
+    //Containers::Optional<LC::SphereArray> geometry;
+    Color4 knotColor{ 1.f, 0.f, 0.f, 1.f };
 };
 
 struct VortexShell {
@@ -468,11 +478,11 @@ private:
     LC::Math::Isosurface<float*, float> _isoGenerator;
 #endif
     std::list<Preimage> _preimages;
-    Containers::Optional<VortexKnot> _vortexKnot;
+    std::list<VortexKnot> _vortexKnot;
     Containers::Optional<VortexShell> _vortexShell;
     Containers::Optional<PionPreimage> _pionPreimage;
     Containers::Optional<BaryonIsosurface> _baryonIsosurface;
-    VortexLine line;
+    VortexLine _vortex_line;
 
     std::unique_ptr<Eigen::Quaternion<LC::scalar>[]> _quaternion_field;
     Containers::Optional<NematicVisual> _quaternion_plane;
@@ -952,10 +962,10 @@ void Sandbox::drawEvent() {
         _zprofile->Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix());
     }
 
-    // Draw vortex line
-    if (line.geometry && _vortexKnot)
-        if (line.draw)
-            line.geometry->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
+    // Draw vortex lines
+    //for (auto & line : _vortexKnot)
+    //    if (line->geometry && line->drawSpheres)
+    //        line->geometry->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
 
     if (_quaternion_plane)
         _quaternion_plane->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
@@ -1841,43 +1851,65 @@ void Sandbox::handlePreimageWindow() {
             ImGui::PopItemWidth();
         }
 
-        if (ImGui::Button("Create Vortex Knot")) {
-            // Create a new vortex knot
-            _vortexKnot = VortexKnot{};
-            _vortexKnot->isoLevel = _widget.isoLevel;
+        if (ImGui::Button("Generate Vortex Knot Components")) {
+            _widget.generateKnots = true;
         }
-
-
+          
         ImGui::SameLine();
 
-        if (ImGui::Button("Remove Vortex Knot")) {
-            if (_vortexKnot)
-                _vortexKnot->draw = false;
-            _vortexKnot = {};
+        // Not working, causes seg fault
+        if (ImGui::Button("Remove Vortex Knot Component")) {
+
+            if (!_vortexKnot.empty()) {
+                VortexKnot* knot;
+                std::list<VortexKnot>::iterator lend;
+                for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++) {
+                    knot = &(*it);
+                    lend = it;
+                }
+                knot->draw = false;
+                knot->drawSpheres = false;
+                //_vortexKnot[_vortexKnot.size() - 1]->geometry = {};
+                _vortexKnot.erase(lend);
+            }
+
         }
 
         ImGui::PushItemWidth(100.f);
-        ImGui::InputInt("Max vortex points", &line.maxPoints);
-        ImGui::InputInt("Max conic angle (Deg)", &line.maxConic);
+        ImGui::InputInt("Max vortex components", &_widget.maxVortexComponents);
+        ImGui::InputInt("Max vortex points", &_vortex_line.maxPoints);
+        ImGui::InputInt("Max conic angle (Deg)", &_vortex_line.maxConic);
+        ImGui::InputInt("Min component size", &_widget.minComponentSize);
         {
-            int knn = line.knn;
+            int knn = _vortex_line.knn;
             ImGui::InputInt("Nearest neighbors", &knn);
             if (knn > 3)
-                line.knn = knn;
+                _vortex_line.knn = knn;
         }
-        ImGui::InputFloat("Point separation", &line.pointSeparation);
-        ImGui::InputInt("Post-processing up-sampling", &line.upSample);
-        ImGui::InputFloat("Tube radius", &line.tubeRadius);
+        ImGui::InputFloat("Knot completion threshold", &_widget.knotCompletionDist);
+        ImGui::InputInt("Knot refinement iterations", &_widget.knotRefinementIterations);
+        ImGui::InputFloat("Point separation", &_vortex_line.pointSeparation);
+        ImGui::InputInt("Post-processing up-sampling", &_vortex_line.upSample);
+        ImGui::InputFloat("Tube radius", &_vortex_line.tubeRadius);
         ImGui::PopItemWidth();
 
+        int it = 0;
 
-        if (_vortexKnot) {
+        for (auto& line : _vortexKnot) {
+
+            //std::string pts = "Points (K" + std::to_string(it) + ")";
+            std::string tub = "Tubular (K" + std::to_string(it) + ")";
+            std::string col = "K" + std::to_string(it) + " Color";
+            ++it;
+
             ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw knot");
-            ImGui::Checkbox("Points", &line.draw);
+            //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
+            //ImGui::SameLine();
+            ImGui::Checkbox(tub.c_str(), &line.draw);
             ImGui::SameLine();
-            ImGui::Checkbox("Tubular", &_vortexKnot->draw);
-            ImGui::SameLine();
-            ImGui::ColorEdit4("##RefColor", &line.knotColor[0], ImGuiColorEditFlags_NoInputs);
+            if (ImGui::ColorEdit4(col.c_str(), &line.knotColor[0], ImGuiColorEditFlags_NoInputs)) {
+                line.UpdateColor();
+            }
         }
 
         // Quaternion preimages
@@ -3155,14 +3187,33 @@ void Sandbox::generateIsosurface() {
     unsigned int ill_defined_chi = 0;
     std::array<float,3> cellf = {(float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2]};
 
-    if (_vortexKnot || !_widget.chiColorScheme) {
-        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _vortexKnot->isoLevel);
+    if (_widget.generateKnots || !_widget.chiColorScheme) {
+        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _widget.isoLevel);
     }
 
-    if (_vortexKnot) {
-
+    if (_widget.generateKnots) {
         // Replace this with RBF interpolant to refine and resolve a very fine vortex line
 #if USE_RBFINTERP
+
+        // Clean knots
+        if (!_vortexKnot.empty()) {
+            VortexKnot* knot;
+            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++) {
+                knot = &(*it);
+                knot->draw = false;
+                knot->drawSpheres = false;
+            }
+
+            while (!_vortexKnot.empty()) {
+                std::list<VortexKnot>::iterator iter;
+                for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
+                    iter = it;
+                _vortexKnot.erase(iter);
+            }
+        }
+
+        
+
         // Define the rbf
         LC::Math::poly_spline<LC::scalar> rbf;
         LC::Math::Metric<LC::scalar> metric;
@@ -3173,11 +3224,75 @@ void Sandbox::generateIsosurface() {
         std::size_t vol = slice * vox[2];
 
         if (ill_defined_chi) {
-            line.numNodes = ill_defined_chi;
+
+            // Get the index list from the vortex knot isosurface to find components
+
+            std::map<uint, Face> unvisited_list;
+            gen2.GenerateSurface(valid_field.get(), 0, vox, cell, color1);
+
+            if (gen2.isSurfaceValid()) {
+
+                unsigned int nTriangles = gen2.NumSurfaceIndices() / 3;
+                unsigned int nVert = gen2.NumSurfaceVertices();
+                LC::Math::IsoVertex* verts = gen2.ReleaseSurfaceVertices();
+                unsigned int* indices = gen2.ReleaseSurfaceIndices();
+
+                // Note that verts currently refers to verts and not global indices
+                // Therefore, convert indices data to global index space through vertex positions
+                for (int tri = 0; tri < nTriangles; tri++) {
+                    uint i1 = indices[3 * tri];
+                    uint i2 = indices[3 * tri + 1];
+                    uint i3 = indices[3 * tri + 2];
+
+                    LC::Math::IsoVertex v1 = verts[i1];
+                    LC::Math::IsoVertex v2 = verts[i2];
+                    LC::Math::IsoVertex v3 = verts[i3];
+
+                    int glob_i1_x = (v1.position[0] / cellf[0] + 0.5) * (vox[0] - 1);
+                    int glob_i1_y = (v1.position[1] / cellf[1] + 0.5) * (vox[1] - 1);
+                    int glob_i1_z = (v1.position[2] / cellf[2] + 0.5) * (vox[2] - 1);
+
+                    int glob_i2_x = (v2.position[0] / cellf[0] + 0.5) * (vox[0] - 1);
+                    int glob_i2_y = (v2.position[1] / cellf[1] + 0.5) * (vox[1] - 1);
+                    int glob_i2_z = (v2.position[2] / cellf[2] + 0.5) * (vox[2] - 1);
+
+                    int glob_i3_x = (v3.position[0] / cellf[0] + 0.5) * (vox[0] - 1);
+                    int glob_i3_y = (v3.position[1] / cellf[1] + 0.5) * (vox[1] - 1);
+                    int glob_i3_z = (v3.position[2] / cellf[2] + 0.5) * (vox[2] - 1);
+
+                    uint glob_i1 = glob_i1_x + glob_i1_y * vox[0] + glob_i1_y * slice;
+                    uint glob_i2 = glob_i2_x + glob_i2_y * vox[0] + glob_i2_y * slice;
+                    uint glob_i3 = glob_i3_x + glob_i3_y * vox[0] + glob_i3_y * slice;
+
+                    indices[3 * tri] = glob_i1;
+                    indices[3 * tri + 1] = glob_i2;
+                    indices[3 * tri + 2] = glob_i3;
+
+                    // Store in map
+                    unvisited_list.insert({ tri, Face(glob_i1, glob_i2, glob_i3) });
+                }
+
+                delete[] verts;
+                delete[] indices;
+            }
+            // Get components
+            auto components = find_all_components(unvisited_list, _widget.minComponentSize);
+
+            LC_INFO("Discovered {0} component(s)", components.size());
+            for (auto& c : components)
+                LC_INFO("- Component size = {0}", c.size());
+
+
+            _vortex_line.numNodes = ill_defined_chi;
             // Fill data
-            line.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[line.knn * line.numNodes]);
-            line.queryDomain = std::unique_ptr<std::size_t[]>(new std::size_t[line.numNodes]);
-            line.positions = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * line.numNodes]);
+            _vortex_line.neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[_vortex_line.knn * _vortex_line.numNodes]);
+            _vortex_line.queryDomain = std::unique_ptr<std::size_t[]>(new std::size_t[_vortex_line.numNodes]);
+            _vortex_line.positions = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * _vortex_line.numNodes]);
+
+            // key: global index, value: local index
+            std::map<unsigned int, unsigned int> queryMap;
+
+            std::unique_ptr<bool[]> visited(new bool[_vortex_line.numNodes]);
             std::unique_ptr<LC::scalar[]> pos_data(new LC::scalar[3 * vol]);
             std::unique_ptr<LC::scalar[]> chi_discriminant(new LC::scalar[vol]);
             
@@ -3210,12 +3325,14 @@ void Sandbox::generateIsosurface() {
 
                         // Found a place to interp about with rbf
                         if (!valid_field[sub_idx]) {
-                            line.positions[ill_idx] = pos_data[sub_idx];
-                            line.positions[ill_idx + line.numNodes] = pos_data[sub_idx + vol];
-                            line.positions[ill_idx + 2 * line.numNodes] = pos_data[sub_idx + 2 * vol];
-                            line.queryDomain[ill_idx++] = sub_idx;
+                            _vortex_line.positions[ill_idx] = pos_data[sub_idx];
+                            _vortex_line.positions[ill_idx + _vortex_line.numNodes] = pos_data[sub_idx + vol];
+                            _vortex_line.positions[ill_idx + 2 * _vortex_line.numNodes] = pos_data[sub_idx + 2 * vol];
+                            visited[ill_idx] = false;
+                            queryMap.insert({ sub_idx, ill_idx });
+                            _vortex_line.queryDomain[ill_idx++] = sub_idx;
                         }
-                        else if (abs(1. - chi_discriminant[sub_idx]) < _vortexKnot->isoLevel) {
+                        else if (abs(1. - chi_discriminant[sub_idx]) < _widget.isoLevel) {
                             ++within_tolerance;
                         }
 
@@ -3224,258 +3341,339 @@ void Sandbox::generateIsosurface() {
                 }
             }
 
-            LC_INFO("{0}% points within tolerance of {1}% of q^2", (float)within_tolerance/vol * 100.f, 100.f * _vortexKnot->isoLevel);
+            LC_INFO("{0}% points within tolerance of {1}% of q^2", (float)within_tolerance/vol * 100.f, 100.f * _widget.isoLevel);
 
-            startpoint(0) = pos_data[line.queryDomain[0]];
-            startpoint(1) = pos_data[line.queryDomain[0] + vol];
-            startpoint(2) = pos_data[line.queryDomain[0] + 2 * vol];
+            for (int loop = 0; loop < min(components.size(), _widget.maxVortexComponents); loop++) {
 
-            std::unique_ptr<std::size_t[]> nbs(new std::size_t[line.numNodes]);
+                bool loopComponentClosed = false;
 
-            auto EvaluatePoint = [&](Eigen::Vector3d& p) {
-                // Find nearest knn neighbors in global grid corresponding to query point
-                LC::Algorithm::knn_c(pos_data.get(), vol, &p(0), 1, metric, line.knn, (LC::scalar*)0, nbs.get());
+                // Choose index with the smallest chi discriminant
+                uint startId = components[loop].begin()->second.data[0];
+                LC::scalar smallest_chi = chi_discriminant[startId];
 
-                // Position and nearest neighbor data has been filled!
-                // Compute the factorization!
-                line.interpolant.ComputeFactorization(pos_data.get(), nbs.get(), rbf, metric, 1, vol, line.knn);
-
-                // Compute the weights
-                line.interpolant.ComputeWeights(chi_discriminant.get(), nbs.get(), 1, vol, line.knn);
-
-                return line.interpolant.Evaluate(0, pos_data.get(), &p(0), nbs.get(),
-                    rbf, metric, 1, vol, line.knn);
-            };
-
-            // Generate singular line
-            // **replace line.positions with query points based on line.positions data (maybe just volumetrically
-            // increase number of points about line?)
-            // This data can be whatever I want
-
-            std::vector<Eigen::Vector3d> qpoints, qpoints_refined;
-            // Starting point
-            qpoints.emplace_back(startpoint);
-
-            // Admissible angle of deviation
-            LC::scalar deviationAngle = line.maxConic;
-            LC::scalar deviationAngleRad = deviationAngle * M_PI / 180.;
-
-            // Ball radius to choose next node
-            LC::scalar dr = (dx + dy + dz) / 3.;
-            LC::scalar radius = line.pointSeparation * dr;
-
-            auto Convert3DPointToIdx = [&](const Eigen::Vector3d& pt) {
-                // Convert potential point to index space of pos_data
-                int px = (pt.x() / data->cell_dims[0] + 0.5) * (vox[0] - 1);
-                int py = (pt.y() / data->cell_dims[1] + 0.5) * (vox[1] - 1);
-                int pz = (pt.z() / data->cell_dims[2] + 0.5) * (vox[2] - 1);
-
-                return px + vox[0] * py + slice * pz;
-            };
-
-            auto ConvertIdxTo3DPoint = [&](const unsigned int& idx) {
-                // Convert potential point to index space of pos_data
-                int px = idx / slice;
-                int py = (idx - px * slice) / vox[0];
-                int pz = idx - py * vox[0] - px * slice;
-
-                Eigen::Vector3d pt((px / LC::scalar(vox[0] - 1) - 0.5) * data->cell_dims[0],
-                    (py / LC::scalar(vox[1] - 1) - 0.5) * data->cell_dims[1],
-                    (pz / LC::scalar(vox[2] - 1) - 0.5) * data->cell_dims[2]
-                );
-
-                return pt;
-            };
-
-            // Choose second node from most negative neighboring node starting at cube radius * (-1,-1,-1) from current pos
-
-            int resolutionX = 20;
-            int resolutionY = 20;
-            int resProd = resolutionX * resolutionY;
-
-            std::unique_ptr<Eigen::Vector3d[]> solid_angle_pts(new Eigen::Vector3d[resProd]);
-
-
-            // f(chi) values at each solid angle point
-            std::unique_ptr<LC::scalar[]> solid_angle_f(new LC::scalar[resProd]);
-
-            auto NextPosition = [&](const Eigen::Vector3d& e1, const Eigen::Vector3d& e2, const Eigen::Vector3d& e3, LC::scalar deviation) {
-               
-                // Parametrize set of points within solid angle that coincide with pos_data
-                Eigen::Vector3d potential_point;
-
-                for (int j = 0; j < resolutionY; j++) {
-                    for (int i = 0; i < resolutionX; i++) {
-                        LC::scalar theta = (j+1) / LC::scalar(resolutionY + 1) * deviation;
-                        LC::scalar phi = i / LC::scalar(resolutionX) * 2. * M_PI;
-                        potential_point = qpoints[qpoints.size() - 1]
-                            + radius * sin(theta) * cos(phi) * e1
-                            + radius * sin(theta) * sin(phi) * e2
-                        + radius * cos(theta) * e3;
-
-                        solid_angle_pts[i + resolutionX * j] = potential_point;
-                        solid_angle_f[i + resolutionX * j] = EvaluatePoint(potential_point)[0];
-
+                for (const auto& f : components[loop]) {
+                    uint i2 = f.second.data[0];
+                    if (chi_discriminant[i2] < smallest_chi) {
+                        smallest_chi = chi_discriminant[i2];
+                        startId = i2;
                     }
                 }
 
-                LC::scalar fmin = solid_angle_f[0];
-                unsigned int bestIdx = 0;
+                if (!visited[queryMap[startId]]) {
+                    // Create a vortex knot
+                    _vortexKnot.push_back(VortexKnot{});
 
-                // Look at all solid angle points for the most negative
-                // Can change this to be Monte Carlo
-                for (int i = 1; i < resProd; i++) {
 
-                    if (solid_angle_f[i] < fmin) {
-                        fmin = solid_angle_f[i];
-                        bestIdx = i;
+                    startpoint(0) = pos_data[startId];
+                    startpoint(1) = pos_data[startId + vol];
+                    startpoint(2) = pos_data[startId + 2 * vol];
+
+                    std::unique_ptr<std::size_t[]> nbs(new std::size_t[_vortex_line.numNodes]);
+
+                    auto EvaluatePoint = [&](Eigen::Vector3d& p) {
+                        // Find nearest knn neighbors in global grid corresponding to query point
+                        LC::Algorithm::knn_c(pos_data.get(), vol, &p(0), 1, metric, _vortex_line.knn, (LC::scalar*)0, nbs.get());
+
+                        // Mark chi points visited as false
+                        // This is necessary to find all disconnected path components
+                        if (_widget.maxVortexComponents > 1) {
+
+                            // Instead of knn, search over 6x6x6 cube
+                            //for (int i = 0; i < _vortex_line.knn; i++) {
+                            int z0 = nbs[0] / slice;
+                            int y0 = (nbs[0] - z0 * slice) / vox[0];
+                            int x0 = nbs[0] - y0 * vox[0] - z0 * slice;
+
+                            int searchRadius = 3;
+
+                            int xlb = x0 - searchRadius;
+                            int ylb = x0 - searchRadius;
+                            int zlb = x0 - searchRadius;
+                            if (xlb < 0) xlb = 0;
+                            if (ylb < 0) ylb = 0;
+                            if (zlb < 0) zlb = 0;
+
+                            int xub = (x0 + searchRadius) % vox[0];
+                            int yub = (y0 + searchRadius) % vox[1];
+                            int zub = (z0 + searchRadius) % vox[2];
+
+                            for (int xi = xlb; xi < xub; xi++) {
+                                for (int yi = ylb; yi < yub; yi++) {
+                                    for (int zi = zlb; zi < zub; zi++) {
+
+                                        unsigned int i = xi + yi * vox[0] + zi * slice;
+                                        if (!valid_field[i]) {
+                                            auto search = queryMap.find(i);
+                                            if (search != queryMap.end())
+                                                visited[queryMap[i]] = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                        }
+
+                        // Position and nearest neighbor data has been filled!
+                        // Compute the factorization!
+                        _vortex_line.interpolant.ComputeFactorization(pos_data.get(), nbs.get(), rbf, metric, 1, vol, _vortex_line.knn);
+
+                        // Compute the weights
+                        _vortex_line.interpolant.ComputeWeights(chi_discriminant.get(), nbs.get(), 1, vol, _vortex_line.knn);
+
+                        return _vortex_line.interpolant.Evaluate(0, pos_data.get(), &p(0), nbs.get(),
+                            rbf, metric, 1, vol, _vortex_line.knn);
+                    };
+
+                    // Generate singular line
+                    // **replace line.positions with query points based on line.positions data (maybe just volumetrically
+                    // increase number of points about line?)
+                    // This data can be whatever I want
+
+                    std::vector<Eigen::Vector3d> qpoints, qpoints_refined;
+                    // Starting point
+                    qpoints.emplace_back(startpoint);
+
+                    // Admissible angle of deviation
+                    LC::scalar deviationAngle = _vortex_line.maxConic;
+                    LC::scalar deviationAngleRad = deviationAngle * M_PI / 180.;
+
+                    // Ball radius to choose next node
+                    LC::scalar dr = (dx + dy + dz) / 3.;
+                    LC::scalar radius = _vortex_line.pointSeparation * dr;
+
+                    auto Convert3DPointToIdx = [&](const Eigen::Vector3d& pt) {
+                        // Convert potential point to index space of pos_data
+                        int px = (pt.x() / data->cell_dims[0] + 0.5) * (vox[0] - 1);
+                        int py = (pt.y() / data->cell_dims[1] + 0.5) * (vox[1] - 1);
+                        int pz = (pt.z() / data->cell_dims[2] + 0.5) * (vox[2] - 1);
+
+                        return px + vox[0] * py + slice * pz;
+                    };
+
+                    auto ConvertIdxTo3DPoint = [&](const unsigned int& idx) {
+                        // Convert potential point to index space of pos_data
+                        int px = idx / slice;
+                        int py = (idx - px * slice) / vox[0];
+                        int pz = idx - py * vox[0] - px * slice;
+
+                        Eigen::Vector3d pt((px / LC::scalar(vox[0] - 1) - 0.5) * data->cell_dims[0],
+                            (py / LC::scalar(vox[1] - 1) - 0.5) * data->cell_dims[1],
+                            (pz / LC::scalar(vox[2] - 1) - 0.5) * data->cell_dims[2]
+                        );
+
+                        return pt;
+                    };
+
+                    // Choose second node from most negative neighboring node starting at cube radius * (-1,-1,-1) from current pos
+
+                    int resolutionX = 20;
+                    int resolutionY = 20;
+                    int resProd = resolutionX * resolutionY;
+
+                    std::unique_ptr<Eigen::Vector3d[]> solid_angle_pts(new Eigen::Vector3d[resProd]);
+
+
+                    // f(chi) values at each solid angle point
+                    std::unique_ptr<LC::scalar[]> solid_angle_f(new LC::scalar[resProd]);
+
+                    auto NextPosition = [&](const Eigen::Vector3d& e1, const Eigen::Vector3d& e2, const Eigen::Vector3d& e3, LC::scalar deviation) {
+
+                        // Parametrize set of points within solid angle that coincide with pos_data
+                        Eigen::Vector3d potential_point;
+
+                        for (int j = 0; j < resolutionY; j++) {
+                            for (int i = 0; i < resolutionX; i++) {
+                                LC::scalar theta = (j + 1) / LC::scalar(resolutionY + 1) * deviation;
+                                LC::scalar phi = i / LC::scalar(resolutionX) * 2. * M_PI;
+                                potential_point = qpoints[qpoints.size() - 1]
+                                    + radius * sin(theta) * cos(phi) * e1
+                                    + radius * sin(theta) * sin(phi) * e2
+                                    + radius * cos(theta) * e3;
+
+                                solid_angle_pts[i + resolutionX * j] = potential_point;
+                                solid_angle_f[i + resolutionX * j] = EvaluatePoint(potential_point)[0];
+
+                            }
+                        }
+
+                        LC::scalar fmin = solid_angle_f[0];
+                        unsigned int bestIdx = 0;
+
+                        // Look at all solid angle points for the most negative
+                        // Can change this to be Monte Carlo if needed
+                        for (int i = 1; i < resProd; i++) {
+
+                            if (solid_angle_f[i] < fmin) {
+                                fmin = solid_angle_f[i];
+                                bestIdx = i;
+                            }
+                        }
+
+                        return solid_angle_pts[bestIdx];
+                    };
+
+                    {
+                        Eigen::Vector3d xhat{ 1., 0., 0. };
+                        Eigen::Vector3d yhat{ 0., 1., 0. };
+                        Eigen::Vector3d zhat{ 0., 0., 1. };
+                        Eigen::Vector3d bestPos = NextPosition(xhat, yhat, zhat, M_PI);
+
+                        if (qpoints[0] == bestPos)
+                            LC_INFO("Error: Circulation direction is zero");
+
+                        qpoints.emplace_back(bestPos);
+
+                        LC_INFO("Point added (Total = {0}/{1})", qpoints.size(), _vortex_line.maxPoints);
                     }
-                }
-
-                return solid_angle_pts[bestIdx];
-            };
-
-            {
-                Eigen::Vector3d xhat{ 1., 0., 0. };
-                Eigen::Vector3d yhat{ 0., 1., 0. };
-                Eigen::Vector3d zhat{ 0., 0., 1. };
-                Eigen::Vector3d bestPos = NextPosition(xhat, yhat, zhat, M_PI);
-
-                if (qpoints[0] == bestPos)
-                    LC_INFO("Error: Circulation direction is zero");
-
-                qpoints.emplace_back(bestPos);
-
-                LC_INFO("Point added (Total = {0})", qpoints.size());
-            }
 
 
-            // With two points, a circulation direction can now be established
-            Eigen::Vector3d circulationDirection = qpoints[1] - qpoints[0];
-            circulationDirection.normalize();
-            // Initial circulation direction (needed to close the loop)
-            Eigen::Vector3d circulationDirection0 = circulationDirection;
-            Eigen::Vector3d perp1, perp2;
+                    // With two points, a circulation direction can now be established
+                    Eigen::Vector3d circulationDirection = qpoints[1] - qpoints[0];
+                    circulationDirection.normalize();
+                    // Initial circulation direction (needed to close the loop)
+                    Eigen::Vector3d circulationDirection0 = circulationDirection;
+                    Eigen::Vector3d perp1, perp2;
 
-            auto FindOrthonormalBasis = [&]() {
-                perp1 = circulationDirection.cross(Eigen::Vector3d(0., 0., 1.));
-                LC::scalar p1norm2 = perp1.squaredNorm();
+                    auto FindOrthonormalBasis = [&]() {
+                        perp1 = circulationDirection.cross(Eigen::Vector3d(0., 0., 1.));
+                        LC::scalar p1norm2 = perp1.squaredNorm();
 
-                if (p1norm2) {
-                    perp1 = perp1 / sqrt(p1norm2);
-                }
-                else {
-                    // 0,1,0 is guaranteed nonzero since circ dir is collinear to 0,0,1
-                    perp1 = circulationDirection.cross(Eigen::Vector3d(0., 1., 0.));
-                    perp1.normalize();
-                }
+                        if (p1norm2) {
+                            perp1 = perp1 / sqrt(p1norm2);
+                        }
+                        else {
+                            // 0,1,0 is guaranteed nonzero since circ dir is collinear to 0,0,1
+                            perp1 = circulationDirection.cross(Eigen::Vector3d(0., 1., 0.));
+                            perp1.normalize();
+                        }
 
-                // Compute perp2
-                perp2 = circulationDirection.cross(perp1);
-            };
+                        // Compute perp2
+                        perp2 = circulationDirection.cross(perp1);
+                    };
 
-            // Begin path finding algorithm
-            // 1. Look for most optimal direction (most negative) within solid angle about circulation direction
-            // - Parametrize disk by finding two perpendicular axes to circulationDirection
-            // - Look for most optimal point
-            // 2. Add point to qpoints
-            // 3. Update circulation direction
-            // 4. Repeat
+                    // Begin path finding algorithm
+                    // 1. Look for most optimal direction (most negative) within solid angle about circulation direction
+                    // - Parametrize solid angle by finding two perpendicular axes to circulationDirection
+                    // - Look for most optimal point
+                    // 2. Add point to qpoints
+                    // 3. Update circulation direction
+                    // 4. Repeat
 
-            resolutionX = 10;
-            resolutionY = 6;
-            resProd = resolutionX * resolutionY;
+                    resolutionX = 10;
+                    resolutionY = 6;
+                    resProd = resolutionX * resolutionY;
 
-            solid_angle_pts = std::unique_ptr<Eigen::Vector3d[]>(new Eigen::Vector3d[resProd]);
+                    solid_angle_pts = std::unique_ptr<Eigen::Vector3d[]>(new Eigen::Vector3d[resProd]);
 
-            
-            // f(chi) values at each solid angle point
-            solid_angle_f = std::unique_ptr<LC::scalar[]>(new LC::scalar[resProd]);
 
-            // Repeat until loop has been fully traversed
-            while (qpoints.size() < line.maxPoints) {
-                // Using circulation direction as the zhat axis, define two orthogonal directions
-                FindOrthonormalBasis();
+                    // f(chi) values at each solid angle point
+                    solid_angle_f = std::unique_ptr<LC::scalar[]>(new LC::scalar[resProd]);
 
-                Eigen::Vector3d pos = NextPosition(perp1, perp2, circulationDirection, deviationAngleRad);
+                    // Repeat until loop has been fully traversed
+                    int knotRefinementCount = 0;
+                    while (qpoints.size() < _vortex_line.maxPoints && knotRefinementCount < _widget.knotRefinementIterations) {
+                        // Using circulation direction as the zhat axis, define two orthogonal directions
+                        FindOrthonormalBasis();
 
-                // Update circulation direction and add point
-                circulationDirection = pos - qpoints[qpoints.size() - 1];
-                circulationDirection.normalize();
+                        Eigen::Vector3d pos = NextPosition(perp1, perp2, circulationDirection, deviationAngleRad);
 
-                if ((pos - qpoints[0]).norm() <= 1.5 * radius 
-                    && circulationDirection0.dot(circulationDirection) > 0. 
-                    && (qpoints[0] - pos).dot(circulationDirection0) > 0.) {
-                    // End of the line
-                    // Remove the initial point and add the final point (better estimate)
-                    // Note that this could be used used to create a passover of the line
-                    // with increased accuracy
-                    qpoints.erase(qpoints.begin());
-                    qpoints.emplace_back(pos);
-                    break;
-                }
-                else {
-                    // Keep adding points like usual
-                    qpoints.emplace_back(pos);
-                    LC_INFO("Point added (Total = {0})", qpoints.size());
-                }
-            }
+                        // Update circulation direction and add point
+                        circulationDirection = pos - qpoints[qpoints.size() - 1];
+                        circulationDirection.normalize();
 
-            // Refine points via Chaikin's method twice
+                        if ((pos - qpoints[0]).norm() <= _widget.knotCompletionDist * radius
+                            && circulationDirection0.dot(circulationDirection) > 0.
+                            && (qpoints[0] - pos).dot(circulationDirection0) > 0.) {
+                            // End of the loop, circulation found closed loop!
+                            loopComponentClosed = true;
+                            // Remove the initial point and add the final point (better estimate)
+                            // Note that this could be used to create a passover of the line
+                            // with increased accuracy but it may also not converge...
+                            qpoints.erase(qpoints.begin());
+                            qpoints.emplace_back(pos);
 
-            for (int it = 0; it < line.upSample; it++) {
+                            break;
+                        }
+                        else {
+                            // Keep adding points like usual
+                            qpoints.emplace_back(pos);
 
-                qpoints_refined.resize(2 * qpoints.size());
+                            if (qpoints.size() == _vortex_line.maxPoints) {
+                                qpoints.erase(qpoints.begin());
+                                LC_INFO("Knot refinements = {0}/{1}", ++knotRefinementCount, _widget.knotRefinementIterations);
+                            }
+                            else {
+                                LC_INFO("Point added (Total = {0}/{1})", qpoints.size(), _vortex_line.maxPoints);
+                            }
+                        }
+                    }
 
-                for (int i = 0; i < qpoints.size(); i++) {
-                    int ip1 = (i + 1) % qpoints.size();
-                    qpoints_refined[2 * i] = 0.75 * qpoints[i] + 0.25 * qpoints[ip1];
-                    qpoints_refined[2 * i + 1] = 0.25 * qpoints[i] + 0.75 * qpoints[ip1];
-                }
-                qpoints = qpoints_refined;
-            }
+                    // Refine points via Chaikin's method twice
 
-            // Export points
-            line.geometry = LC::SphereArray{};
+                    for (int it = 0; it < _vortex_line.upSample; it++) {
 
-            std::function<Vector3(void*, std::size_t)> access = [](void *points, std::size_t i) {
-                Vector3 result;
-                result[0] = ((Eigen::Vector3d*)points + i)->x();
-                result[1] = ((Eigen::Vector3d*)points + i)->y();
-                result[2] = ((Eigen::Vector3d*)points + i)->z();
-                return result;
-            };
+                        qpoints_refined.resize(2 * (qpoints.size() - !loopComponentClosed));
 
-            line.geometry->polyRadius = 0.25f / (float)line.upSample * radius;
-            line.geometry->Init(&qpoints_refined[0].x(), access, qpoints_refined.size());
+                        for (int i = 0; i < qpoints.size() - !loopComponentClosed; i++) {
 
-            // Pass points to tubular surface
-            LC::TubularSurface tsurface;
-            tsurface.curve = qpoints_refined;
-            tsurface.radius = line.tubeRadius * 0.5f * dr;
-            // Note tubular surface is not compiled, vertices and indices are only generated
-            tsurface.Init();
+                            int ip1 = (i + 1) % qpoints.size();
+                            qpoints_refined[2 * i] = 0.75 * qpoints[i] + 0.25 * qpoints[ip1];
+                            qpoints_refined[2 * i + 1] = 0.25 * qpoints[i] + 0.75 * qpoints[ip1];
+                        }
+                        qpoints = qpoints_refined;
+                    }
 
-            // Set colors
-            for (int i = 0; i < tsurface.data.size(); i++)
-                tsurface.data[i].color = line.knotColor;
+                    // Export points
+                    VortexKnot* knot;
+                    
+                    for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++) {
+                        knot = &(*it);
+                    }
+                    
+                    //knot->geometry = LC::SphereArray{};
 
-            if (tsurface.data.size() && tsurface.indices.size()) {
+                    std::function<Vector3(void*, std::size_t)> access = [](void* points, std::size_t i) {
+                        Vector3 result;
+                        result[0] = ((Eigen::Vector3d*)points + i)->x();
+                        result[1] = ((Eigen::Vector3d*)points + i)->y();
+                        result[2] = ((Eigen::Vector3d*)points + i)->z();
+                        return result;
+                    };
 
-                LC::Math::IsoVertex* verts = (LC::Math::IsoVertex*)&tsurface.data[0];
-                unsigned int* indices = &tsurface.indices[0];
+                    //knot->geometry->polyRadius = 0.25f / (float)_vortex_line.upSample * radius;
+                    //knot->geometry->Init(&qpoints_refined[0].x(), access, qpoints_refined.size());
 
-                // Create the usual surface
-                _vortexKnot->surface.Init((LC::Surface::Vertex*)verts, tsurface.data.size(),
-                    indices, tsurface.indices.size(), _widget.preimage_translate);
+                    // Pass points to tubular surface
+                    LC::TubularSurface tsurface;
+                    tsurface.curve = qpoints_refined;
+                    tsurface.radius = _vortex_line.tubeRadius * 0.5f * dr;
+                    // Note tubular surface is not compiled, vertices and indices are only generated
+                    tsurface.Init(loopComponentClosed);
 
-                _vortexKnot->mesh = _vortexKnot->surface.Mesh();
+                    // Set colors
+                    for (int i = 0; i < tsurface.data.size(); i++)
+                        tsurface.data[i].color = knot->knotColor;
 
-                // Add mesh to the scene
-                new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexKnot->mesh), _vortexKnot->draw, _transparentNormalDrawables };
-            }
+                    if (tsurface.data.size() && tsurface.indices.size()) {
+
+                        LC::Math::IsoVertex* verts = (LC::Math::IsoVertex*)&tsurface.data[0];
+                        unsigned int* indices = &tsurface.indices[0];
+                        // Create the usual surface
+                        knot->surface.Init((LC::Surface::Vertex*)verts, tsurface.data.size(),
+                            indices, tsurface.indices.size(), _widget.preimage_translate);
+                        knot->mesh = knot->surface.Mesh();
+
+                        LC_INFO("Added vortex tube to scene");
+                        // Add mesh to the scene
+                        new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(knot->mesh), knot->draw, _transparentNormalDrawables };
+                    }
+
+                } // generated from a point not visited
+            } // finished iterating over all points not visited
+
         }
-
+        
+        _widget.generateKnots = false;
 
         
 #else
@@ -3507,9 +3705,9 @@ void Sandbox::generateIsosurface() {
             new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexKnot->mesh), _vortexKnot->draw, _transparentNormalDrawables };
 
         }
+        gen.DeleteSurface();
 #endif
 
-        gen.DeleteSurface();
 
     }
 

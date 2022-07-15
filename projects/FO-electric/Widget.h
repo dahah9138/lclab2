@@ -42,7 +42,8 @@ struct Widget {
 	int maxVortexComponents = 1;
 	int minComponentSize = 5;
 	float knotCompletionDist = 1.5f;
-	int knotRefinementIterations = 10;
+	int knotRefinementIterations = 0;
+	int knotInitialCutoffIterations = 15;
 
 
 	int tilt_angle = 0;

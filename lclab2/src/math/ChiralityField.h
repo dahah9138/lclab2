@@ -115,7 +115,7 @@ namespace LC { namespace Math {
 	}
 
 	// Compute the chirality (helical) field relative to the director field
-	unsigned int ChiralityField(const float *nn, std::unique_ptr<float[]> &chi_field, const std::array<int, 3> &N, const std::array<float, 3> &cell, std::unique_ptr<short[]>& valid_field, bool init = false, float vortexTolerance = 0.05f) {
+	unsigned int ChiralityField(const float *nn, std::unique_ptr<float[]> &chi_field, const std::array<int, 3> &N, const std::array<float, 3> &cell, std::unique_ptr<short[]>& valid_field, bool init = true, float vortexTolerance = 0.05f, bool onlyIllDefined = false) {
 		
 		int Nx = N[0];
 		int Ny = N[1];
@@ -143,7 +143,8 @@ namespace LC { namespace Math {
 		unsigned int bad_eig = 0;
 		
 		if (init) {
-			chi_field = std::unique_ptr<float[]>(new float[3 * vol]);
+			if (!onlyIllDefined)
+				chi_field = std::unique_ptr<float[]>(new float[3 * vol]);
 			valid_field = std::unique_ptr<short[]>(new short[vol]);
 		}
 		
@@ -175,7 +176,13 @@ namespace LC { namespace Math {
 						if (discriminant <= vortexTolerance) {
 							valid_field[cur_idx] = 0;
 							eig.eigenvector = Eigen::Vector3d{ 0., 0., 1. };
+							eig.eigenvalue = 1.;
 							bad_eig++;
+							if (onlyIllDefined)
+								continue;
+						}
+						else if (onlyIllDefined) {
+							continue;
 						}
 						else {
 							eig.Compute(chi);

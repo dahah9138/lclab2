@@ -7,7 +7,6 @@ namespace LC {
 			if (elem.second && !elem.first.copy) {
 				delete[] elem.second;
 			}
-			elem.second = 0;
 		}
 	}
 
@@ -277,6 +276,22 @@ namespace LC {
 			return tmp;
 		}
 		else return 0;
+	}
+
+	void* Header::passData(const std::string &id) {
+		// Search for the id
+		for (auto hObj = headerObjects.begin(); hObj != headerObjects.end(); hObj++) {
+			if (hObj->first.variable == id) {
+				hObj->first.copy = true;
+				void* tmp = hObj->second;
+				hObj->second = 0;
+				// Remove the entry and return the ptr to the data
+				headerObjects.erase(hObj);
+				return tmp;
+			}
+		}
+		
+		return 0;
 	}
 
 	Header& Header::setData(void* ptr, std::size_t index) {

@@ -44,6 +44,7 @@ namespace LC {
 		// Iterates through the data using the starting index passed.
 		// The index is incremented by one each time.
 		void* passData(std::size_t &index);
+		void* passData(const std::string& id);
 		// Set location to position in headerObjects vector
 		Header& addObject(const std::pair<HeaderObject, void*> &obj);
 		// Set location to position in headerObjects vector

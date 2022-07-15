@@ -156,10 +156,15 @@ namespace LC { namespace Math {
 					unsigned int cur_idx = idx(i,j,k,0);
 
 					if (k > N[2] - 3 || k < 2) { // Not well defined PBCs (because I usually cut the z-dim)
+						
+						valid_field[cur_idx] = 1;
+
+						if (onlyIllDefined)
+							continue;
+
 						chi_field[cur_idx] = 0.0f;
 						chi_field[cur_idx + vol] = 0.0f;
 						chi_field[cur_idx + 2*vol] = 1.0f;
-						valid_field[cur_idx] = 1;
 					}
 					else {
 						chi = HandednessTensor(i, j, k, nn, N, cell);
@@ -182,6 +187,7 @@ namespace LC { namespace Math {
 								continue;
 						}
 						else if (onlyIllDefined) {
+							valid_field[cur_idx] = 1;
 							continue;
 						}
 						else {

@@ -21,13 +21,18 @@ namespace LC { namespace FrankOseen {
 	enum class LC_TYPE {
 		_5CB = 0,
 		ZLI2806 = 1,
-		BEND_RELAXED = 2
+		BEND_RELAXED = 2,
+		CUSTOM = 3
 	};
 	
 	// Return an enum, string map of supported Frank-Oseen LC types
 	struct LiquidCrystal {
 		static std::map<LC_TYPE, std::string> Map() {
-			std::map<LC_TYPE, std::string> m{{ LC_TYPE::_5CB, "5CB" }, { LC_TYPE::ZLI2806, "ZLI-2806" }, { LC_TYPE::BEND_RELAXED, "Bend relaxed" } };
+			std::map<LC_TYPE, std::string> m{{ LC_TYPE::_5CB, "5CB" },
+				{ LC_TYPE::ZLI2806, "ZLI-2806" },
+				{ LC_TYPE::BEND_RELAXED, "Bend relaxed" },
+				{ LC_TYPE::CUSTOM, "Custom" }
+			};
 			return m;
 		}
 	};
@@ -48,6 +53,8 @@ namespace LC { namespace FrankOseen {
 				return ZLI2806(K);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(K);
+			else if (lc == LC_TYPE::CUSTOM)
+				return CUSTOM(K);
 		}
 
 		static std::array<SIscalar, 3> LC(const LC_TYPE& lc) {
@@ -57,6 +64,8 @@ namespace LC { namespace FrankOseen {
 				return ZLI2806();
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED();
+			else if (lc == LC_TYPE::CUSTOM)
+				return CUSTOM();
 		}
 
 		// Returns the specified elastic constant of 5CB in pN
@@ -106,12 +115,26 @@ namespace LC { namespace FrankOseen {
 			return k;
 		}
 
+		static SIscalar CUSTOM(const Constant& K) {
+
+			SIscalar k;
+
+			k.first = 0.0;
+			k.second = "CUSTOM";
+
+			return k;
+		}
+
 		static std::array<SIscalar, 3> _5CB() {
 			return { _5CB(Constant::k11), _5CB(Constant::k22), _5CB(Constant::k33) };
 		}
 		
 		static std::array<SIscalar, 3> BEND_RELAXED() {
 			return { BEND_RELAXED(Constant::k11), BEND_RELAXED(Constant::k22), BEND_RELAXED(Constant::k33) };
+		}
+
+		static std::array<SIscalar, 3> CUSTOM() {
+			return { CUSTOM(Constant::k11), CUSTOM(Constant::k22), CUSTOM(Constant::k33) };
 		}
 
 		static SIscalar ZLI2806(const Constant &K) {
@@ -156,6 +179,8 @@ namespace LC { namespace FrankOseen {
 				return ZLI2806(ep);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(ep);
+			else if (lc == LC_TYPE::CUSTOM)
+				return CUSTOM(ep);
 			else return _5CB(ep);
 		}
 
@@ -190,6 +215,15 @@ namespace LC { namespace FrankOseen {
 			else {
 				ep.second = "ERROR";
 			}
+
+			return ep;
+		}
+
+		static SIscalar CUSTOM(const Constant& electricProperty) {
+			SIscalar ep;
+
+			ep.first = 0.;
+			ep.second = "NOINIT";
 
 			return ep;
 		}
@@ -250,6 +284,8 @@ namespace LC { namespace FrankOseen {
 				return ZLI2806(opticalProperty);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(opticalProperty);
+			else if (lc == LC_TYPE::CUSTOM)
+				return CUSTOM(opticalProperty);
 
 			return _5CB(opticalProperty);
 		}
@@ -287,6 +323,15 @@ namespace LC { namespace FrankOseen {
 			else {
 				ni.second = "ERROR";
 			}
+
+			return ni;
+		}
+
+		static SIscalar CUSTOM(const Constant& opticalProperty) {
+
+			SIscalar ni;
+			ni.first = 0.;
+			ni.second = "NOINIT";
 
 			return ni;
 		}

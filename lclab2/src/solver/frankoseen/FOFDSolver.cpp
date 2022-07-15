@@ -519,6 +519,15 @@ namespace Electric {
 			<< HeaderPair{ { "Relax rate", sizeof(LC::scalar) }, &rate }
 		<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors.get() }
 		<< HeaderPair{ { "Voltage", sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, voltage.get() };
+		if (lc_type == LC_TYPE::CUSTOM) {
+			header << HeaderPair{ { "k11", sizeof(LC::scalar) }, &k11.first }
+				<< HeaderPair{ { "k22", sizeof(LC::scalar) }, &k22.first }
+				<< HeaderPair{ { "k33", sizeof(LC::scalar) }, &k33.first }
+				<< HeaderPair{ { "epar", sizeof(LC::scalar) }, &epar }
+				<< HeaderPair{ { "eper", sizeof(LC::scalar) }, &eper }
+				<< HeaderPair{ { "n0", sizeof(LC::scalar) }, &n0 }
+				<< HeaderPair{ { "ne", sizeof(LC::scalar) }, &ne };
+		}
 
 	}
 
@@ -538,20 +547,20 @@ namespace Electric {
 		std::size_t iter = 0;
 		std::unique_ptr<LC::scalar> p_chir, p_rate;
 		std::unique_ptr<LC::scalar[]> p_cell;
-		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData(iter)));
-		std::unique_ptr<LC_TYPE> p_type(reinterpret_cast<LC_TYPE*>(header.passData(iter)));
-		std::unique_ptr<Dataset::RelaxKind> p_relaxKind(reinterpret_cast<Dataset::RelaxKind*>(header.passData(iter)));
-		std::unique_ptr<std::size_t> p_iter(reinterpret_cast<std::size_t*>(header.passData(iter)));
-		std::unique_ptr<int[]> p_vox(reinterpret_cast<int*>(header.passData(iter)));
-		std::unique_ptr<bool[]> p_bc(reinterpret_cast<bool*>(header.passData(iter)));
+		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData("Scalar size")));
+		std::unique_ptr<LC_TYPE> p_type(reinterpret_cast<LC_TYPE*>(header.passData("LC type")));
+		std::unique_ptr<Dataset::RelaxKind> p_relaxKind(reinterpret_cast<Dataset::RelaxKind*>(header.passData("Relax kind")));
+		std::unique_ptr<std::size_t> p_iter(reinterpret_cast<std::size_t*>(header.passData("Iterations")));
+		std::unique_ptr<int[]> p_vox(reinterpret_cast<int*>(header.passData("Voxels")));
+		std::unique_ptr<bool[]> p_bc(reinterpret_cast<bool*>(header.passData("Boundaries")));
 
 		if (*p_size_of_scalar == SIZE_OF_SCALAR) {
-			p_cell = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
-			p_chir = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
-			p_rate = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
+			p_cell = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Cell dims")));
+			p_chir = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("Chirality")));
+			p_rate = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("Relax rate")));
 
-			directors = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
-			voltage = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData(iter)));
+			directors = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Directors")));
+			voltage = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Voltage")));
 
 			if (voltage == 0) {
 				LC_CORE_WARN("Voltage was not found");
@@ -570,6 +579,28 @@ namespace Electric {
 			bc = { p_bc[0], p_bc[1], p_bc[2] };
 			chirality = *p_chir;
 			rate = *p_rate;
+
+			if (lc_type == LC_TYPE::CUSTOM) {
+				k11.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k11")));
+				k22.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k22")));
+				k33.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k33")));
+				k11.second = "pN";
+				k22.second = "pN";
+				k33.second = "pN";
+				epar = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("epar")));
+				eper = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("eper")));
+				n0 = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("n0")));
+				ne = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("ne")));
+			}
+			else {
+				k11 = ElasticConstants::LC(lc_type, Constant::k11);
+				k22 = ElasticConstants::LC(lc_type, Constant::k22);
+				k33 = ElasticConstants::LC(lc_type, Constant::k33);
+				epar = ElectricConstants::LC(lc_type, ElectricConstants::Constant::epar).first;
+				eper = ElectricConstants::LC(lc_type, ElectricConstants::Constant::eper).first;
+				n0 = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_o).first;
+				ne = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_e).first;
+			}
 
 			// Initialize energy density
 			en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
@@ -847,8 +878,11 @@ namespace Electric {
 		// Relax voltage to initial state
 #if LCLAB2_CUDA_AVAIL
 		// Determine electric constants
-		data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
-		data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+
+		if (!(data.lc_type == LC_TYPE::CUSTOM)) {
+			data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
+			data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		}
 		FD::UpdateVoltageGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], data.epar, data.eper, &data.bc[0], &data.cell_dims[0], data.rate, iterations, static_cast<int>(data.relaxKind));
 #endif
 	}
@@ -869,8 +903,10 @@ namespace Electric {
 		}
 
 		// Determine electric constants
-		data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
-		data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		if (!(data.lc_type == LC_TYPE::CUSTOM)) {
+			data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
+			data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		}
 
 
 		/* Relax routine */

@@ -726,6 +726,23 @@ void Sandbox::drawEvent() {
             {
                 std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
                 dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
+
+                // If custom add customization to gui
+                if (data->lc_type == LC::FrankOseen::LC_TYPE::CUSTOM) {
+                    ImGui::PushItemWidth(75.f);
+                    ImGui::InputDouble("k11", &data->k11.first);
+                    ImGui::SameLine();
+                    ImGui::InputDouble("k22", &data->k22.first);
+                    ImGui::SameLine();
+                    ImGui::InputDouble("k33", &data->k33.first);
+                    ImGui::InputDouble("epar", &data->epar);
+                    ImGui::SameLine();
+                    ImGui::InputDouble("eper", &data->eper);
+                    ImGui::InputDouble("n0", &data->n0);
+                    ImGui::SameLine();
+                    ImGui::InputDouble("ne", &data->ne);
+                    ImGui::PopItemWidth();
+                }
             }
 
             // Dropdown menu for relax method
@@ -1472,8 +1489,14 @@ void Sandbox::POM() {
     LC::scalar dop = data->cell_dims[2];
 
 
-    _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
-    _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
+    if (data->lc_type != LC::FrankOseen::LC_TYPE::CUSTOM) {
+        _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
+        _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
+    }
+    else {
+        _pomImager.n0 = data->n0;
+        _pomImager.ne = data->ne;
+    }
 
     _pomImager.dop = dop;
     _pomImager.thickness = pitch.first * (dop + _pomImager.additional_layers);
@@ -1561,6 +1584,9 @@ void Sandbox::initVisuals() {
     _baryon_density.reset();
     _quaternion_field.reset();
 
+    // Clear components
+    _vortex_line.components.clear();
+
     // Update widget
     for (int d = 0; d < 3; d++) {
         _widget.celldims[d] = data->cell_dims[d];
@@ -1582,6 +1608,12 @@ void Sandbox::initVisuals() {
     _preimageManipulator->setParent(_manipulator.get());
     _vortexManipulator->setParent(_manipulator.get());
     _processedVortexManipulator->setParent(_manipulator.get());
+
+    // Clear vortexKnot components and processed vortexKnot components
+    // Note that since hte manipulators have been reset this does not cause an error
+    // to remove components without turning draw off
+    _vortexKnot.clear();
+    _processedVortexKnot.clear();
 
     // Set the distance from the plane
     _cameraObject.setTransformation(Matrix4::translation(Vector3::zAxis(2.2 * (std::max)(cdims[0], cdims[1]))));
@@ -1895,68 +1927,72 @@ void Sandbox::handlePreimageWindow() {
         ImGui::InputFloat("Tube radius", &_vortex_line.tubeRadius);
         ImGui::PopItemWidth();
 
-        int it = 0;
+        {
+            int it = 0;
 
-        ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw knots");
-        for (auto iter = _vortexKnot.begin(); iter != _vortexKnot.end(); iter++) {
+            if (_vortexKnot.size())
+                ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw knots");
 
-            //std::string pts = "Points (K" + std::to_string(it) + ")";
-            std::string tub = "Draw (K" + std::to_string(it) + ")";
-            std::string col = "K" + std::to_string(it) + " Color";
-            std::string rem = "X##K" + std::to_string(it);
+            for (auto iter = _vortexKnot.begin(); iter != _vortexKnot.end(); iter++) {
 
-            //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
-            //ImGui::SameLine();
-            ImGui::Checkbox(tub.c_str(), &iter->draw);
-            ImGui::SameLine();
-            if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
-                iter->UpdateColor();
+                //std::string pts = "Points (K" + std::to_string(it) + ")";
+                std::string tub = "Draw (K" + std::to_string(it) + ")";
+                std::string col = "K" + std::to_string(it) + " Color";
+                std::string rem = "X##K" + std::to_string(it);
+
+                //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
+                //ImGui::SameLine();
+                ImGui::Checkbox(tub.c_str(), &iter->draw);
+                ImGui::SameLine();
+                if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
+                    iter->UpdateColor();
+                }
+
+                ImGui::SameLine();
+
+                if (ImGui::Button(rem.c_str())) {
+                    iter->draw = false;
+                    _vortexKnot.erase(iter);
+                    // Remove the corresponding component
+                    std::vector<std::vector<uint>>::iterator citer = _vortex_line.components.begin();
+                    std::advance(citer, it);
+                    _vortex_line.components.erase(citer);
+                    break;
+                }
+
+                ++it;
             }
 
-            ImGui::SameLine();
+            it = 0;
 
-            if (ImGui::Button(rem.c_str())) {
-                iter->draw = false;
-                _vortexKnot.erase(iter);
-                // Remove the corresponding component
-                std::vector<std::vector<uint>>::iterator citer = _vortex_line.components.begin();
-                std::advance(citer, it);
-                _vortex_line.components.erase(citer);
-                break;
+            if (_processedVortexKnot.size())
+                ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw processed knots");
+
+            for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); iter++) {
+
+                //std::string pts = "Points (K" + std::to_string(it) + ")";
+                std::string tub = "Draw (K" + std::to_string(it) + ")##processed";
+                std::string col = "K" + std::to_string(it) + " Color##processed";
+                std::string rem = "X##processedK" + std::to_string(it);
+                ++it;
+
+                //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
+                //ImGui::SameLine();
+                ImGui::Checkbox(tub.c_str(), &iter->draw);
+                ImGui::SameLine();
+                if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
+                    iter->UpdateColor();
+                }
+
+                ImGui::SameLine();
+
+                if (ImGui::Button(rem.c_str())) {
+                    iter->draw = false;
+                    _processedVortexKnot.erase(iter);
+                    break;
+                }
+
             }
-
-            ++it;
-        }
-
-        it = 0;
-
-        if (_processedVortexKnot.size())
-            ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw processed knots");
-
-        for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); iter++) {
-
-            //std::string pts = "Points (K" + std::to_string(it) + ")";
-            std::string tub = "Draw (K" + std::to_string(it) + ")##processed";
-            std::string col = "K" + std::to_string(it) + " Color##processed";
-            std::string rem = "X##processedK" + std::to_string(it);
-            ++it;
-
-            //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
-            //ImGui::SameLine();
-            ImGui::Checkbox(tub.c_str(), &iter->draw);
-            ImGui::SameLine();
-            if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
-                iter->UpdateColor();
-            }
-
-            ImGui::SameLine();
-
-            if (ImGui::Button(rem.c_str())) {
-                iter->draw = false;
-                _processedVortexKnot.erase(iter);
-                break;
-            }
-
         }
 
         // Quaternion preimages
@@ -3140,7 +3176,7 @@ void Sandbox::findVortexKnotComponents() {
         }
     }
 
-    _vortex_line.numNodes = LC::Math::ChiralityField(field_nn.get(), chi_field, data->voxels, cellf, _vortex_line.valid_field, true, _widget.isoLevel);
+    _vortex_line.numNodes = LC::Math::ChiralityField(field_nn.get(), chi_field, data->voxels, cellf, _vortex_line.valid_field, true, _widget.isoLevel, true);
 
     std::map<uint, Face> unvisited_list, unvisited_list_local;
     // Key: vertex, value: Triangle

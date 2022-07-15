@@ -314,6 +314,9 @@ namespace Electric {
 			scalar eper = 0.0;
 			scalar epar = 0.0;
 
+			scalar n0 = 0.0;
+			scalar ne = 0.0;
+
 			DataError errors = DataError::None;
 			RelaxKind relaxKind = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
 				static_cast<int>(RelaxKind::Algebraic) |

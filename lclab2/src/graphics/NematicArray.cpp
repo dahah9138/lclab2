@@ -1,11 +1,11 @@
-#include "EllipsoidArray.h"
+#include "NematicArray.h"
 #include <algorithm>
 
 using namespace Magnum;
 
 namespace LC {
     
-void EllipsoidArray::Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions) {
+void NematicArray::Init(void* positions, std::function<Magnum::Vector3(void*, std::size_t)> Access, std::size_t size, int subdivisions) {
     numObjects = size;
     Float polyRadius = scale / (Float)pow(numObjects, 1.0f/3.0f);
     polyPositions = Containers::Array<Vector3>{ NoInit, numObjects };
@@ -34,9 +34,25 @@ void EllipsoidArray::Init(void* positions, std::function<Magnum::Vector3(void*, 
         Shaders::PhongGL::NormalMatrix{},
         Shaders::PhongGL::Color3{});
     polyMesh.setInstanceCount(polyInstanceData.size());
+
+    // Initialize meshes
+    polyMeshes.resize(map.size());
+
+    polyMeshes[DrawType::Ellipsoid] = MeshTools::compile(Primitives::capsule3DSolid(4, 4, 12, hLength, Magnum::Primitives::CapsuleTextureCoords()));
+    polyMeshes[DrawType::Cone] = MeshTools::compile(Primitives::coneSolid(3, 12, hLength, Primitives::ConeFlag::CapEnd));
+    polyMeshes[DrawType::Cylinder] = MeshTools::compile(Primitives::cylinderSolid(3, 12, hLength, Primitives::CylinderFlag::CapEnds));
+
+    // Instantiate meshes
+    for (int i = 0; i < map.size(); i++) {
+        polyMeshes[i].addVertexBufferInstanced(polyInstanceBuffer, 1, 0,
+            Shaders::PhongGL::TransformationMatrix{},
+            Shaders::PhongGL::NormalMatrix{},
+            Shaders::PhongGL::Color3{});
+        polyMeshes[i].setInstanceCount(polyInstanceData.size());
+    }
 }
 
-void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
+void NematicArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
     using namespace Magnum;
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
@@ -45,10 +61,10 @@ void EllipsoidArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& a
         .setProjectionMatrix(projection)
         .setTransformationMatrix(arcball->viewMatrix())
         .setNormalMatrix(arcball->viewMatrix().normalMatrix())
-        .draw(polyMesh);
+        .draw(polyMeshes[selected_drawType]);
 }
 
-void EllipsoidArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection) {
+void NematicArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection) {
     using namespace Magnum;
 
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
@@ -59,7 +75,7 @@ void EllipsoidArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matri
         .setAmbientColor({ ambient, ambient, ambient, ambient })
         .setTransformationMatrix(viewMatrix)
         .setNormalMatrix(viewMatrix.normalMatrix())
-        .draw(polyMesh);
+        .draw(polyMeshes[selected_drawType]);
 }
 
 }

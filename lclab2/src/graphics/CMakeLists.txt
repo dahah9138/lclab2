@@ -1,6 +1,7 @@
 add_library(lclab2_graphics ArcBall.h ArcBall.cpp
 			  SphereArray.h SphereArray.cpp
 			  EllipsoidArray.h EllipsoidArray.cpp
+			  NematicArray.h NematicArray.cpp
 			  # Mesh sheets
 			  Sheet.h Sheet.cpp
 			  NormalSheet.h NormalSheet.cpp

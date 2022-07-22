@@ -41,6 +41,10 @@ struct EllipsoidArray {
     Magnum::GL::Buffer polyInstanceBuffer{ Magnum::NoCreate };
     Magnum::Shaders::PhongGL polyShader{ Magnum::NoCreate };
     Magnum::Containers::Array<PolyInstanceData> polyInstanceData;
+
+    Magnum::Float specular = 0.f;
+    Magnum::Float diffuse = 0.1f;
+    Magnum::Float ambient = 1.f;
 };
 }
 

@@ -16,6 +16,12 @@ struct Widget {
 
 	Magnum::Color4 clearColor{0.5f, 0.5f, 0.5f, 0.5f};
 
+	float specular = 0.f;
+	float diffuse = 0.1f;
+	float ambient = 1.f;
+
+	LC::NematicArray::DrawType nematicDrawType = LC::NematicArray::DrawType::Cone;
+
 	bool showSettings = true;
 	bool showPOMSettings = false;
 	bool showPreimageSettings = false;
@@ -45,6 +51,11 @@ struct Widget {
 	int knotRefinementIterations = 0;
 	int knotInitialCutoffIterations = 15;
 
+	float lehmanArclength = 0.628f; // (2 * pi / 10)
+	float lehman_dz = 0.1f;
+	float total_lehman_z_dist = 1.f; // 1 pitch
+	float total_lehman_forward_dist = 0.3f; // 0.3 pitch
+	int lehman_upsample = 3;
 
 	int tilt_angle = 0;
 	int tilt_direction = 0;

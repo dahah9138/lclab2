@@ -111,7 +111,7 @@ struct CrossX {
     Float axisPosition;
     Axis axis;
     std::pair<Containers::Optional<GL::Mesh>, std::unique_ptr<LC::DynamicColorSheet>> section;
-    Containers::Optional<LC::EllipsoidArray> nematic;
+    Containers::Optional<LC::NematicArray> nematic;
     bool draw = true;
     bool draw_nematic = true;
     static LC::DynamicColorSheet::PositionFunction Position[3];
@@ -403,6 +403,184 @@ struct Zprofile {
     float UV_intensity = 1.0f;
 };
 
+/*
+    Contains a lehman cross section that can be embedded in a uniform helical bg
+*/
+struct lehman_cross_section {
+    struct Node {
+        Node() = default;
+        Node(const Eigen::Vector3d& p, const Eigen::Vector3d& d) : position(p), director(d) {}
+        Eigen::Vector3d position;
+        Eigen::Vector3d director;
+    };
+
+    // Fill the Lehman cluster cross section according to resolution provided by cell/(vox-1)
+    void fill(std::array<int, 3> vox, const std::array<LC::scalar, 3>& cell, int upsample) {
+
+        // Clear data
+        nodes.clear();
+        cell_dims.x() = cell[0];
+        cell_dims.y() = cell[1];
+        cell_dims.z() = cell[2];
+        voxels = vox;
+
+        for (int i = 0; i < 3; i++)
+            vox[i] *= upsample;
+
+        auto helical = LC::Math::Planar(2, 1);
+
+        LC::scalar dx = cell[0] / (vox[0] - 1);
+        LC::scalar dz = cell[2] / (vox[2] - 1);
+
+        // Orientation is initally yhat
+        orientation = { 0., 1., 0. };
+
+        // Input:
+        // r0: Position of the defect
+        // y0: Y plane where the defect is placed
+        // sgn: Which side the defect is placed (+ right, - left)
+        auto LehmanCluster = [&](Eigen::Vector3d r0, int sgn) {
+
+            // Only works for z = 0 defect location right now
+            std::array<LC::scalar, 3> n0 = helical(r0.x(), r0.y(), 0.);
+
+            for (int x = 0; x < vox[0]; x++) {
+                for (int z = 0; z < vox[2]; z++) {
+                    // Get current position
+                    Eigen::Vector3d pos(
+                        -cell[0] * 0.5 + x * dx,
+                        0.,
+                        -cell[2] * 0.5 + z * dz
+                    );
+
+                    // Position relative to the point defect
+                    Eigen::Vector3d rprime = pos - r0;
+                    LC::scalar rprime_len = rprime.norm();
+
+                    // If within half a pitch from the point defect and to the right of the defect
+                    if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
+                        Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
+                        // Angle of position relative to point defect in the defect plane
+                        LC::scalar phi = atan2(rprime.z(), rprime.x());
+
+                        // Radial rotation quaternion
+                        LC::scalar rprime_len = rprime.norm();
+                        LC::scalar theta = 2. * M_PI * rprime_len;
+                        LC::scalar ct, st;
+                        ct = cos(0.5 * theta);
+                        st = sin(0.5 * theta);
+                        Eigen::Quaterniond rot_quat;
+                        rot_quat.w() = ct;
+                        rot_quat.x() = st * rprime.x() / rprime_len;
+                        rot_quat.y() = st * rprime.y() / rprime_len;
+                        rot_quat.z() = st * rprime.z() / rprime_len;
+
+                        // Apply the quaternion to yhat
+                        Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
+                        Eigen::Vector3d nn;
+                        nn(0) = n.x();
+                        nn(1) = n.y();
+                        nn(2) = n.z();
+                        nodes.emplace_back(pos, nn);
+                    }
+                }
+            }
+        };
+
+        // Create the Lehman clusters starting in the y = 0 plane
+        // -------------------------------------------------------
+        // Lehman cluster at x = -0.5 curved to the right
+        LehmanCluster({ -0.5, 0., 0. }, 1);
+        // Lehman cluster at x = 0.5 curved to the left
+        LehmanCluster({ 0.5, 0., 0. }, -1);
+
+        reset();
+    }
+
+    // Data transformations
+
+    // Translate the Lehman cluster forward by translation_units
+    void forward(LC::scalar translation_units) {
+
+        // Need rotation to track orientation change
+        LC::scalar ct = cos(total_rotation * 0.5);
+        LC::scalar st = sin(total_rotation * 0.5);
+        Eigen::Quaterniond quat(ct, 0., 0., st); // cos(theta/2) + sin(theta/2) * zhat
+        Eigen::Matrix3d rot = quat.toRotationMatrix();
+
+        // Apply rotation to the plane orientation
+        Eigen::Vector3d rot_orientation = rot * orientation;
+        center = center + translation_units * rot_orientation;
+
+        for (auto & node : transformed_nodes) {
+            node.position = node.position + translation_units * rot_orientation;
+        }
+    }
+
+    // Translate the Lehman cluster in the z-direction by dist dz
+    // path length is the distance traveled in the new orientation of the plane determined by dz
+    void rotation(LC::scalar path_len, LC::scalar dz) {
+        // Create rotation matrix
+        LC::scalar theta = 2 * M_PI * dz;
+        total_rotation += theta;
+        LC::scalar ct = cos(total_rotation * 0.5);
+        LC::scalar st = sin(total_rotation * 0.5);
+        Eigen::Quaterniond quat(ct, 0., 0., st); // cos(theta/2) + sin(theta/2) * zhat
+        Eigen::Matrix3d rot = quat.toRotationMatrix();
+
+        // Apply rotation to the plane orientation
+        Eigen::Vector3d rot_orientation = rot * orientation;
+
+        // Apply quaternion to rotate positions
+        for (uint i = 0; i < transformed_nodes.size(); i++) {
+            // Can apply rotation immediately to directors
+            transformed_nodes[i].director = rot * nodes[i].director;
+            // Translate back to center and apply rotation, then translate back 
+            // and translate along plane orientation by amount path_len
+            transformed_nodes[i].position = rot * nodes[i].position + center + path_len * rot_orientation;
+            transformed_nodes[i].position.z() += dz;
+        }
+
+        center = center + path_len * rot_orientation + Eigen::Vector3d(0., 0., dz);
+    }
+
+    // Copy initial data to transformed data again
+    void reset() {
+        total_rotation = 0.;
+        center = Eigen::Vector3d(0., 0., 0.);
+        transformed_nodes.clear();
+        transformed_nodes.reserve(nodes.size());
+        for (const auto& node : nodes)
+            transformed_nodes.emplace_back(node);
+    }
+
+    // Extract the index for the transformed position at index id in the data
+    uint index(uint id) {
+        int i = (transformed_nodes[id].position.x() / cell_dims.x() + 0.5) * (voxels[0] - 1);
+        int j = (transformed_nodes[id].position.y() / cell_dims.y() + 0.5) * (voxels[1] - 1);
+        int k = (transformed_nodes[id].position.z() / cell_dims.z() + 0.5) * (voxels[2] - 1);
+        return i + voxels[0] * j + voxels[0] * voxels[1] * k;
+    }
+    
+    uint size() {
+        return nodes.size();
+    };
+
+    // Cross section data
+    std::vector<Node> nodes;
+
+    Eigen::Vector3d cell_dims, center;
+    LC::scalar total_rotation;
+
+    std::array<int, 3> voxels;
+
+    // Orientation of the plane embedding the Lehman cluster cross section
+    Eigen::Vector3d orientation;
+
+    // Transformed nodes
+    std::vector<Node> transformed_nodes;
+};
+
 struct NematicVisual {
     LC::EllipsoidArray lambda, chi, tau;
     void Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projectionMatrix) {
@@ -489,6 +667,8 @@ private:
     Containers::Optional<PionPreimage> _pionPreimage;
     Containers::Optional<BaryonIsosurface> _baryonIsosurface;
     VortexLine _vortex_line;
+
+    lehman_cross_section _lehman_xsection;
 
     std::unique_ptr<Eigen::Quaternion<LC::scalar>[]> _quaternion_field;
     Containers::Optional<NematicVisual> _quaternion_plane;
@@ -863,6 +1043,19 @@ void Sandbox::drawEvent() {
             if (ImGui::Button("yz"))
                 _manipulator->setTransformation(Matrix4::rotationZ(Rad(-M_PI / 2.0f)) * Matrix4::rotationY(Rad(-M_PI / 2.0f)));
 
+
+            ImGui::PushItemWidth(75.f);
+            ImGui::InputFloat("Specular", &_widget.specular);
+            ImGui::SameLine();
+            ImGui::InputFloat("Diffuse", &_widget.diffuse);
+            ImGui::SameLine();
+            ImGui::InputFloat("Ambient", &_widget.ambient);
+            ImGui::PopItemWidth();
+
+            
+            dropDownMenu<LC::NematicArray::DrawType>("Nematic draw type", _widget.nematicDrawType, LC::NematicArray::DrawMap());
+            
+
             if (ImGui::Button("Update Image") || _widget.updateImageFromLoad)
                 _widget.updateImage = true;
 
@@ -976,8 +1169,13 @@ void Sandbox::drawEvent() {
 
     // Draw nematic overlay
     for (int id = 0; id < 3; id++) {
-        if (_crossSections[id].draw_nematic && _crossSections[id].nematic)
+        if (_crossSections[id].draw_nematic && _crossSections[id].nematic) {
+            _crossSections[id].nematic->specular = _widget.specular;
+            _crossSections[id].nematic->diffuse = _widget.diffuse;
+            _crossSections[id].nematic->ambient = _widget.ambient;
+            _crossSections[id].nematic->selected_drawType = _widget.nematicDrawType;
             _crossSections[id].nematic->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
+        }
     }
 
     // Draw z profile
@@ -1148,7 +1346,7 @@ void Sandbox::generatePionTriplet() {
     std::unique_ptr<float[]> chi_field;
     std::unique_ptr<short[]> valid_field;
 
-    LC::Math::ChiralityField(nn.get(), chi_field, data->voxels, { (float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2] }, valid_field, true);
+    LC::Math::ChiralityField(nn.get(), chi_field, data->voxels, { (float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2] }, valid_field, true, _widget.isoLevel);
     
     // Extract pion triplet from n and chi
     /*
@@ -1460,8 +1658,6 @@ void Sandbox::updateColor() {
 
                 _crossSections[id].nematic->polyInstanceData[cidx].transformationMatrix = transformation;
                 _crossSections[id].nematic->polyInstanceData[cidx].normalMatrix = transformation.normalMatrix();
-
-                //_sarray->sphereInstanceData[cross_idx(i, j)].color = Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] });
             }
         }
 
@@ -1635,7 +1831,7 @@ void Sandbox::initVisuals() {
             _crossSections[id].draw_nematic = false;
         }
 
-        _crossSections[id].nematic = LC::EllipsoidArray{};
+        _crossSections[id].nematic = LC::NematicArray{};
         unsigned int size = data->voxels[i] * data->voxels[j];
         std::unique_ptr<Vector3[]> positions(new Vector3[size]);
         float dx = data->cell_dims[i] / (data->voxels[i] - 1);
@@ -2718,6 +2914,162 @@ void Sandbox::handleModificationWindow() {
                         nn(i, j, k, 2) = 1.0;
                     }
         }
+
+
+
+        // Resets/initializes lehman cluster
+        if (ImGui::Button("Fill Lehman cluster")) {
+            _lehman_xsection.fill(data->voxels, data->cell_dims, _widget.lehman_upsample);
+            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+            for (uint i = 0; i < _lehman_xsection.size(); i++) {
+                uint id = _lehman_xsection.index(i);
+                data->directors[id] = _lehman_xsection.nodes[i].director.x();
+                data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
+                data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+            }
+        }
+        ImGui::PushItemWidth(75.f);
+        ImGui::SameLine();
+        ImGui::InputInt("Up-sample##Lehman", &_widget.lehman_upsample);
+
+        ImGui::InputFloat("Arclength (dz)", &_widget.lehmanArclength);
+        ImGui::SameLine();
+        ImGui::InputFloat("z translation (dz)", &_widget.lehman_dz);
+
+        ImGui::InputFloat("Total z distance (p)", &_widget.total_lehman_z_dist);
+        ImGui::SameLine();
+        ImGui::InputFloat("Total fwd distance (p)", &_widget.total_lehman_forward_dist);
+        ImGui::PopItemWidth();
+
+        if (ImGui::Button("Forward")) {
+            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+            int iterations = _widget.total_lehman_forward_dist / (0.5 * dz);
+            for (int it = 0; it < iterations; it++) {
+                // Apply the translation
+                _lehman_xsection.forward(0.5 * dz);
+                // Fill data
+                for (uint i = 0; i < _lehman_xsection.size(); i++) {
+                    uint id = _lehman_xsection.index(i);
+                    data->directors[id] = _lehman_xsection.nodes[i].director.x();
+                    data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
+                    data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+                }
+            }
+        }
+
+        ImGui::SameLine();
+
+        bool z_translation = false;
+        if (ImGui::Button("Up")) {
+            z_translation = true;
+        }
+
+        ImGui::SameLine();
+
+        int sgn = 1;
+
+        if (ImGui::Button("Down")) {
+            sgn = -1;
+            z_translation = true;
+        }
+
+
+        // Fill data with translated lehman cluster
+        if (z_translation) {
+            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+         
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+            int iterations = _widget.total_lehman_z_dist / (_widget.lehman_dz * dz);
+
+            for (int it = 0; it < iterations; it++) {
+                // Apply the rotation
+                _lehman_xsection.rotation(_widget.lehmanArclength * dz, sgn * _widget.lehman_dz * dz);
+                // Fill data
+                for (uint i = 0; i < _lehman_xsection.size(); i++) {
+                    uint id = _lehman_xsection.index(i);
+                    data->directors[id] = _lehman_xsection.nodes[i].director.x();
+                    data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
+                    data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+                }
+            }
+
+
+        }
+
+
+        // Prototyping
+        if (ImGui::Button("Lehman cluster line")) {
+            // Default field configuration: ng = (-sin(qz), cos(qz), 0) so ng(z=0) = (0,1,0)
+            // Want the Lehman cluster to be in the xz plane
+            auto helical = LC::Math::Planar(2, 1);
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+            // Input:
+            // r0: Position of the defect
+            // y0: Y plane where the defect is placed
+            // sgn: Which side the defect is placed (+ right, - left)
+            auto LehmanCluster = [&](Eigen::Vector3d r0, int y0, int sgn) {
+
+                std::array<LC::scalar, 3> n0 = helical(r0.x(), r0.y(), r0.z());
+
+                for (int x = 0; x < data->voxels[0]; x++) {
+                    for (int z = 0; z < data->voxels[2]; z++) {
+                        // Get current position
+                        Eigen::Vector3d pos(
+                            -data->cell_dims[0] * 0.5 + x * dx,
+                            0.,
+                            -data->cell_dims[2] * 0.5 + z * dz
+                        );
+
+                        // Position relative to the point defect
+                        Eigen::Vector3d rprime = pos - r0;
+                        LC::scalar rprime_len = rprime.norm();
+
+                        // If within half a pitch from the point defect and to the right of the defect
+                        if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
+                            Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
+                            // Angle of position relative to point defect in the defect plane
+                            LC::scalar phi = atan2(rprime.z(), rprime.x());
+
+                            // Radial rotation quaternion
+                            LC::scalar rprime_len = rprime.norm();
+                            LC::scalar theta = 2. * M_PI * rprime_len;
+                            LC::scalar ct, st;
+                            ct = cos(0.5 * theta);
+                            st = sin(0.5 * theta);
+                            Eigen::Quaterniond rot_quat;
+                            rot_quat.w() = ct;
+                            rot_quat.x() = st * rprime.x() / rprime_len;
+                            rot_quat.y() = st * rprime.y() / rprime_len;
+                            rot_quat.z() = st * rprime.z() / rprime_len;
+
+                            // Apply the quaternion to phihat
+                            Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
+                            nn(x, y0, z, 0) = n.x();
+                            nn(x, y0, z, 1) = n.y();
+                            nn(x, y0, z, 2) = n.z();
+
+                        }
+
+                    }
+
+                }
+            };
+
+            for (int y = 0.25 * data->voxels[1]; y < 0.75 * data->voxels[1]; y++) {
+                // Lehman cluster at x = -0.5
+                LehmanCluster({ -0.5, 0., 0. }, y, 1);
+                // Lehman cluster at x = 0.5
+                LehmanCluster({ 0.5, 0., 0. }, y, -1);
+            }
+
+        }
+
 
         // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
 

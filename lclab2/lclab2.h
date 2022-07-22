@@ -59,6 +59,7 @@
 	#include "src/graphics/ArcBall.h"
 	#include "src/graphics/SphereArray.h"
 	#include "src/graphics/EllipsoidArray.h"
+	#include "src/graphics/NematicArray.h"
 	#include "src/graphics/Sheet.h"
 	#include "src/graphics/NormalSheet.h"
 	#include "src/graphics/Torus.h"

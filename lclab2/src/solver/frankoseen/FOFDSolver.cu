@@ -1030,6 +1030,9 @@ namespace Electric { namespace FD {
 
 		int notificationIterations = iterations / 10;
 
+		// Less than 10 iterations
+		if (!notificationIterations) notificationIterations = 1;
+
 		dirs.copyFromHost(directors, N * 3);
 		volt.copyFromHost(voltage, N);
 		cX.copyFromHost(cXi, 3);

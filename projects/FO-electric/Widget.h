@@ -27,6 +27,7 @@ struct Widget {
 	bool showPreimageSettings = false;
 	bool showModificationWindow = false;
 	bool showNonlinearSettings = false;
+	bool showVortexKnotSettings = false;
 	bool couplePlaneAndNematic = true;
 	int chiColorScheme = true;
 	std::array<float, 3> pionComponents = { 0.f, 0.f, 1.0f };
@@ -128,10 +129,10 @@ struct Widget {
 	std::array<int, 3> shrink_interval_begin = { 1, 1, 1 };
 	std::array<int, 3> shrink_interval_end = { 2, 2, 2 };
 
-	std::list<LC::scalar> energy_series;
-	std::vector<LC::scalar> energy_series_vec;
-	std::list<LC::scalar> series_x_axis;
-	std::vector<LC::scalar> series_x_axis_vec;
+	std::list<LC::precision_scalar> energy_series;
+	std::vector<LC::precision_scalar> energy_series_vec;
+	std::list<LC::precision_scalar> series_x_axis;
+	std::vector<LC::precision_scalar> series_x_axis_vec;
 
 
 	bool POM = false;

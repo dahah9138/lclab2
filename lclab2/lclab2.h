@@ -8,6 +8,8 @@
 	#include "src/base/ConsoleApplication.h"
 #endif
 
+#include "src/base/scalar.h"
+
 #include "src/base/logger.h"
 #include "src/base/Header.h"
 #include "src/base/Arguments.h"

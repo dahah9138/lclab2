@@ -60,6 +60,15 @@ set(WITH_CUDA ON CACHE BOOL "" FORCE)
 if (WITH_CUDA)
 	find_package(CUDA REQUIRED)
 	add_definitions(-DLCLAB2_CUDA)
+	# Copy custom cuda_occupancy.h file to hemi folder
+	file(READ custom/cuda/cuda_occupancy_impl.h.in FILE_CONTENTS)
+	file(WRITE external/hemi/hemi/cuda_occupancy_impl.h "${FILE_CONTENTS}")
+	# Replace current hemi/hemi/configure.h file with one that has the
+	# corrected header file cuda_occupancy_impl.h
+	set(FILE_CONTENTS = "")
+	file(READ custom/hemi/configure.h.in FILE_CONTENTS)
+	file(WRITE external/hemi/hemi/configure.h "${FILE_CONTENTS}")
+	
 endif()
 
 add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")

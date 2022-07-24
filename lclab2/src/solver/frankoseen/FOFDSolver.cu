@@ -1,5 +1,6 @@
 #include "CudaContext.cuh"
 #include "scalar.h"
+#include <iostream>
 
 
 namespace LC { namespace FrankOseen { namespace ElasticOnly { namespace FD {
@@ -480,6 +481,7 @@ namespace Electric { namespace FD {
 	HEMI_DEV_CALLABLE
 		void OneConstAlgebraicO4_Device(scalar* nn, scalar*vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar K, scalar epar, scalar eper, const scalar* dr, const scalar* dr2, scalar rate, scalar chirality) {
 		using namespace LC::Cuda;
+
 
 		int r[3];
 		ind2sub(idx, vXi, r);
@@ -976,9 +978,6 @@ namespace Electric { namespace FD {
 		});
 	}
 
-	/*
-		TODO: ThreeConstAlgebraicO2_Device
-	*/
 	void ThreeConstAlgebraicO2(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
 
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
@@ -1162,6 +1161,9 @@ namespace Electric { namespace FD {
 		
 		hemi::synchronize();
 		cudaMemcpy(voltage, volt.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+
+		// Check the errors...
+		checkCudaErrors();
 	}
 
 	void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality) {

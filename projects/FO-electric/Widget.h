@@ -138,8 +138,6 @@ struct Widget {
 	bool POM = false;
 	float alpha = 0.75f;
 
-	bool GPU = true;
-
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };
 };

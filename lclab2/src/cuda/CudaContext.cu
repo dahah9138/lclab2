@@ -3,13 +3,6 @@
 
 namespace LC { namespace Cuda {
 
-    //HEMI_LAUNCHABLE
-    //void testImpl(int N) {
-    //    for (auto idx : hemi::grid_stride_range(0, N))
-    //        printf("Hello from cuda thread %d\n", idx);
-    //}
-
-
     // Utilities
 
     int DeviceAllocate(void** data, unsigned int size) {

@@ -1,0 +1,2 @@
+This is a copy of cuda_occupancy.h that simply copies all of the specifications of Maxwell/Pascal software into Ampere GPUs as well. Otherwise everything breaks, because the default cuda_occupancy.h
+file does not currently support Ampere :(

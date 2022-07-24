@@ -42,7 +42,6 @@ namespace LC { namespace Cuda {
 
 #ifndef __CUDACC__
 	#define __syncthreads()
-#else
 #endif
 
 

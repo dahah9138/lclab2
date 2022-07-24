@@ -309,7 +309,7 @@ namespace Electric {
 			Config config = 0;
 			VoltageConfig vconfig = 0;
 			// Relaxation rate
-			scalar rate = 0.0;
+			scalar rate = -0.1;
 			
 			scalar eper = 0.0;
 			scalar epar = 0.0;

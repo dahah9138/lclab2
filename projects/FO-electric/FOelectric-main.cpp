@@ -722,7 +722,7 @@ void Sandbox::drawEvent() {
     if (_widget.relax && !_widget.continuousRelax) {
 
         // Try to relax asynchronously...
-        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, _widget.GPU);
+        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, true);
         _relaxFuture.second = true;
         _widget.updateImage = true;
     }
@@ -750,7 +750,7 @@ void Sandbox::drawEvent() {
     if (_widget.continuousRelax && checkRelax()) {
 
         // Try to relax asynchronously...
-        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, _widget.GPU);
+        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, true);
         _relaxFuture.second = true;
         _widget.updateImage = true;
     }

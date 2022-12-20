@@ -155,6 +155,7 @@ public:
     Graph(uint V); // Constructor
     ~Graph();
     void addEdge(uint v, uint w);
+    std::list<uint>* adjacencyList() { return adj; }
     std::vector<std::vector<uint>> connectedComponents(uint minComponentSize);
 };
 

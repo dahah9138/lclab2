@@ -30,6 +30,7 @@ struct Widget {
 	bool showVortexKnotSettings = false;
 	bool couplePlaneAndNematic = true;
 	int chiColorScheme = true;
+	bool S2colors = true;
 	std::array<float, 3> pionComponents = { 0.f, 0.f, 1.0f };
 
 	bool showZProfileWindow = false;
@@ -62,13 +63,26 @@ struct Widget {
 	int tilt_direction = 0;
 	int translationNumber = 1;
 	bool helicalTranslation = true;
-	float separationDistance = 2.5f;
+	float helicalLayerOffset = 0.0f;
+	float separationDistancex = 1.8f;
+	float separationDistancey = 1.0f;
+	float separationDistancez = 1.6f;
 	int interactionThetaPoints = 1;
+	int interactionPhiPoints = 30;
+	int interactionIterations = 200;
+	int interactionNPP = 20;
+	bool forceInteractionCellSize = false;
+	float interactionCellSize = 6.f;
+	bool interactionSymmetry = 1;
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
 	int smoothingIterations = 1;
-	float smoothingValue = 0.25f;
+	// Laplacian smoothing parameter
+	float smoothingAlpha = 0.25f;
+	// Taubin smoothing parameters
+	float smoothingLambda = 0.33f;
+	float smoothingMu = -0.34f;
 	int smoothingType = 2;
 	float preimage_alpha = 1.0f;
 	float isoLevel = 0.0625f;
@@ -113,7 +127,9 @@ struct Widget {
 
 
 	// Total en. Radio button
-	int radioEn = 1;
+	// 0 - total energy
+	// 1 - functional derivative en
+	int radioEn = 0;
 
 	// Parameters that can be modified in GUI
 	int topological_charge = 1;

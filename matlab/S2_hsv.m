@@ -6,11 +6,11 @@ format long e
 hold all
 
 % reference vector
-cthetad = [];
-cphid = [];
+cthetad = [0 180 90];
+cphid = [0 0 0];
 
 % Double angle counting
-S2_Z2 = 1;
+S2_Z2 = 0;
 
 % viewangle = [0 0];
 % viewangle = [36 30];

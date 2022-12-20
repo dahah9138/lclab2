@@ -1,4 +1,5 @@
 #include "NematicArray.h"
+#include <Magnum/GL/Renderer.h>
 #include <algorithm>
 
 using namespace Magnum;
@@ -18,6 +19,7 @@ void NematicArray::Init(void* positions, std::function<Magnum::Vector3(void*, st
            for the translation */
         polyInstanceData[i].transformationMatrix =
             Matrix4::translation(polyPositions[i]) * Matrix4::scaling(Vector3{ polyRadius });
+        // Compute the normal matrix from the transformation matrix in advance
         polyInstanceData[i].normalMatrix =
             polyInstanceData[i].transformationMatrix.normalMatrix();
         polyInstanceData[i].color = Color3{1.0f, 1.0f, 1.0f};
@@ -54,7 +56,7 @@ void NematicArray::Init(void* positions, std::function<Magnum::Vector3(void*, st
 
 void NematicArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arcball, const Magnum::Matrix4& projection) {
     using namespace Magnum;
-
+    GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
     polyShader
         .setSpecularColor({0.f, 0.f, 0.f, 0.f})
@@ -62,11 +64,12 @@ void NematicArray::Draw(const Magnum::Containers::Optional<Magnum::ArcBall>& arc
         .setTransformationMatrix(arcball->viewMatrix())
         .setNormalMatrix(arcball->viewMatrix().normalMatrix())
         .draw(polyMeshes[selected_drawType]);
+    GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
 }
 
 void NematicArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4& projection) {
     using namespace Magnum;
-
+    GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
     polyInstanceBuffer.setData(polyInstanceData, GL::BufferUsage::DynamicDraw);
     polyShader
         .setProjectionMatrix(projection)
@@ -76,6 +79,7 @@ void NematicArray::Draw(const Magnum::Matrix4& viewMatrix, const Magnum::Matrix4
         .setTransformationMatrix(viewMatrix)
         .setNormalMatrix(viewMatrix.normalMatrix())
         .draw(polyMeshes[selected_drawType]);
+    GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
 }
 
 }

@@ -19,6 +19,16 @@ namespace LC
 		}
 	}
 
+	Application::Application(const Arguments& arguments, const Configuration& configuration, const GLConfiguration& gl_configuration)
+		: Platform::Application{ arguments, configuration, gl_configuration } {
+
+		_relaxFuture.second = false;
+
+		if (!pfd::settings::available()) {
+			LC_CORE_WARN("Portable File Dialogs are not available on this platform");
+		}
+	}
+
 	void Application::setupCamera(const Float& param, CameraType cameraType) {
 		using namespace Magnum::Math::Literals;
 

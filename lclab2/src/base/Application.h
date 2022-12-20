@@ -61,6 +61,7 @@ namespace LC
 		
         explicit Application(const Arguments& arguments);
 		explicit Application(const Arguments& arguments, const Configuration& configuration);
+		explicit Application(const Arguments& arguments, const Configuration& configuration, const GLConfiguration &gl_configuration);
 
 		virtual void mouseScrollEvent(MouseScrollEvent& event) override;
 		virtual void viewportEvent(ViewportEvent& event) override;

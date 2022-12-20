@@ -51,13 +51,13 @@ namespace LC {
 			// Write size of variable name
 			ofile.write((char*)&variable_size, size_t_in_bytes);
 
-			// Read variable
+			// Write variable
 			ofile.write((char*)&hObj.first.variable[0], variable_size * size_of_char_in_bytes);
 
-			// Read byte size of obj
+			// Write byte size of obj
 			ofile.write((char*)&hObj.first.size_in_bytes, size_t_in_bytes);
 			
-			// Read location in body file
+			// Write location in body file
 			ofile.write((char*)&hObj.first.location, size_t_in_bytes);
 		}
 
@@ -282,6 +282,7 @@ namespace LC {
 		// Search for the id
 		for (auto hObj = headerObjects.begin(); hObj != headerObjects.end(); hObj++) {
 			if (hObj->first.variable == id) {
+				//LC_CORE_INFO("Found ID <{0}> (size = {1} bytes)", id.c_str(), hObj->first.size_in_bytes);
 				hObj->first.copy = true;
 				void* tmp = hObj->second;
 				hObj->second = 0;
@@ -290,6 +291,8 @@ namespace LC {
 				return tmp;
 			}
 		}
+
+		LC_CORE_WARN("ID [{0}] not found", id.c_str());
 		
 		return 0;
 	}

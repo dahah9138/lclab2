@@ -17,8 +17,12 @@ add_library(lclab2_math Choose.h Choose.cpp
 						Derivative.h
 						ChiralityField.h ChiralityField.cpp
 						Isosurface.h Isosurface.cpp
+						ExtendedMC/defs.h ExtendedMC/LookUpTable.h
+						ExtendedMC/MarchingCubes.h ExtendedMC/MarchingCubes.cpp
+						ExtendedMC/ply.h ExtendedMC/ply.cpp
 						ScalarOrderParameter.h
 						Graph.h
+						Normalize.h
 						Fields.h Fields.cpp)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}

@@ -35,6 +35,39 @@ namespace LC { namespace Imaging { namespace Colors {
 		return { Color3::fromHsv({ Deg(hsv[0] * 360.0f), hsv[1], hsv[2] }), alpha };
 	}
 
+    inline Magnum::Color3 HueMap(const float& z, const float& min, const float &max, const float& hue1 = 240.f, const float& hue2 = 0.f) {
+
+        // Linearly color according to scheme
+
+        // shift by min and normalize z by max + min
+
+        float zbar;
+        if (max != min)
+            zbar = (z - min) / (max - min);
+        else
+            zbar = 1.0;
+
+        float hue = (1.0f - zbar) * hue1 + zbar * hue2;
+
+        return Magnum::Color3::fromHsv(Deg{ hue }, 1.0f, 1.0f);
+    }
+
+
+    inline Magnum::Color3 LinearBlackWhiteGradient(const float& z, const float& min, const float& max) {
+
+        // Linearly color according to scheme
+
+        // shift by min and normalize z by max + min
+
+        float zbar;
+        if (max != min)
+            zbar = (z - min) / (max - min);
+        else
+            zbar = 1.0;
+
+        return zbar * Magnum::Color3(1.f, 1.f, 1.f);
+    }
+
 	// Conversion tools
     typedef struct {
         double r;       // a fraction between 0 and 1

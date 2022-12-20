@@ -46,6 +46,8 @@ namespace LC {	namespace Drawable {
         if (_noFaceCull) /* Check if exists */
             noCull = *_noFaceCull;
 
+        GL::Renderer::enable(GL::Renderer::Feature::Multisampling);
+
         if (noCull)
             GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
         //GL::Renderer::enable(GL::Renderer::Feature::Blending);
@@ -56,7 +58,10 @@ namespace LC {	namespace Drawable {
 			   .draw(_mesh);
         if (noCull)
             GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
-        //GL::Renderer::disable(GL::Renderer::Feature::Blending);
+
+        GL::Renderer::disable(GL::Renderer::Feature::Multisampling);
+        
+        
     }
 
 }}

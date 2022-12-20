@@ -212,7 +212,8 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly { namespace FD {
 		6 - FullAlgebraicO4
 		7 - OneConstAlgebraicO4
 	*/
-	void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int routine) {
+	void RelaxGPU(scalar* directors, const int* vXi, const bool* bc, const scalar* cXi, scalar chirality, scalar rate,
+		unsigned int iterations, int routine) {
 		unsigned int N = vXi[0] * vXi[1] * vXi[2];
 
 		hemi::Array<scalar> dirs(N * 3);
@@ -436,9 +437,9 @@ namespace Electric { namespace FD {
 		scalar nz000 = nn[idx + 2 * Nd];
 		scalar ea = epar - eper;
 
-		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
-		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
-		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
+		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
+		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
 
 		scalar nx010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
 		scalar ny010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd]) / (2.0 * dr[1]);
@@ -788,7 +789,10 @@ namespace Electric { namespace FD {
 		ind2sub(idx, vXi, r);
 
 		for (int d = 0; d < 3; d++)
-			if (r[d] == 0 || r[d] == vXi[d] - 1) return;
+			if (r[d] == 0 || r[d] == vXi[d] - 1) {
+				en[idx] = 0.;
+				return;
+			}
 
 		scalar K = (k11 + k22 + k33) / 3.;
 
@@ -802,9 +806,9 @@ namespace Electric { namespace FD {
 		scalar nz000 = nn[idx + 2 * Nd];
 		scalar Xi = 8.8541878 * ea / K;
 
-		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
-		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
-		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
+		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
+		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
+		scalar nz100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd]) / (2.0 * dr[0]);
 
 		scalar nx010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi)]) / (2.0 * dr[1]);
 		scalar ny010 = (nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd]) / (2.0 * dr[1]);
@@ -835,6 +839,59 @@ namespace Electric { namespace FD {
 			k22 * pow((-nx010 + ny100) * nz000 + nx000 * (-ny001 + nz010) + ny000 * (nx001 - nz100) + 2.*PI*chirality, 2) - pow(nz000 * v001 + ny000 * v010 + nx000 * v100, 2) * Xi) / 2.;
 		
 	}
+
+	HEMI_DEV_CALLABLE
+		void FreeEnergyDensityO4_Device(scalar* en, const scalar* nn, const scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality) {
+		using namespace LC::Cuda;
+
+		int r[3];
+		ind2sub(idx, vXi, r);
+
+		for (int d = 0; d < 3; d++)
+			if (r[d] <= 1 || r[d] >= vXi[d] - 2) {
+				en[idx] = 0.;
+				return;
+			}
+
+		scalar K = (k11 + k22 + k33) / 3.;
+
+		scalar z = dr[2] * r[2] - 0.5 * (vXi[2] - 1) * dr[2];
+		scalar q = 2. * PI * chirality;
+
+		// Reduced elastic constants
+		k11 /= K;
+		k22 /= K;
+		k33 /= K;
+
+		constexpr scalar c1 = 1.0 / 12.0;
+		constexpr scalar c2 = 2.0 / 3.0;
+
+		scalar a = nn[idx];
+		scalar b = nn[idx + Nd];
+		scalar c = nn[idx + 2 * Nd];
+
+		scalar Xi = 8.8541878 * ea / K;
+
+		scalar a100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		scalar b100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd]) / dr[0];
+		scalar c100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + 2 * Nd]) / dr[0];
+
+		scalar a010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		scalar b010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd]) / dr[1];
+		scalar c010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + 2 * Nd]) / dr[1];
+
+		scalar a001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+		scalar b001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd]) / dr[2];
+		scalar c001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + 2 * Nd]) / dr[2];
+
+		scalar v100 = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
+		scalar v010 = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
+		scalar v001 = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+
+		en[idx] = (pow(a100 + b010 + c100, 2) * k11 + (pow(a * (-a010 + b100) + c * (b001 - c010), 2) + pow(b * (b001 - c010) + a * (a001 - c100), 2) + pow(b * (a010 - b100) + c * (a001 - c100), 2)) * k33 +
+			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2.-pow(c * v001 + b * v010 + a * v100, 2) * Xi / 2.;
+	}
+
 
 	// Average abs average free energy functional derivative density
 	HEMI_DEV_CALLABLE
@@ -940,6 +997,13 @@ namespace Electric { namespace FD {
 		});
 	}
 
+	void FreeEnergyDensityO4(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			FreeEnergyDensityO4_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, dr, dr2, chirality);
+		});
+	}
+
 	void FreeEnergyFunctionalDerivativeO2(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
 
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
@@ -957,6 +1021,15 @@ namespace Electric { namespace FD {
 		});
 	}
 
+	void DomainOneConstAlgebraicO2(scalar* directors, scalar* voltage, const int* vXi, const uint32_t *index_list,uint32_t nIndices, scalar K, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, nIndices, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			OneConstAlgebraicO2_Device(directors, voltage, index_list[idx], N, vXi, K, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO2_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, index_list[idx], N);
+		});
+	}
 
 	void OneConstAlgebraicO4(scalar* directors, scalar *voltage, const int* vXi, scalar K, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
 
@@ -965,6 +1038,16 @@ namespace Electric { namespace FD {
 			OneConstAlgebraicO4_Device(directors, voltage, idx, N, vXi, K, epar, eper, dr, dr2, rate, chirality);
 			UpdateVoltageO4_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
 			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	void DomainOneConstAlgebraicO4(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar K, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, nIndices, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			OneConstAlgebraicO4_Device(directors, voltage, index_list[idx], N, vXi, K, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO4_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, index_list[idx], N);
 		});
 	}
 
@@ -978,13 +1061,33 @@ namespace Electric { namespace FD {
 		});
 	}
 
+	void DomainThreeConstAlgebraicO4(scalar* directors, scalar* voltage, const int* vXi, const uint32_t *index_list, uint32_t nIndices, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, nIndices, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			ThreeConstAlgebraicO4_Device(directors, voltage, index_list[idx], N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO4_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, index_list[idx], N);
+		});
+	}
+
 	void ThreeConstAlgebraicO2(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
 
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
 			HandleBoundaryConditionsOrder2_Device(directors, voltage, idx, vXi, bc, N);
-			//ThreeConstAlgebraicO4_Device(directors, voltage, idx, N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
+			//ThreeConstAlgebraicO2_Device(directors, voltage, idx, N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
 			UpdateVoltageO2_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
 			Normalize_Device(directors, idx, N);
+		});
+	}
+
+	void DomainThreeConstAlgebraicO2(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, const scalar* dr, const scalar* dr2, scalar chirality, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, nIndices, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			//ThreeConstAlgebraicO2_Device(directors, voltage, index_list[idx], N, vXi, k11, k22, k33, epar, eper, dr, dr2, rate, chirality);
+			UpdateVoltageO2_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
+			Normalize_Device(directors, index_list[idx], N);
 		});
 	}
 
@@ -993,7 +1096,14 @@ namespace Electric { namespace FD {
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
 			HandleBoundaryConditionsOrder4_Device(directors, voltage, idx, vXi, bc, N);
 			UpdateVoltageO4_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+		});
+	}
 
+	void DomainUpdateVoltageO4GPU(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar epar, scalar eper, const bool* bc, const scalar* dr, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, nIndices, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder4_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			UpdateVoltageO4_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
 		});
 	}
 
@@ -1002,7 +1112,14 @@ namespace Electric { namespace FD {
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
 			HandleBoundaryConditionsOrder2_Device(directors, voltage, idx, vXi, bc, N);
 			UpdateVoltageO2_Device(directors, voltage, idx, N, vXi, epar, eper, dr, rate);
+		});
+	}
 
+	void DomainUpdateVoltageO2GPU(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar epar, scalar eper, const bool* bc, const scalar* dr, scalar rate, unsigned int N) {
+
+		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
+			HandleBoundaryConditionsOrder2_Device(directors, voltage, index_list[idx], vXi, bc, N);
+			UpdateVoltageO2_Device(directors, voltage, index_list[idx], N, vXi, epar, eper, dr, rate);
 		});
 	}
 
@@ -1016,7 +1133,9 @@ namespace Electric { namespace FD {
 		6 - FullAlgebraicO4
 		7 - OneConstAlgebraicO4
 	*/
-	void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int routine) {
+	void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33,
+		scalar epar, scalar eper, const bool* bc, const scalar* cXi,
+		scalar chirality, scalar rate, unsigned int iterations, int routine, bool silent = true) {
 		unsigned int N = vXi[0] * vXi[1] * vXi[2];
 
 		hemi::Array<scalar> dirs(N * 3);
@@ -1105,9 +1224,123 @@ namespace Electric { namespace FD {
 
 					if ((i + 1) % notificationIterations == 0) {
 						cudaDeviceSynchronize();
-						printf("Iterations = %d\n", i + 1);
+						if (!silent)
+							printf("Iterations = %d\n", i + 1);
 					}
 				
+				}
+			}
+
+		}
+		else {
+			return;
+		}
+		cudaDeviceSynchronize();
+		cudaMemcpy(directors, dirs.readOnlyHostPtr(), 3 * sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+		cudaMemcpy(voltage, volt.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);
+	}
+
+	void DomainRelaxGPU(scalar* directors, scalar* voltage, const int* vXi, const uint32_t *index_list, uint32_t nIndices, scalar k11, scalar k22, scalar k33,
+		scalar epar, scalar eper, const bool* bc, const scalar* cXi,
+		scalar chirality, scalar rate, unsigned int iterations, int routine, bool silent = true) {
+		unsigned int N = vXi[0] * vXi[1] * vXi[2];
+
+		hemi::Array<uint32_t> indices(nIndices);
+		hemi::Array<scalar> dirs(N * 3);
+		hemi::Array<scalar> volt(N);
+		hemi::Array<scalar> cX(3);
+		hemi::Array<int> vX(3);
+		hemi::Array<bool> BC(3);
+
+		scalar K = (k11 + k22 + k33) / 3.0;
+
+		int notificationIterations = iterations / 10;
+
+		// Less than 10 iterations
+		if (!notificationIterations) notificationIterations = 1;
+
+		indices.copyFromHost(index_list, nIndices);
+		dirs.copyFromHost(directors, N * 3);
+		volt.copyFromHost(voltage, N);
+		cX.copyFromHost(cXi, 3);
+		vX.copyFromHost(vXi, 3);
+		BC.copyFromHost(bc, 3);
+
+		hemi::Array<scalar> dr(3), dr2(3);
+		{
+			scalar* h_dr = dr.writeOnlyHostPtr();
+			scalar* h_dr2 = dr2.writeOnlyHostPtr();
+			for (int d = 0; d < 3; d++) {
+				h_dr[d] = cXi[d] / (scalar)(vXi[d] - 1);
+				h_dr2[d] = h_dr[d] * h_dr[d];
+			}
+		}
+
+		// Flipped algebraic bit
+		if (routine & 0x02) {
+			// Flipped one const bit
+			if (routine & 0x01) {
+				typedef void(*method_t)(scalar*, scalar*, const int*, const uint32_t *,uint32_t,scalar, scalar, scalar, const bool*, const scalar*, const scalar*, const scalar*, scalar, scalar, unsigned int);
+				method_t method;
+				// Flipped order4 bit
+				if (routine & 0x04) method = DomainOneConstAlgebraicO4;
+				else method = DomainOneConstAlgebraicO2;
+
+				for (unsigned int i = 0; i < iterations; i++) {
+					method(dirs.devicePtr(),
+						volt.devicePtr(),
+						vX.readOnlyDevicePtr(),
+						indices.readOnlyDevicePtr(),
+						nIndices,
+						K,
+						epar,
+						eper,
+						BC.readOnlyDevicePtr(),
+						cX.readOnlyDevicePtr(),
+						dr.readOnlyDevicePtr(),
+						dr2.readOnlyDevicePtr(),
+						chirality, rate, N);
+
+					if ((i + 1) % notificationIterations == 0) {
+						cudaDeviceSynchronize();
+						printf("Iterations = %d\n", i + 1);
+					}
+
+
+				}
+			}
+			else { // Three constant bit
+
+				typedef void(*method_t)(scalar*, scalar*, const int*,const uint32_t*,uint32_t, scalar, scalar, scalar, scalar, scalar, const bool*, const scalar*, const scalar*, const scalar*, scalar, scalar, unsigned int);
+				method_t method;
+				// Flipped order4 bit
+				if (routine & 0x04) method = DomainThreeConstAlgebraicO4;
+				else method = DomainThreeConstAlgebraicO2;
+
+				for (unsigned int i = 0; i < iterations; i++) {
+
+					method(dirs.devicePtr(),
+						volt.devicePtr(),
+						vX.readOnlyDevicePtr(),
+						indices.readOnlyDevicePtr(),
+						nIndices,
+						k11,
+						k22,
+						k33,
+						epar,
+						eper,
+						BC.readOnlyDevicePtr(),
+						cX.readOnlyDevicePtr(),
+						dr.readOnlyDevicePtr(),
+						dr2.readOnlyDevicePtr(),
+						chirality, rate, N);
+
+					if ((i + 1) % notificationIterations == 0) {
+						cudaDeviceSynchronize();
+						if (!silent)
+							printf("Iterations = %d\n", i + 1);
+					}
+
 				}
 			}
 
@@ -1166,7 +1399,7 @@ namespace Electric { namespace FD {
 		checkCudaErrors();
 	}
 
-	void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality) {
+	void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality, bool order4 = true) {
 		
 		unsigned int N = vXi[0] * vXi[1] * vXi[2];
 		hemi::Array<scalar> dirs(N * 3);
@@ -1192,19 +1425,38 @@ namespace Electric { namespace FD {
 			}
 		}
 
-		FreeEnergyDensityO2(
-			en.devicePtr(),
-			dirs.readOnlyDevicePtr(),
-			volt.readOnlyDevicePtr(),
-			vX.readOnlyDevicePtr(),
-			k11,
-			k22,
-			k33,
-			ea,
-			dr.readOnlyDevicePtr(),
-			dr2.readOnlyDevicePtr(),
-			chirality,
-			N);
+		if (order4) {
+			FreeEnergyDensityO4(
+				en.devicePtr(),
+				dirs.readOnlyDevicePtr(),
+				volt.readOnlyDevicePtr(),
+				vX.readOnlyDevicePtr(),
+				k11,
+				k22,
+				k33,
+				ea,
+				dr.readOnlyDevicePtr(),
+				dr2.readOnlyDevicePtr(),
+				chirality,
+				N);
+		}
+		else {
+		
+			FreeEnergyDensityO2(
+				en.devicePtr(),
+				dirs.readOnlyDevicePtr(),
+				volt.readOnlyDevicePtr(),
+				vX.readOnlyDevicePtr(),
+				k11,
+				k22,
+				k33,
+				ea,
+				dr.readOnlyDevicePtr(),
+				dr2.readOnlyDevicePtr(),
+				chirality,
+				N);
+			
+		}
 
 		hemi::synchronize();
 		cudaMemcpy(en_density, en.readOnlyHostPtr(), sizeof(scalar) * N, cudaMemcpyDeviceToHost);

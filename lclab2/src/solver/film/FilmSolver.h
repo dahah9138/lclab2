@@ -1,14 +1,14 @@
-#ifndef SIMULATION_H
-#define SIMULATION_H
+#ifndef LC_SIMULATION_H
+#define LC_SIMULATION_H
 
-#include <lclab2.h>
+#include "../Solver.h"
+#include "Header.h"
+#include <Eigen/Geometry>
 
-/*
-	Problems:
-	For some reason the accelerations/forces are incredibly massive...
-	Masses have been changed to be really massive to try and counteract this
-	effect but a real solution is necessary...
-*/
+
+#define FIX_TO_GLASS 1
+
+namespace LC { namespace Film {
 
 struct Vertex {
 	// Role is necessary to determine the mass of each node
@@ -23,12 +23,18 @@ struct Vertex {
 	Role role;
 };
 
+Vertex::Role operator | (Vertex::Role lhs, Vertex::Role rhs) {
+	return static_cast<Vertex::Role>(static_cast<int>(lhs) | static_cast<int>(rhs));
+}
+
+// Octahedral volume elem
 typedef std::array<unsigned int, 8> VolumeElement;
 typedef Eigen::Vector3d Force;
 
-class Simulation {
+class Simulation : public LC::Solver {
 	
 	struct ParameterList {
+
 		// Bulk modulus (Pa)
 		LC::scalar kappa = 28e6;
 		// Shear modulus (Pa)
@@ -38,8 +44,9 @@ class Simulation {
 		// Estimated change in the order parameter from nematic to isotropic (Try 0.533 as well)
 		LC::scalar UdS = -570e3; // Pascals
 		// Step time (seconds)
-		LC::scalar dT = 1e-8;
+		LC::scalar dT = 1e-10;
 		bool PBCs = true;
+		std::size_t iterations = 0;
 
 		// Initial cell dimensions
 		std::array<LC::scalar, 3> cell_dims;
@@ -58,8 +65,8 @@ class Simulation {
 		Eigen::Vector3d lightDirection{ 0., 0., -1. };
 		// Material axis
 		Eigen::Vector3d materialAxis{ 0., 0., 1. };
-		// Director axis (eventually replace with dynamic director field)
-		Eigen::Vector3d directorAxis{ 0., 1., 1. };
+		// Director axis (if director field is not specified)
+		Eigen::Vector3d directorAxis{ 0., 0., 1. };
 	};
 
 public:
@@ -71,16 +78,28 @@ public:
 		with the director field aligned with (0,0,1)
 	*/
 	void InitVerticesAndElements(const LC::scalar* directors = 0,
-		const std::array<int, 3>& voxels = { 16,16,4 },
-		const std::array<LC::scalar, 3>& cell_dims = {1.6e-6,1.6e-6,0.4e-6});
+		const std::array<int, 3>& voxels = { 3,3,3 },
+		const std::array<LC::scalar, 3>& cell_dims = {0.1e-6,0.1e-6,0.1e-6});
 
+	void Init() {}
+	void* GetDataPtr() { return 0; }
 	/*
 		Routines
 	*/
 
+	void Relax(const std::size_t& iterations, bool GPU) {
+		for (int i = 0; i < iterations; i++)
+			updateNodes();
+	};
+
 	// Update next velocity and acceleration for elemIdx
 	void updateDynamicsAtElement(const unsigned int& elemIdx);
 
+	void Import(LC::Header& header) override;
+	void ReadDataFromHeader(LC::Header& header);
+
+	void Export(LC::Header& header) override;
+	void ConfigureHeader(LC::Header& header);
 	// Update nodes
 	void updateNodes();
 
@@ -95,14 +114,16 @@ public:
 	unsigned int getNumElements();
 	ParameterList& Parameters();
 
+	std::size_t size_of_scalar = SIZE_OF_SCALAR;
+
 private:
 	ParameterList m_params;
 
 	std::unique_ptr<Vertex[]> m_nodes;
-	unsigned int m_nNodes;
+	std::size_t m_nNodes;
 
 	std::unique_ptr<VolumeElement[]> m_elements;
-	unsigned int m_nElements;
+	std::size_t m_nElements;
 };
 
 void Simulation::InitVerticesAndElements(const LC::scalar* directors,
@@ -309,9 +330,6 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 			r_i[i][2] = m_nodes[sub_i].position[2];
 		}
 		else {
-		// Note each element has a volume of 8 integrated over (a,b,g) space -> Jacobian transformation
-		// requires multiplication by 2 to renormalize volume
-
 			r_i[i] = m_nodes[sub_i].position;
 		}
 	}
@@ -325,7 +343,7 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 	for (int d = 0; d < 3; d++) {
 		// This is fixed by multiplying each component to be twice the size that is ordinarily expected
 
-		// Each component is rescaled to be dimensionless
+		// Each component is rescaled to be dimensionless (Note this also sets the equilibrium volume to be (dx,dy,dz))
 		ra[d] = 1. / 8. * (-r_i[0][d] + r_i[1][d] - r_i[2][d] + r_i[3][d] - r_i[4][d] + r_i[5][d] - r_i[6][d] + r_i[7][d]) / dr[d];
 		rb[d] = 1. / 8. * (-r_i[0][d] - r_i[1][d] + r_i[2][d] + r_i[3][d] - r_i[4][d] - r_i[5][d] + r_i[6][d] + r_i[7][d]) / dr[d];
 		rg[d] = 1. / 8. * (-r_i[0][d] - r_i[1][d] - r_i[2][d] - r_i[3][d] + r_i[4][d] + r_i[5][d] + r_i[6][d] + r_i[7][d]) / dr[d];
@@ -335,6 +353,8 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		rabg[d] = 1. / 8. * (-r_i[0][d] + r_i[1][d] + r_i[2][d] - r_i[3][d] + r_i[4][d] - r_i[5][d] - r_i[6][d] + r_i[7][d]) / dr[d];
 	}
 
+	// Note: Multiplication by 2 comes from rescaling of (x,y,z) to a,b,g in (-1,1)
+	// since r = a * r_a + b * r_b + g * r_g + a * b * r_ab + a * b * g r_abg
 	auto drda = [ra, rab, rag, rabg](LC::scalar b, LC::scalar g) {
 		Eigen::Vector3d result;
 		for (int d = 0; d < 3; d++) {
@@ -452,15 +472,14 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		auto drdg_eval = drdg(a, b);
 
 		LC::scalar J = drda_eval.dot(drdb_eval.cross(drdg_eval));
-
-		//LC_INFO("J = {0}", J);
-				
-		// Do not update if the volume elem is negative or I1 greater than I_m
-		// Evalate terms needed for force at each node
 		LC::scalar I1 = drda_eval.squaredNorm() + drdb_eval.squaredNorm() + drdg_eval.squaredNorm();
+
+		// Do not update if the volume elem is negative or I1 greater than I_m
 		if (J < 0. || I1 >= I_m) {
+			// Technically an error should be flagged here
 			continue;
 		}
+		// Evalate terms needed for force at each node
 
 		LC::scalar J1_3 = pow(J, 1. / 3.);
 		LC::scalar J2_3 = J1_3 * J1_3;
@@ -490,6 +509,7 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 
 		// Compute the force
 
+		// Nematic-strain coupling
 		LC::scalar n_an_beps_ab = 0.0;
 		for (int ii = 0; ii < 3; ii++)
 			for (int jj = 0; jj < 3; jj++)
@@ -500,13 +520,12 @@ void Simulation::updateDynamicsAtElement(const unsigned int& elemIdx) {
 		// Material resistance to changes in volume
 		Force term2 = -m_params.kappa * log(J) / J * gradJ;
 		// Coupling of material strain to nematic ordering
-		Force term3 = UdS * (gradQeps / J2_3 - gradI / 3. / J2_3 - 2. * (n_an_beps_ab - I1 / 3.) * gradJ / 3. / J5_3);
+		Force term3 = UdS * (
+			gradQeps / J2_3 
+			- gradI / 3. / J2_3 
+			- 2. * (n_an_beps_ab - I1 / 3.) * gradJ / 3. / J5_3);
 
-		force = 
-			term1+ 
-			term2+
-			term3
-			;
+		force = term1 + term2 + term3;
 
 		// Eliminate invalid results
 		if (force != force)
@@ -553,30 +572,38 @@ void Simulation::updateNodes() {
 		auto newPosition =  m_nodes[i].position + (m_nodes[i].velocity * m_params.dT
 			+ accel * pow(m_params.dT, 2));
 
-		// Don't update lateral components if it's a side surface
-		//if (!(m_nodes[i].role & Vertex::Role::Side)) {
-		m_nodes[i].position[0] = newPosition[0];
-		m_nodes[i].position[1] = newPosition[1];
-		//}
 
 		// Don't update the z position of glass nodes
-		//if (!(m_nodes[i].role & Vertex::Role::Glass))
+#if FIX_TO_GLASS
+		if (!(m_nodes[i].role & Vertex::Role::Glass)) {
+#endif
+			// Don't update lateral components if it's a side surface
+			//if (!(m_nodes[i].role & Vertex::Role::Side)) {
+				m_nodes[i].position[0] = newPosition[0];
+				m_nodes[i].position[1] = newPosition[1];
+			//}
 			m_nodes[i].position[2] = newPosition[2];
-		
+
+#if FIX_TO_GLASS
+		}
+#endif
+
 			// Don't let nodes pass through bottom of glass
 		if (m_nodes[i].position[2] < -0.5 * m_params.cell_dims[2])
 			m_nodes[i].position[2] = -0.5 * m_params.cell_dims[2];
 
 		// Don't allow node to pass through sides of cell
 		//for (int d = 0; d < 2; d++) {
-		//	if (m_nodes[i].position[d] < -0.5 * m_params.voxels[d])
-		//		m_nodes[i].position[d] = -0.5 * m_params.voxels[d];
-		//	if (m_nodes[i].position[d] > 0.5 * m_params.voxels[d])
-		//		m_nodes[i].position[d] = 0.5 * m_params.voxels[d];
+		//	if (m_nodes[i].position[d] < -0.5 * m_params.cell_dims[d])
+		//		m_nodes[i].position[d] = -0.5 * m_params.cell_dims[d];
+		//	if (m_nodes[i].position[d] > 0.5 * m_params.cell_dims[d])
+		//		m_nodes[i].position[d] = 0.5 * m_params.cell_dims[d];
 		//}
 
 		
 	}
+
+	m_params.iterations++;
 
 }
 
@@ -597,5 +624,58 @@ unsigned int Simulation::getNumElements() {
 Simulation::ParameterList& Simulation::Parameters() {
 	return m_params;
 }
+
+void Simulation::Import(LC::Header& header) {
+	ReadDataFromHeader(header);
+}
+
+void Simulation::Export(LC::Header& header) {
+	ConfigureHeader(header);
+	header.write();
+	header.writeBody();
+}
+
+void Simulation::ReadDataFromHeader(LC::Header& header) {
+	
+	header.clean();
+	header.read();
+	header.readBody();
+
+	std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData("Scalar size")));
+
+	if (*p_size_of_scalar == LC::SIZE_OF_SCALAR) {
+		std::unique_ptr<std::size_t> p_nNodes(reinterpret_cast<std::size_t*>(header.passData("Node quantity")));
+		std::unique_ptr<std::size_t> p_nElements(reinterpret_cast<std::size_t*>(header.passData("Element quantity")));
+
+		std::unique_ptr<ParameterList> p_paramList(reinterpret_cast<ParameterList*>(header.passData("Parameters")));
+		m_params = *p_paramList;
+		m_nodes = std::unique_ptr<Vertex[]>(reinterpret_cast<Vertex*>(header.passData("Nodes")));
+		m_elements = std::unique_ptr<VolumeElement[]>(reinterpret_cast<VolumeElement*>(header.passData("Elements")));
+	}
+	else {
+		LC_CRITICAL("Invalid scalar size [{0}]", *p_size_of_scalar);
+	}
+
+}
+
+void Simulation::ConfigureHeader(LC::Header& header) {
+
+	{
+		LC::Header tmp{};
+		header.headerObjects.swap(tmp.headerObjects);
+	}
+	header.headerObjects.reserve(6);
+
+	header 
+		   << HeaderPair{ { "Scalar size", sizeof(std::size_t) },  &size_of_scalar }
+		   << HeaderPair{ { "Parameters", sizeof(ParameterList) }, &m_params }
+		   << HeaderPair{ { "Node quantity", sizeof(std::size_t) }, &m_nNodes }
+		   << HeaderPair{ { "Element quantity", sizeof(std::size_t) }, &m_nElements }
+		   << HeaderPair{ { "Nodes", sizeof(Vertex) * m_nNodes }, m_nodes.get() }
+		   << HeaderPair{ { "Elements", sizeof(VolumeElement) * m_nElements }, m_elements.get() }
+	;
+}
+
+}}
 
 #endif

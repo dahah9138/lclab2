@@ -14,6 +14,7 @@ struct CrossX {
     Containers::Optional<LC::NematicArray> nematic;
     bool draw = true;
     bool draw_nematic = true;
+    int nematic_reduction_factor = 4;
     static LC::DynamicColorSheet::PositionFunction Position[3];
 };
 // Permutations of color sheets

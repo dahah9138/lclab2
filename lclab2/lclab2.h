@@ -19,6 +19,7 @@
 #include "src/solver/frankoseen/FOAssets.h"
 #include "src/solver/frankoseen/FOFDSolver.h"
 #include "src/solver/frankoseen/RBFFDSolver.h"
+#include "src/solver/film/FilmSolver.h"
 
 #include "src/solver/qtensor/QTensorAssets.h"
 #include "src/solver/qtensor/QTensorSolver.h"
@@ -38,6 +39,7 @@
 #include "src/math/LinearInterpolate.h"
 #include "src/math/LinearInterpolator.h"
 #include "src/math/Isosurface.h"
+#include "src/math/ExtendedMC/MarchingCubes.h"
 #include "src/math/AdvancingFront.h"
 #include "src/math/StencilWeights.h"
 #include "src/math/CumulativeTrapIntegral.h"
@@ -49,9 +51,11 @@
 #include "src/math/ChiralityField.h"
 #include "src/math/ScalarOrderParameter.h"
 #include "src/math/Graph.h"
+#include "src/math/Normalize.h"
 
 // Algorithms
 #include "src/algorithm/cpuknn.h"
+#include "src/algorithm/loop_subdivision/loop_subdivision_impl.h"
 
 // Smoothing algorithm
 #include "src/smoothing/smooth_alg.hpp"
@@ -71,6 +75,7 @@
 	#include "src/graphics/Surface.h"
 	#include "src/graphics/TransparentDrawable.h"
 	#include "src/graphics/TransparentNormalDrawable.h"
+	#include <Magnum/Primitives/Line.h>
 
 	//implot impl
 	#include "src/implementation/ImContext.h"

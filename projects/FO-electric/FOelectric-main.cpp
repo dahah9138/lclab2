@@ -5,11 +5,13 @@
 #include "CrossSection.h"
 #include "SmoothIsosurface.h"
 #include "QuaternionFromBasis.h"
+#include <tuple>
 
 using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
 
 #define MAX_GRAPH_POINTS 250
+#define EXTENDEDMC 1
 // Current use case for interpolating preimages is inefficient,
 // use to interpolate director field THEN copy before passing to isoGenerator
 #define TESTINTERP 0
@@ -40,6 +42,11 @@ struct S2Fiber : public PreimageBase {
 
     float theta = 0.0f;
     float phi = 0.0f;
+    int subdivisions = 0;
+    bool normal_inversion = false;
+    bool domain_inversion = false;
+    bool cullFaces = true;
+    bool pontryagin = false;
     bool draw = true;
 };
 
@@ -167,6 +174,17 @@ private:
     void handleModificationWindow();
     void handleZProfileWindow();
     void generatePionTriplet();
+    std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangle>>
+        TaubinSmoothing(LC::Math::IsoVertex* verts,
+        unsigned int nVert,
+        unsigned int* indices,
+        unsigned int nInd,
+        const float* field_nn,
+        const std::array<int, 3>& Vox,
+        const std::array<float, 4>& color,
+        bool invert_normals,
+        bool pontryagin,
+        unsigned int nSubdivisions);
     void generateIsosurface();
     void computeEnergy();
     void repeatVolume(int i);
@@ -225,7 +243,8 @@ private:
 
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                 Configuration{}.setTitle("FO Electric Simulation")
-                                                                               .setWindowFlags(Configuration::WindowFlag::Resizable)
+                                                                               .setWindowFlags(Configuration::WindowFlag::Resizable),
+                                                                GLConfiguration{}.setSampleCount(8)
 
 } {
 
@@ -345,8 +364,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _widget.energy_series_vec.resize(MAX_GRAPH_POINTS);
 
     _image_series = LC::Imaging::ImageSeries((std::int32_t)data->voxels[0], (std::int32_t)data->voxels[1], "default-POM");
-
-
+    
     LC_INFO("Created client application!");
 }
 
@@ -360,6 +378,7 @@ Sandbox::~Sandbox() {
 void Sandbox::drawEvent() {
     GL::Renderer::setClearColor(_widget.clearColor);
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
+
 
     _imgui.newFrame();
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
@@ -375,9 +394,29 @@ void Sandbox::drawEvent() {
             {
                 std::function<void()> loadAction = [this]() {
 
+
                     initVisuals();
                     // Reset energy chart
                     Dataset* dataloc = (Dataset*)(_solver->GetDataPtr());
+
+                    // Normalize directors
+                    size_t grid_vol = dataloc->voxels[0] * dataloc->voxels[1] * dataloc->voxels[2];
+                    size_t invalid_dirs = 0;
+                    for (size_t i = 0; i < grid_vol; i++) {
+
+                        LC::scalar mag = sqrt(dataloc->directors[i] * dataloc->directors[i] + dataloc->directors[i + grid_vol] * dataloc->directors[i + grid_vol]
+                            + dataloc->directors[i + 2 * grid_vol] * dataloc->directors[i + 2 * grid_vol]);
+
+                        if (mag != 0.)
+                            for (int d = 0; d < 3; d++)
+                                dataloc->directors[i + d * grid_vol] /= mag;
+                        else
+                            invalid_dirs++;
+                    }
+
+                    if (invalid_dirs)
+                        LC_WARN("Loaded degenerate director field");
+
                     _widget.energy_series = std::list<LC::precision_scalar>{};
                     _widget.series_x_axis = std::list<LC::precision_scalar>{};
                     for (int i = 0; i < _widget.energy_series_vec.size(); i++) {
@@ -524,6 +563,8 @@ void Sandbox::drawEvent() {
 
                 ImGui::SameLine();
                 ImGui::Checkbox("Coupled", &_widget.couplePlaneAndNematic);
+                ImGui::SameLine();
+                ImGui::Checkbox("S2 colors", &_widget.S2colors);
 
 
                 std::map<std::pair<std::string, Axis>, bool&> planes{ {{"yz", Axis::x }, _crossSections[0].draw },
@@ -586,7 +627,7 @@ void Sandbox::drawEvent() {
             dropDownMenu<LC::NematicArray::DrawType>("Nematic draw type", _widget.nematicDrawType, LC::NematicArray::DrawMap());
             
 
-            if (ImGui::Button("Update Image") || _widget.updateImageFromLoad)
+            if (ImGui::Button("Update Image")  || _widget.updateImageFromLoad )
                 _widget.updateImage = true;
 
             _widget.updateImageFromLoad = false;
@@ -704,7 +745,7 @@ void Sandbox::drawEvent() {
 
     // Draw z profile
     if (_widget.drawProfile && _zprofile) {
-        _zprofile->Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix());
+        _zprofile->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
     }
 
     if (_quaternion_plane)
@@ -833,8 +874,8 @@ void Sandbox::generatePionTriplet() {
     
     // Extract pion triplet from n and chi
     /*
-        Reference triplet: tau    = (1, 0, 0)
-                           lambda = (0, 1, 0)
+        Reference triplet: lambda = (1, 0, 0)
+                           tau    = (-1, 0, 0)
                            chi    = (0, 0, 1)
     */
 
@@ -863,8 +904,14 @@ void Sandbox::generatePionTriplet() {
 
                     chi.normalize();
                 }
-                else
-                    chi = Eigen::Vector3f{ chi_field[full_idx], chi_field[full_idx + vol], chi_field[full_idx + 2 * vol] };
+                else {
+                    // Use the convention that chi_z must always be positive
+                    if (chi_field[full_idx + 2 * vol] < 0.)
+                        chi = Eigen::Vector3f{ -chi_field[full_idx], -chi_field[full_idx + vol], -chi_field[full_idx + 2 * vol] };
+                    else
+                        chi = Eigen::Vector3f{ chi_field[full_idx], chi_field[full_idx + vol], chi_field[full_idx + 2 * vol] };
+
+                }
 
                 tau = -lambda.cross(chi);
                 tau.normalize();
@@ -1045,17 +1092,37 @@ void Sandbox::updateColor() {
         int yy = (ax == Axis::y) ? 2 : xx + 1;
 
         std::size_t permutedSlice = data->voxels[xx];
+        std::size_t permutedSlice2 = data->voxels[yy];
+
+        int reduction_factor = _crossSections[id].nematic_reduction_factor;
 
         auto cross_idx = [permutedSlice](int i, int j) {
             return permutedSlice * j + i;
         };
 
+        auto cross_idx_reduced = [permutedSlice, permutedSlice2, reduction_factor](int i, int j) {
+            LC::scalar pos1 = (i / LC::scalar(permutedSlice - 1)); // [0, 1]
+            LC::scalar pos2 = (j / LC::scalar(permutedSlice2 - 1)); // [0, 1]
+
+            // Convert pos1 and pos2 to reduced space
+            int reduced_slice1 = (permutedSlice + reduction_factor - 1) / reduction_factor;
+            int reduced_slice2 = (permutedSlice2 + reduction_factor - 1) / reduction_factor;
+
+            int i_reduced = ceil(pos1 * (reduced_slice1 - 1.1));
+            int j_reduced = ceil(pos2 * (reduced_slice2 - 1.1));
+
+            return reduced_slice1 * j_reduced + i_reduced;
+        };
+
         int hvox;
         if (_widget.midplane) hvox = data->voxels[id] / 2;
         else hvox = _widget.iPlane[id];
-        Vector3 scale{ float(data->cell_dims[0]) / (data->voxels[0] - 1),
+
+
+
+        Vector3 scale((std::min)({ float(data->cell_dims[0]) / (data->voxels[0] - 1),
             float(data->cell_dims[1]) / (data->voxels[1] - 1),
-            float(data->cell_dims[2]) / (data->voxels[2] - 1) };
+            float(data->cell_dims[2]) / (data->voxels[2] - 1) }));
 
         LC::scalar theta, phi, nx, ny, nz;
         for (int i = 0; i < data->voxels[xx]; i++) {
@@ -1116,20 +1183,28 @@ void Sandbox::updateColor() {
                 if (phi < 0) phi += 2.f * M_PI;
 
                 std::size_t cidx = cross_idx(i, j);
+                std::size_t cidx_red = cross_idx_reduced(i, j);
                 Color3 director_color;
 
-                if (!_widget.nonlinear) director_color = LC::Imaging::Colors::RungeSphere(theta, phi);
+                if (!_widget.nonlinear) {
+                    if (_widget.S2colors)
+                        director_color = LC::Imaging::Colors::RungeSphere(theta, phi);
+                    else
+                        director_color = Color3{ 0.5f, 0.5f, 0.5f };
+                }
                 // Green 3 photon nonlinear imaging
                 else {
                     if (_widget.nonlinCircular)
                         director_color = Color3::fromHsv({ Deg(120.0f), 1.0f, 1.0f - powf(nz, 6.0f) });
-                    else
+                    else {
                         director_color = Color3::fromHsv({ Deg(120.0f), 1.0f, powf(nx * cos(M_PI / 180. * _widget.nonlinTheta) + ny * sin(M_PI / 180. * _widget.nonlinTheta), 6.0f) });
+                    }
+
                 }
                 if (!_widget.POM || ax != Axis::z) {
                     _crossSections[id].section.second->vertices[cidx].color = { director_color, alpha };
                 }
-                _crossSections[id].nematic->polyInstanceData[cidx].color = director_color;
+                _crossSections[id].nematic->polyInstanceData[cidx_red].color = director_color;
 
                 Vector3 translation{ 0.0f, 0.0f, 0.0f };
                 translation[id] = data->cell_dims[id] * ((float)hvox / float(data->voxels[id] - 1) - 0.5f);
@@ -1141,10 +1216,11 @@ void Sandbox::updateColor() {
                 Matrix4 transformation = Matrix4::translation(translation)
                     * Matrix4::rotationZ(Rad{ -hPi + float(phi) })
                     * Matrix4::rotationX(Rad{ hPi - float(theta) })
-                    * Matrix4::scaling(0.2f * scale);
+                    * Matrix4::scaling(0.2f * scale * reduction_factor);
 
-                _crossSections[id].nematic->polyInstanceData[cidx].transformationMatrix = transformation;
-                _crossSections[id].nematic->polyInstanceData[cidx].normalMatrix = transformation.normalMatrix();
+                // Map cidx to reduced space
+                _crossSections[id].nematic->polyInstanceData[cidx_red].transformationMatrix = transformation;
+                //_crossSections[id].nematic->polyInstanceData[cidx_red].normalMatrix = transformation.normalMatrix();
             }
         }
 
@@ -1318,18 +1394,28 @@ void Sandbox::initVisuals() {
             _crossSections[id].draw_nematic = false;
         }
 
+        int next = _crossSections[id].nematic_reduction_factor;
         _crossSections[id].nematic = LC::NematicArray{};
         unsigned int size = data->voxels[i] * data->voxels[j];
-        std::unique_ptr<Vector3[]> positions(new Vector3[size]);
+        int vox_red_x = (data->voxels[i] + next - 1) / next;
+        int vox_red_y = (data->voxels[j] + next - 1) / next;
+        unsigned int size_reduced = vox_red_x * vox_red_y;
+        std::unique_ptr<Vector3[]> positions(new Vector3[size_reduced]);
         float dx = data->cell_dims[i] / (data->voxels[i] - 1);
         float dy = data->cell_dims[j] / (data->voxels[j] - 1);
 
-        for (int x = 0; x < data->voxels[i]; x++) {
-            for (int y = 0; y < data->voxels[j]; y++) {
+        for (int x = 0; x < data->voxels[i]; x+=next) {
+            for (int y = 0; y < data->voxels[j]; y+=next) {
 
-                positions[x + y * data->voxels[i]] = { 0.f, 0.f, 0.f };
-                positions[x + y * data->voxels[i]][i] = -data->cell_dims[i] / 2. + x * dx;
-                positions[x + y * data->voxels[i]][j] = -data->cell_dims[j] / 2. + y * dy;
+                LC::scalar x_red_coord = x / (LC::scalar)(data->voxels[i]-1); // [0,1]
+                LC::scalar y_red_coord = y / (LC::scalar)(data->voxels[j]-1); // [0,1]
+                
+                int x_red = ceil(x_red_coord * (vox_red_x - 1.1));
+                int y_red = ceil(y_red_coord * (vox_red_y - 1.1));
+
+                positions[x_red + y_red * vox_red_x] = { 0.f, 0.f, 0.f };
+                positions[x_red + y_red * vox_red_x][i] = -data->cell_dims[i] * 0.5 + x * dx;
+                positions[x_red + y_red * vox_red_x][j] = -data->cell_dims[j] * 0.5 + y * dy;
             }
         }
         // Now we can initialize the sphere array
@@ -1337,8 +1423,8 @@ void Sandbox::initVisuals() {
             Magnum::Vector3* pos = (Magnum::Vector3*)data;
             return pos[i];
         };
-        _crossSections[id].nematic->Init(positions.get(), access, size);
-
+        _crossSections[id].nematic->scale *= next;
+        _crossSections[id].nematic->Init(positions.get(), access, size_reduced);
         _crossSections[id].axis = ax;
         _crossSections[id].section.second = std::make_unique<LC::DynamicColorSheet>();
         _crossSections[id].section.second->Set(voxels[i], voxels[j], cdims[i], cdims[j]);
@@ -1472,7 +1558,9 @@ void Sandbox::handlePreimageWindow() {
             ImGui::SameLine();
             ImGui::Checkbox("Global preimage alpha", &_widget.global_preimage_alpha);
             ImGui::InputInt("Smoothing iterations", &_widget.smoothingIterations);
-            ImGui::SliderFloat("Smoothing value", &_widget.smoothingValue, 0.25f, 200.f);
+            ImGui::SliderFloat("Laplacian Smoothing coeff", &_widget.smoothingAlpha, 0.25f, 200.f);
+            ImGui::SliderFloat("Taubin Smoothing contraction coeff", &_widget.smoothingLambda, 0.0f, 0.5f);
+            ImGui::SliderFloat("Taubin Smoothing expansion coeff", &_widget.smoothingMu, -0.5f, 0.0f);
             ImGui::TextColored({0.f, 1.f, 0.f, 1.f}, "Smoothing type");
             ImGui::RadioButton("Explicit", &_widget.smoothingType, 0);
             ImGui::SameLine();
@@ -1567,9 +1655,11 @@ void Sandbox::handlePreimageWindow() {
             ImGui::SameLine();
             ImGui::SliderFloat("Shell isovalue", &_vortexShell->isoLevel, 0.0f, 1.0f);
             ImGui::SliderFloat("Shell query value", & _vortexShell->queryValue, -1.f, 1.f);
-            ImGui::RadioButton("Tilt", &_widget.chiColorScheme, 0);
+            ImGui::RadioButton("Tilt (theta)", &_widget.chiColorScheme, 0);
             ImGui::SameLine();
-            ImGui::RadioButton("Max quaternion component", &_widget.chiColorScheme, 1);
+            ImGui::RadioButton("Tilt (chi_x)", &_widget.chiColorScheme, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("Quaternion", &_widget.chiColorScheme, 2);
             ImGui::PopItemWidth();
         }
 
@@ -1800,6 +1890,14 @@ void Sandbox::nematicPreimageManager() {
                 if (!_widget.global_preimage_alpha)
                     ImGui::SliderFloat(("Iso Alpha ##" + txt).c_str(), &p.alpha, 0.0f, 1.0f);
 
+                ImGui::InputInt(("Mesh subdivisions##" + txt).c_str(), &p.subdivisions);
+                ImGui::Checkbox("Pontryagin construction", &p.pontryagin);
+                ImGui::SameLine();
+                ImGui::Checkbox("Invert normals", &p.normal_inversion);
+                ImGui::SameLine();
+                ImGui::Checkbox("Cull faces", &p.cullFaces);
+                ImGui::SameLine();
+                ImGui::Checkbox("Domain inversion", &p.domain_inversion);
                 ImGui::Checkbox("Draw surface", &p.draw);
 
                 ImGui::EndTabItem();
@@ -2221,7 +2319,11 @@ void Sandbox::handleModificationWindow() {
         ImGui::SameLine();
         ImGui::RadioButton("Hopfion", &_widget.hopfion_type, 1);
         ImGui::SameLine();
-        ImGui::RadioButton("Toron", &_widget.hopfion_type, 2);
+        ImGui::RadioButton("Twistion", &_widget.hopfion_type, 2);
+        ImGui::SameLine();
+        ImGui::RadioButton("CF3", &_widget.hopfion_type, 3);
+        ImGui::SameLine();
+        ImGui::RadioButton("Toron", &_widget.hopfion_type, 4);
 
         int Q = _widget.topological_charge;
         int npp = _widget.npp;
@@ -2229,17 +2331,20 @@ void Sandbox::handleModificationWindow() {
 
         if (ImGui::Button("Generate")) {
 
+            (*data).Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
+
             Dataset::Config cfg;
 
             if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
-            else cfg = Dataset::Toron();
+            else if (_widget.hopfion_type == 2) cfg = Dataset::Twistion(data->cell_dims);
+            else if (_widget.hopfion_type == 3) cfg = Dataset::CF3(data->cell_dims[0]);
+            else cfg = Dataset::Toron(data->cell_dims, Q);
 
             data->chirality = _widget.chirality;
 
             (*data).Voxels(_widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp)
                 .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
-                .Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2])
                 .Configuration(cfg);
 
             // Reset data
@@ -2268,7 +2373,7 @@ void Sandbox::handleModificationWindow() {
             Dataset::Config cfg;
             if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
-            else cfg = Dataset::Toron();
+            else cfg = Dataset::Toron(data->cell_dims, Q);
 
             (*data).Embed(_widget.shrink_interval_begin, _widget.shrink_interval_end, cfg);
 
@@ -2428,7 +2533,7 @@ void Sandbox::handleModificationWindow() {
                         pos[1] = -data->cell_dims[1] / 2.0 + j * dy;
                         pos[2] = -data->cell_dims[2] / 2.0 + k * dz;
 
-                        auto n = helical(pos[0], pos[1], pos[2]);
+                        auto n = helical(pos[0], pos[1], pos[2] - _widget.helicalLayerOffset);
 
                         for (int d = 0; d < 3; d++) {
                             nn(i, j, k, d) = n[d];
@@ -2436,6 +2541,10 @@ void Sandbox::handleModificationWindow() {
                     }
         }
 
+        ImGui::SameLine();
+        ImGui::PushItemWidth(50.f);
+        ImGui::InputFloat("Layer offset (p)", &_widget.helicalLayerOffset);
+        ImGui::PopItemWidth();
         ImGui::SameLine();
 
         if (ImGui::Button("Uniform field")) {
@@ -2690,15 +2799,78 @@ void Sandbox::handleModificationWindow() {
             _widget.updateImage = true;
         }
 
+
+        // 0 -> spherical interaction energy
+        // 1 -> radial interaction energy
+        static int radioInteractionType = 0;
+        static float a_axis = 1.f;
+        static float b_axis = 1.f;
+        static float c_axis = 1.1f;
+        ImGui::Separator();
+        ImGui::RadioButton("Spherical", &radioInteractionType, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Radial", &radioInteractionType, 1);
         ImGui::PushItemWidth(100.f);
-        ImGui::InputFloat("Separation Distance", &_widget.separationDistance);
-        ImGui::InputInt("Theta points", &_widget.interactionThetaPoints);
+        ImGui::InputFloat("x radius", &a_axis);
+        ImGui::SameLine();
+        ImGui::InputFloat("y radius", &b_axis);
+        ImGui::SameLine();
+        ImGui::InputFloat("z radius", &c_axis);
+        ImGui::PopItemWidth();
+        ImGui::Separator();
+
+        // Radial parameters
+
+        static float start_dist = 2.f;
+        static float end_dist = 5.f;
+        static int r_points = 10;
+        static float phi0 = 0.f;
+        static float theta0 = 0.;
+        static int Navg = 1;
+        static float EField = 0.5f;
+
+
+        ImGui::PushItemWidth(100.f);
+        if (radioInteractionType == 0) {
+            ImGui::InputFloat("Separation Distance (x)", &_widget.separationDistancex);
+            ImGui::InputFloat("Separation Distance (y)", &_widget.separationDistancey);
+            ImGui::InputFloat("Separation Distance (z)", &_widget.separationDistancez);
+            ImGui::Checkbox("Use symmetries", &_widget.interactionSymmetry);
+            ImGui::InputInt("Theta points", &_widget.interactionThetaPoints);
+            ImGui::SameLine();
+            ImGui::InputInt("Phi points", &_widget.interactionPhiPoints);
+        }
+        else if (radioInteractionType == 1) {
+            ImGui::InputFloat("Initial r", &start_dist);
+            ImGui::InputFloat("End r", &end_dist);
+            ImGui::InputInt("r points", &r_points);
+            // Make theta and phi interchangable in the future
+            ImGui::InputFloat("phi0 (deg)", &phi0);
+            ImGui::InputFloat("theta0 (deg)", &theta0);
+        }
+        ImGui::SameLine();
+        ImGui::InputInt("Node density (per pitch)", &_widget.interactionNPP);
+        ImGui::Checkbox("Force cell size", &_widget.forceInteractionCellSize);
+        ImGui::SameLine();
+        ImGui::InputFloat("Cell size", &_widget.interactionCellSize);
+        ImGui::InputFloat("E-field", &EField);
+        ImGui::InputInt("Relaxation iterations", &_widget.interactionIterations);
+        ImGui::InputInt("Samples per point", &Navg);
         ImGui::PopItemWidth();
 
-        if (ImGui::Button("Heliknoton interaction landscape")) {
-            // Get all points belonging to the heliknoton
-            unsigned int vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+        // E-field
 
+        const size_t interaction_fname_buffer_size = 128;
+        static char interaction_fname[interaction_fname_buffer_size] = "interaction.bin";
+
+        ImGui::InputText("Interaction file name", interaction_fname, interaction_fname_buffer_size);
+
+        if (ImGui::Button("Heliknoton interaction landscape")) {
+
+            // Get all points belonging to the heliknoton
+            // ============================================
+            unsigned int vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+            unsigned int bulk_vol = (data->voxels[0]-2) * (data->voxels[1]-2) * (data->voxels[2]-2);
             typedef Eigen::Vector3d Position;
             typedef Eigen::Vector3d Director;
             
@@ -2718,8 +2890,13 @@ void Sandbox::handleModificationWindow() {
                 }
             }
 
+            // Helical background function of the cell
+            auto helical = LC::Math::Planar(2, 1);
+
             // Normalized handedness to -1
             handedness0(2, 2) = -1.0;
+
+            Position center_of_mass(0.,0.,0);
 
             // Extract the heliknoton
             for (int i = 0; i < data->voxels[0]; i++) {
@@ -2728,6 +2905,7 @@ void Sandbox::handleModificationWindow() {
                         // Diffmag for helical axis
                         unsigned int idx = i + data->voxels[0] * j + data->voxels[0] * data->voxels[1] * k;
 
+#if 0 // Use handedness tensor
                         // Get Chi matrix
                         Eigen::Matrix3d handedness;
                         if ((k <= data->voxels[2] - 3 && k >= 2) && (j <= data->voxels[1] - 3 && j >= 2) && (i <= data->voxels[0] - 3 && i >= 2))
@@ -2746,12 +2924,14 @@ void Sandbox::handleModificationWindow() {
                         }
                         
                         // Not part of the background
-                        if (R2 > 0.062) {
+                        if (R2 > 0.2) {
                             // Add location to the heliknoton
                             Position pos;
                             pos[0] = data->cell_dims[0] * ((LC::scalar)i / (data->voxels[0] - 1) - 0.5);
                             pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
                             pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+
+                            center_of_mass += pos;
 
                             Director dir;
                             dir[0] = data->directors[idx];
@@ -2759,34 +2939,102 @@ void Sandbox::handleModificationWindow() {
                             dir[2] = data->directors[idx + 2 * vol];
                             heliknoton.push_back({ pos, dir });
                         }
+#else   // Use dot product relative to the helical background
+                        Position pos;
+                        pos[0] = data->cell_dims[0] * ((LC::scalar)i / (data->voxels[0] - 1) - 0.5);
+                        pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
+                        pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+
+                        Director dir;
+                        dir[0] = data->directors[idx];
+                        dir[1] = data->directors[idx + vol];
+                        dir[2] = data->directors[idx + 2 * vol];
+
+                        //auto dir_bg_arr = helical(pos[0], pos[1], pos[2]);
+                        //Director dir_bg(dir_bg_arr[0], dir_bg_arr[1], dir_bg_arr[2]);
+
+                        // Compute dot product
+                        //LC::scalar absprodsq = abs(dir_bg.dot(dir));
+
+                        // Get whatever is inside the ellipsoid
+                        if (pow(pos[0]/a_axis,2) + pow(pos[1]/b_axis,2) + pow(pos[2]/c_axis,2) <= 1)
+                            heliknoton.push_back({ pos, dir });
+#endif
 
                        
                     }
                 }
             }
 
-            // Generate the helical background for the cell
-            auto helical = LC::Math::Planar(2, 1);
-            
+            if (!heliknoton.empty())
+                center_of_mass = center_of_mass / heliknoton.size();
+            else {
+                LC_ERROR("Empty heliknoton!!!");
+                return;
+            }
+
+
+            //LC_INFO("Heliknoton center of mass R = ({0}, {1}, {2})", center_of_mass(0), center_of_mass(1), center_of_mass(2));
+
+            // Translate the heliknoton center of mass to the origin
+            for (auto& p : heliknoton) {
+                p.position = p.position - center_of_mass;
+            }
+
+            // Get a bounding box on the heliknoton size
+            Position lower_bound(0.,0.,0.), upper_bound(0.,0.,0.);
+            for (auto& p : heliknoton) {
+                for (int i = 0; i < 3; i++) {
+                    if (lower_bound[i] > p.position[i])
+                        lower_bound[i] = p.position[i];
+                    if (upper_bound[i] < p.position[i])
+                        upper_bound[i] = p.position[i];
+                }
+            }
+
+            // Pad the background box size
+            const LC::scalar background_padding = 1.15;
+
+            // ============================================
+
             // Create a new volume
-            std::array<LC::scalar, 3> cdims{ 8.,8.,8. };
-            std::array<int, 3> vNew = { int(_widget.npp * cdims[0]), int(_widget.npp * cdims[1]), int(_widget.npp * cdims[2]) };
+            std::array<LC::scalar, 3> cdims;
+            if (_widget.forceInteractionCellSize) {
+                for (int i = 0; i < 3; i++)
+                    cdims[i] = _widget.interactionCellSize;
+            }
+            else {
+                cdims[0] = 2. * background_padding * (upper_bound[0] - lower_bound[0]) + 0.5 * _widget.separationDistancex;
+                cdims[1] = 2. * background_padding * (upper_bound[1] - lower_bound[1]) + 0.5 * _widget.separationDistancey;
+                cdims[2] = 2. * background_padding * (upper_bound[2] - lower_bound[2]) + 0.5 * _widget.separationDistancez;
+            }
+
+            LC_INFO("Cell dims -> ({0},{1},{2})", cdims[0], cdims[1], cdims[2]);
+
+            std::array<int, 3> vNew = { int(_widget.interactionNPP * cdims[0]), int(_widget.interactionNPP * cdims[1]), int(_widget.interactionNPP * cdims[2]) };
             data->directors = std::unique_ptr<LC::scalar[]>(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
+            std::unique_ptr<LC::scalar[]> nn_data_temp(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
             data->voltage = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
             data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
 
             FOFDSolver::Tensor4 nn(data->directors.get(), vNew[0], vNew[1], vNew[2], 3);
-
+            FOFDSolver::Tensor4 nn_temp(nn_data_temp.get(), vNew[0], vNew[1], vNew[2], 3);
             // Change voxels and cell dims
             data->voxels = vNew;
             data->cell_dims = cdims;
+            
+            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
 
             auto clear_heliknotons = [&]() {
                 // Initialize to the uniform helical bg
                 for (int i = 0; i < data->voxels[0]; i++) {
                     for (int j = 0; j < data->voxels[1]; j++) {
                         for (int k = 0; k < data->voxels[2]; k++) {
-                            LC::scalar z = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+                            // New zero point due to translation of center of mass
+                            LC::scalar z = -0.5 * data->cell_dims[2] + k * dz;
+                            LC::scalar z0 = center_of_mass[2];
                             auto bg = helical(0., 0., z);
 
                             for (int d = 0; d < 3; d++) {
@@ -2797,120 +3045,288 @@ void Sandbox::handleModificationWindow() {
                 }
             };
 
-            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
-            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+#define RELAXED_HELIKNOTON 1
+            auto embed_heliknoton = [&](Eigen::Vector3d translation_vector) {
+#if RELAXED_HELIKNOTON
+                // reset nn temp
+                for (int i = 0; i < vNew[0]; i++)
+                    for (int j = 0; j < vNew[1]; j++)
+                        for (int k = 0; k < vNew[2]; k++)
+                            for (int d = 0; d < 3; d++)
+                                nn_temp(i, j, k, d) = 0.;
 
-            auto embed_heliknoton = [&](const Eigen::Vector3d& translation_vector) {
                 // Embed the heliknoton in the new volume
                 for (const auto &p : heliknoton) {
 
                     // Apply a rotation + translation to heliknoton position
-                    int translatez = translation_vector[2] / dz;
-                    LC::scalar dtheta = 2. * M_PI * data->chirality * dz;
-                    LC::scalar ctheta = cos(translatez * dtheta);
-                    LC::scalar stheta = sin(translatez * dtheta);
+                    LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
+                    LC::scalar ctheta = cos(theta_z);
+                    LC::scalar stheta = sin(theta_z);
 
                     Position newPos;
                     Director newDir;
 
-                    newPos[0] = ctheta * p.position[0] - stheta * p.position[1];
-                    newPos[1] = stheta * p.position[0] + ctheta * p.position[1];
-                    newPos[2] = p.position[2];
+                    // While the heliknoton is centered at the origin,
+                    // apply the z-translation effect to the in plane director positions and total translation
+                    newPos[0] = ctheta * p.position[0] - stheta * p.position[1] + translation_vector[0];
+                    newPos[1] = stheta * p.position[0] + ctheta * p.position[1] + translation_vector[1];
+                    newPos[2] = p.position[2] + translation_vector[2];
 
-                    // Rotate director as well
+                    // Rotate director due to z translation as well
                     newDir[0] = ctheta * p.director[0] - stheta * p.director[1];
                     newDir[1] = stheta * p.director[0] + ctheta * p.director[1];
                     newDir[2] = p.director[2];
 
-                    // Extract new indices
-                    int i = (newPos[0] + 0.5 * data->cell_dims[0] + translation_vector[0]) / dx;
-                    int j = (newPos[1] + 0.5 * data->cell_dims[1] + translation_vector[1]) / dy;
-                    int k = (newPos[2] + 0.5 * data->cell_dims[2] + translation_vector[2]) / dz;
+                    // Transform new position to index space
+                    int i = (newPos[0] + 0.5 * data->cell_dims[0]) / dx;
+                    int j = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
+                    int k = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
 
-                    // insert a translated+rotated heliknoton
+                    // add translated + rotated point
                     for (int d = 0; d < 3; d++)
-                        nn(i, j, k, d) = newDir[d];
+                        nn_temp(i, j, k, d) += newDir[d];
                 }
+
+                for (const auto& p : heliknoton) {
+
+                    LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
+                    LC::scalar ctheta = cos(theta_z);
+                    LC::scalar stheta = sin(theta_z);
+                    Position newPos;
+
+                    newPos[0] = ctheta * p.position[0] - stheta * p.position[1] + translation_vector[0];
+                    newPos[1] = stheta * p.position[0] + ctheta * p.position[1] + translation_vector[1];
+                    newPos[2] = p.position[2] + translation_vector[2];
+
+                    // Transform new position to index space
+                    int i = (newPos[0] + 0.5 * data->cell_dims[0]) / dx;
+                    int j = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
+                    int k = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
+
+                    // Normalize the points
+                    LC::scalar nn_length = 0.0;
+                    for (int d = 0; d < 3; d++)
+                        nn_length += nn_temp(i, j, k, d) * nn_temp(i, j, k, d);
+                    nn_length = sqrt(nn_length);
+                    
+                    for (int d = 0; d < 3; d++)
+                        nn(i, j, k, d) = nn_temp(i, j, k, d) / nn_length;
+                }
+#else // Initialize from initial conditions
+
+                translation_vector[0] = translation_vector[0] / data->cell_dims[0] * 3;
+                translation_vector[1] = translation_vector[1] / data->cell_dims[1] * 3;
+                translation_vector[2] = translation_vector[2] / data->cell_dims[2] * 3;
+
+                auto heliknoton_cfg = FOFDSolver::Dataset::Heliknoton(1, 3. / data->cell_dims[2], 1., translation_vector, false);
+
+                for (int i = 0; i < vNew[0]; i++)
+                    for (int j = 0; j < vNew[1]; j++)
+                        for (int k = 0; k < vNew[2]; k++) {
+                            // Current coords
+                            Position pos;
+                            pos[0] = data->cell_dims[0] * ((LC::scalar)i / (data->voxels[0] - 1) - 0.5);
+                            pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
+                            pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+
+                            // Rotate coords
+                            LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
+                            LC::scalar ctheta = cos(theta_z);
+                            LC::scalar stheta = sin(theta_z);
+                            Position newPos;
+
+                            newPos[0] = ctheta * pos[0] - stheta * pos[1] + translation_vector[0];
+                            newPos[1] = stheta * pos[0] + ctheta * pos[1] + translation_vector[1];
+                            newPos[2] = pos[2] + translation_vector[2];
+
+                            int ip = (newPos[0] + 0.5 * data->cell_dims[0]) / dx;
+                            int jp = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
+                            int kp = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
+
+                            heliknoton_cfg(nn, i, j, k, &data->voxels[0]);
+                        }
+#endif
+
             };
 
-            // Separation distance
-            LC::scalar separation_dist = 1.8;
             std::vector<Eigen::Vector3d> translations;
 
+            // Spherical interaction landscape
             struct InteractionPotential {
                 LC::scalar theta;
                 LC::scalar phi;
+                LC::scalar separation;
                 LC::scalar energy;
+                // Standard deviation of the energy
+                LC::scalar en_sigma;
             };
 
-            struct RadialInteractionPotential {
-                LC::scalar radius;
-                LC::scalar theta;
-                LC::scalar energy;
-            };
 
             // This is the information that will be extracted
-            //std::vector<InteractionPotential> interaction_data;
-            std::vector<RadialInteractionPotential> interaction_data;
+            std::vector<InteractionPotential> interaction_data;
+            //std::vector<RadialInteractionPotential> interaction_data;
             int thetaPoints = _widget.interactionThetaPoints;
-            //int phiPoints = 10;
-            int rPoints = 1;
+            int phiPoints = _widget.interactionPhiPoints;
 
-            for (int ti = 0; ti < thetaPoints; ti++) {
-                for (int r = 0; r < rPoints; r++) {
+            // Spherical interaction
+            if (radioInteractionType == 0) {
 
-                    LC::scalar theta;
-                    if (thetaPoints > 1)
-                        theta = (LC::scalar)ti / (thetaPoints - 1) * M_PI * 0.5;
-                    else
-                        theta = M_PI * 0.5;
-                    LC::scalar x = (LC::scalar)r / rPoints;
-                    LC::scalar rr = _widget.separationDistance;
+#define FULL_HELIKNOTON_INTERACTION 1
 
-                    RadialInteractionPotential interaction;
-                    interaction.theta = theta;
-                    interaction.radius = rr;
+                for (int ti = 0; ti < thetaPoints; ti++) {
+                    bool degeneratePhi = false;
+                    for (int pi = 0; pi < phiPoints; pi++) {
+
+                        LC::scalar theta, phi;
+                        if (!_widget.interactionSymmetry) {
+                            phi = (LC::scalar)pi / (phiPoints - 1) * 2. * M_PI;
+
+                            if (thetaPoints > 1) // Don't waste time on degenerate polar points
+                                theta = (LC::scalar)(ti + 1) / (thetaPoints + 1) * M_PI;
+                            else
+#if FULL_HELIKNOTON_INTERACTION
+                                theta = M_PI * 0.5;
+#else
+                                theta = 0.;
+#endif
+                        }
+                        else {
+                            phi = (LC::scalar)pi / (phiPoints - 1) * 2. * M_PI;
+                            if (thetaPoints > 1) {
+                                // Don't waste time on degenerate polar points
+                                // If theta = 0, only add one point
+                                theta = (LC::scalar)ti / (thetaPoints - 1) * 0.5 * M_PI;
+                                if (ti == 0)
+                                    degeneratePhi = true;
+                            }
+                            else
+                                theta = 0.5 * M_PI;
+                        }
+
+                        LC::scalar rx = 0.5 * _widget.separationDistancex;
+                        LC::scalar ry = 0.5 * _widget.separationDistancey;
+                        LC::scalar rz = 0.5 * _widget.separationDistancez;
+
+                        Eigen::Vector3d disp;
+                        disp[0] = rx * sin(theta) * cos(phi);
+                        disp[1] = ry * sin(theta) * sin(phi);
+                        disp[2] = rz * cos(theta);
+
+                        InteractionPotential interaction;
+                        interaction.theta = theta;
+                        interaction.phi = phi;
+                        interaction.separation = 2.0 * disp.norm();
+
+
+                        translations.emplace_back(disp);
+                        interaction_data.push_back(interaction);
+
+                        // Skip rest of phi iterations
+                        if (degeneratePhi)
+                            break;
+                    }
+                }
+            }
+            else if (radioInteractionType == 1) { // Radial interaction
+                
+                bool degeneratePhi = false;
+                for (int ri = 0; ri < r_points; ri++) {
+
+                    LC::scalar r;
+                    r = start_dist + (LC::scalar)ri / (r_points - 1) * (end_dist - start_dist);
+
+
+                    LC::scalar rr = 0.5 * r;
+
+                    InteractionPotential interaction;
+                    interaction.theta = theta0;
+                    interaction.phi = phi0;
+                    interaction.separation = r;
 
                     Eigen::Vector3d displacement;
-                    displacement[0] = 0.5 * rr * cos(theta);
-                    displacement[1] = 0.5 * rr * sin(theta);
-                    displacement[2] = 0.0;
+                    displacement[0] = rr * sin(theta0) * cos(phi0);
+                    displacement[1] = rr * sin(theta0) * sin(phi0);
+                    displacement[2] = rr * cos(theta0);
 
                     translations.emplace_back(displacement);
                     interaction_data.push_back(interaction);
+
+                    // Skip rest of phi iterations
+                    if (degeneratePhi)
+                        break;
                 }
+                
+            }
+            else {
+                LC_ERROR("No translation points allocated");
             }
 
             // Iterate through translations, relaxing and computing energies
 
             // Get the zero point energy
-            LC::scalar density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] /
-                ((data->voxels[0] - 1)* (data->voxels[1] - 1)* (data->voxels[2] - 1));
+            // Note that the total energy must be muiltiplied by dx, dy, or dz for the integration scaling to work out...
+            // Compute the zero point energy
+            LC::scalar cell_volume = ((data->cell_dims[0] - 2 * dx) * (data->cell_dims[1] - 2 * dy) * (data->cell_dims[2] - 2 * dz));
+
+            LC::scalar T = 293; // 20 C in Kelvin
+            // kb
+            LC::scalar kb = 1.380649e-23;
+            LC::scalar pitch = 1e-6; // um
+            LC::scalar K = (data->k11.first + data->k22.first + data->k33.first) / 3. * 1e-12; // Avg elastic constant (Newtons)
+            LC::scalar Kp = K * pitch;
+
+            LC::scalar kbT_conversion = Kp / (kb * T);
+            LC_INFO("Conversion factor = {0}", kbT_conversion);
 
             clear_heliknotons();
-            LC::scalar zero_point_en = solver->TotalEnergy() * density;
-
+            embed_heliknoton({ 0.f,0.f,0.f });
+            solver->SetVoltage(EField * data->cell_dims[2], 100);
+            solver->Relax(_widget.interactionIterations, true, true);
+            LC::scalar zero_point_en = 2. * kbT_conversion * solver->TotalEnergy();
             LC_INFO("Zero point energy = {0}", zero_point_en);
 
-#if 0
+            // Run the test
+#if FULL_HELIKNOTON_INTERACTION
             int count = 0;
             for (const auto& translation : translations) {
-                clear_heliknotons();
-                embed_heliknoton(translation);
-                embed_heliknoton(-1.0 * translation);
-                // Set voltage to 3 V and update voltage 100 times
-                solver->SetVoltage(3, 100);
-                // Relax for 100 iterations
-                solver->Relax(100, true);
+
+                LC::scalar en_avg = 0.;
+                std::vector<LC::scalar> en_data(Navg, 0.0);
+
+                // Average the energy due to variations from relaxing with GPU
+                for (int i = 0; i < Navg; i++) {
+                
+                    clear_heliknotons();
+                    // Center the interaction in the middle of the volume
+                    embed_heliknoton(translation);
+                    embed_heliknoton(-translation);
+
+                    // Set voltage and relax voltage E-field = .5 V/p -> V(z=top) = .5 V/p * (cell_z in pitch), V(z=bot) = 0
+                    solver->SetVoltage(EField * data->cell_dims[2], 100);
+                    // Relax for enough iterations that heliknotons can 'feel' each other
+                    solver->Relax(_widget.interactionIterations, true, true);
+
+                    LC::scalar en = kbT_conversion * solver->TotalEnergy();
+                    en_data[i] = en;
+                    en_avg += en / Navg;
+                }
+                
+                // Compute the standard deviation
+                LC::scalar sigma = 0.0;
+                for (int i = 0; i < Navg; i++) {
+                    sigma += (en_avg - en_data[i]) * (en_avg - en_data[i]) / Navg;
+                }
+                sigma = sqrt(sigma);
+
                 // Compute and save the energy
-                interaction_data[count].energy = solver->TotalEnergy() * density - zero_point_en;
-                LC_INFO("Energy: {2}, Iteration {0}/{1}", count+1, thetaPoints * rPoints, interaction_data[count].energy);
+                interaction_data[count].energy = en_avg - zero_point_en;
+                interaction_data[count].en_sigma = sigma;
+                LC_INFO("Energy: {2} (+-{3}), Iteration {0}/{1}", count+1, translations.size(), interaction_data[count].energy, sigma);
                 ++count;
             }
 
             // Save data
-            std::string saveName = "D:\\dev\\lclab2\\data\\interaction_data_theta_radius_close.bin";
+            std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
             
             std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
 
@@ -2919,13 +3335,24 @@ void Sandbox::handleModificationWindow() {
             }
             else {
                 // Write file version
+                char interactionType = 'e'; // Default: e -> error
+                if (radioInteractionType == 0) {
+                    interactionType = 's';
+                }
+                else if (radioInteractionType == 1) {
+                    interactionType = 'r';
+                }
+                else {
+                    LC_ERROR("Unknown interaction type [Invalid file]");
+                }
+                ofile.write((char*)&interactionType, sizeof(char));
                 ofile.write((char*)&interaction_data[0], interaction_data.size() * sizeof(InteractionPotential));
             }
 #else
             // See what the result is without doing the computation
             for (const auto& translation : translations) {
-                embed_heliknoton(translation);
-                embed_heliknoton(-1.0 * translation);
+                embed_heliknoton(0.5 * translation);
+                embed_heliknoton(-0.5 * translation);
             }
 #endif
 
@@ -3326,6 +3753,127 @@ void Sandbox::findVortexKnotComponents() {
 
 }
 
+std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangle>>
+    Sandbox::TaubinSmoothing(LC::Math::IsoVertex* verts,
+    unsigned int nVert,
+    unsigned int* indices,
+    unsigned int nInd,
+    const float* field_nn,
+    const std::array<int, 3> &Vox,
+    const std::array<float, 4>& color,
+    bool invert_normals,
+    bool pontryagin,
+    unsigned int nSubdivisions) {
+
+    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    unsigned int size = Vox[0] * Vox[1] * Vox[2];
+
+    // Subdivide the mesh
+    LC::Algorithm::Mesh<float> mesh;
+    std::vector<MeshLib::PNCVertex<float>> vertices;
+    std::vector<MeshLib::Triangle> triangles;
+
+    mesh.read_pnc_mesh((MeshLib::PNCVertex<float>*)verts, nVert, (MeshLib::Triangle*)indices, nInd / 3);
+    LC::Algorithm::loop_subdivision(&mesh, nSubdivisions);
+    // Export mesh data to vertices and indices (Don't compute normals yet)
+    mesh.write_obj(vertices, triangles, false);
+
+
+    // Start Taubin smoothing (https://graphics.stanford.edu/courses/cs468-01-fall/Papers/taubin-smoothing.pdf)
+    {
+        // Use graph to find edges
+        Graph graph(vertices.size());
+        std::vector<MeshLib::PNCVertex<float>> vertices_prime;
+        vertices_prime.resize(vertices.size());
+
+        for (const auto& tri : triangles) {
+            // Each face contributes 3 edges for a triangle
+            for (int d = 0; d < 3; d++) {
+                uint dp1 = (d + 1) % 3;
+                graph.addEdge(tri[d], tri[dp1]);
+            }
+        }
+
+        // Weight
+        float w_ij;
+        // Smoothing parameters (0 < lambda < -mu)
+        float lambda = _widget.smoothingLambda;
+        float mu = _widget.smoothingMu;
+        int smoothingIterations = _widget.smoothingIterations;
+        std::list<uint>* adjacencyList = graph.adjacencyList();
+
+        for (int s = 0; s < smoothingIterations; s++) {
+
+            // Positive Gaussian smoothing step
+            for (int i = 0; i < vertices.size(); i++) {
+                Eigen::Vector3f v_i(vertices[i].position[0], vertices[i].position[1], vertices[i].position[2]);
+
+                // Sum over neighbors average displacement
+                Eigen::Vector3f v_avg(0., 0., 0.);
+                w_ij = 1. / adjacencyList[i].size();
+                for (auto j : adjacencyList[i]) {
+                    Eigen::Vector3f v_j(vertices[j].position[0], vertices[j].position[1], vertices[j].position[2]);
+                    v_avg = v_avg + w_ij * (v_j - v_i);
+                }
+                Eigen::Vector3f vp = v_i + lambda * v_avg;
+                vertices_prime[i] = { vp(0), vp(1), vp(2) };
+            }
+
+            // Update vertices
+            for (int i = 0; i < vertices.size(); i++)
+                vertices[i].position = vertices_prime[i].position;
+
+            // Negative Gaussian smoothing step
+            for (int i = 0; i < vertices.size(); i++) {
+                Eigen::Vector3f v_i(vertices[i].position[0], vertices[i].position[1], vertices[i].position[2]);
+
+                Eigen::Vector3f v_avg(0., 0., 0.);
+                // Sum over neighbors average displacement
+                w_ij = 1. / adjacencyList[i].size();
+                for (auto j : adjacencyList[i]) {
+                    Eigen::Vector3f v_j(vertices[j].position[0], vertices[j].position[1], vertices[j].position[2]);
+                    v_avg = v_avg + w_ij * (v_j - v_i);
+                }
+                Eigen::Vector3f vp = v_i + mu * v_avg;
+                vertices_prime[i] = { vp(0), vp(1), vp(2) };
+            }
+
+            // Update vertices
+            for (int i = 0; i < vertices.size(); i++)
+                vertices[i].position = vertices_prime[i].position;
+
+        }
+    }
+
+    // Compute normals
+    MeshLib::compute_normals(vertices, triangles, invert_normals);
+
+
+    // Set the color
+    for (auto& v : vertices) {
+        if (pontryagin) {
+            // Color depends on orientation
+            int ii = (v.position[0] / data->cell_dims[0] + 0.5) * (Vox[0] - 1);
+            int jj = (v.position[1] / data->cell_dims[1] + 0.5) * (Vox[1] - 1);
+            int kk = (v.position[2] / data->cell_dims[2] + 0.5) * (Vox[2] - 1);
+
+            uint id = ii + jj * Vox[0] + kk * Vox[0] * Vox[1];
+            float theta = acos(field_nn[id + 2 * size]);
+            float phi = atan2(field_nn[id + size], field_nn[id]);
+            auto col = LC::Imaging::Colors::RungeSphere(theta, phi);
+            for (int d = 0; d < 3; d++)
+                v.color[d] = col[d];
+
+            v.color[3] = color[3];
+        }
+        else
+            v.color = color;
+    }
+
+    return { vertices, triangles };
+}
+
+
 void Sandbox::generateIsosurface() {
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
 #if TESTINTERP
@@ -3337,7 +3885,7 @@ void Sandbox::generateIsosurface() {
 #else
     { data->cell_dims[0] / (data->voxels[0] - 1), data->cell_dims[1] / (data->voxels[1] - 1), data->cell_dims[2] / (data->voxels[2] - 1) };
 #endif
-    std::array<LC::scalar, 3> N;
+    Eigen::Vector3f N;
 
     // ==========================
     unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
@@ -3383,6 +3931,14 @@ void Sandbox::generateIsosurface() {
     _preimageManipulator->setParent(_manipulator.get());
 
 
+#if EXTENDEDMC
+    LC::ExtendedMC::MarchingCubes mc;
+
+    mc.clean_all();
+    mc.set_resolution(vNew[0], vNew[1], vNew[2]);
+    mc.init_all();
+#endif
+
     for (S2Fiber& pimage : _nematicPreimages) {
         // Compute the field (diffmag)
         float theta = pimage.theta / 180.f * M_PI;
@@ -3391,7 +3947,12 @@ void Sandbox::generateIsosurface() {
         N = { sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta) };
 
         for (unsigned int i = 0; i < size; i++) {
-            field[i] = (field_nn[i] - N[0]) * (field_nn[i] - N[0]) +
+
+            if (pimage.pontryagin) {
+                field[i] = pow(N.dot(Eigen::Vector3f{field_nn[i], field_nn[i + size], field_nn[i + 2 * size] }),2);
+            }
+            else
+                field[i] = (field_nn[i] - N[0]) * (field_nn[i] - N[0]) +
                 (field_nn[i + size] - N[1]) * (field_nn[i + size] - N[1]) +
                 (field_nn[i + 2 * size] - N[2]) * (field_nn[i + 2 * size] - N[2]);
 
@@ -3402,7 +3963,14 @@ void Sandbox::generateIsosurface() {
         for (unsigned int i = 0; i < size; i++) if (field[i] < pimage.isoLevel) ++numPointsFound;
 
         // If points found is greater than half of volume, then invert domain
-        if (numPointsFound > size / 2) {
+
+        bool flip_domain = numPointsFound > size / 2;
+        
+        // Do the opposite depending on chosen domain inversion
+        if (pimage.domain_inversion)
+            flip_domain = !flip_domain;
+
+        if (flip_domain) {
             LC_INFO("S2Fiber points found [{0}/{1}] exceeds half of volume: Inverting domain", numPointsFound, size);
             for (unsigned int i = 0; i < size; i++) {
                 if (field[i] > pimage.isoLevel) field[i] = 0.0f;
@@ -3420,38 +3988,125 @@ void Sandbox::generateIsosurface() {
             color[3] = pimage.alpha;
         }
 
+        // set data
+
+#if EXTENDEDMC
+        mc.set_ext_data(field.get());
+        mc.run( pimage.isoLevel );
+        
+
+        // Rescale positions
+        {
+            float dx = data->cell_dims[0] / (vNew[0] - 1);
+            float dy = data->cell_dims[1] / (vNew[1] - 1);
+            float dz = data->cell_dims[2] / (vNew[2] - 1);
+            float xmin = -0.5 * data->cell_dims[0];
+            float ymin = -0.5 * data->cell_dims[1];
+            float zmin = -0.5 * data->cell_dims[2];
+
+            for (uint i = 0; i < mc.nverts(); ++i) {
+                LC::ExtendedMC::Vertex& v = mc.vertices()[i];
+                v.x = dx * v.x + xmin;
+                v.y = dy * v.y + ymin;
+                v.z = dz * v.z + zmin;
+
+                // Normalize normals
+                float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
+                if (nrm != 0)
+                {
+                    nrm = 1.0 / sqrt(nrm);
+                    v.nx *= nrm;
+                    v.ny *= nrm;
+                    v.nz *= nrm;
+                }
+            }
+        }
+
+        if (mc.nverts() && mc.ntrigs()) {
+
+#else
+        // Generate 
 
         _isoGenerator.GenerateSurface(field.get(), pimage.isoLevel, vNew, cell, color);
 
         if (_isoGenerator.isSurfaceValid()) {
+#endif
 
+#if EXTENDEDMC
+            unsigned int nVert = mc.nverts();
+            unsigned int nInd = mc.ntrigs() * 3;
+            LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
+            unsigned int* indices = new unsigned int[nInd];
+
+            LC::ExtendedMC::Vertex* temp_verts = mc.vertices();
+            int* ind_temp = (int*)mc.triangles();
+
+            // Feed data to indices,verts
+
+            for (int i = 0; i < nInd; i++)
+                indices[i] = ind_temp[i];
+
+            for (int i = 0; i < nVert; i++) {
+                verts[i].position[0] = temp_verts[i].x;
+                verts[i].position[1] = temp_verts[i].y;
+                verts[i].position[2] = temp_verts[i].z;
+                verts[i].normal[0] = temp_verts[i].nx;
+                verts[i].normal[1] = temp_verts[i].ny;
+                verts[i].normal[2] = temp_verts[i].nz;
+               
+            }
+
+            mc.reset_mesh();
+
+#else
             unsigned int nVert = _isoGenerator.NumSurfaceVertices();
             unsigned int nInd = _isoGenerator.NumSurfaceIndices();
-
             LC::Math::IsoVertex* verts = _isoGenerator.ReleaseSurfaceVertices();
             unsigned int* indices = _isoGenerator.ReleaseSurfaceIndices();
+#endif
 
-            SmoothIsosurface(verts, indices, nVert, nInd, _widget.smoothingIterations, _widget.smoothingValue, _widget.smoothingType);
+            // Subdivide the mesh
+            LC::Algorithm::Mesh<float> mesh;
+            std::vector<MeshLib::PNCVertex<float>> vertices;
+            std::vector<MeshLib::Triangle> triangles;
 
-            LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
+            mesh.read_pnc_mesh((MeshLib::PNCVertex<float>*)verts, nVert, (MeshLib::Triangle*)indices, nInd / 3);
+            LC::Algorithm::loop_subdivision(&mesh, pimage.subdivisions);
+            // Export mesh data to vertices and indices (Don't compute normals yet)
+            mesh.write_obj(vertices, triangles, false);
+
+            auto smoothing_result = TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), vNew, color, pimage.normal_inversion, pimage.pontryagin, pimage.subdivisions);
+
+            vertices = std::get<0>(smoothing_result);
+            triangles = std::get<1>(smoothing_result);
+
+            //SmoothIsosurface((LC::Math::IsoVertex*)&vertices[0], (unsigned int *)&triangles[0], vertices.size(), triangles.size() * 3, _widget.smoothingIterations, _widget.smoothingValue, _widget.smoothingType);
+
+            LC_INFO("Successfully generated surface (verts = {0}, triangles = {1})", vertices.size(), triangles.size());
 
             // Fill magnum class with generated surface data
-            pimage.surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
+            pimage.surface.Init((LC::Surface::Vertex*)&vertices[0], vertices.size(), &triangles[0][0], triangles.size() * 3, _widget.preimage_translate);
 
             // Delete data
             delete[] verts;
             delete[] indices;
 
             // Reset generator
+#if !EXTENDEDMC
             _isoGenerator.DeleteSurface();
+#endif
 
             pimage.mesh = pimage.surface.Mesh();
 
             // Add mesh to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *pimage.mesh, pimage.draw, _transparentNormalDrawables };
-        }
+            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *pimage.mesh, pimage.draw, pimage.cullFaces, _transparentNormalDrawables };
 
+        }
     }
+
+#if EXTENDEDMC
+    mc.clean_temps();
+#endif
 
     // Make Vortex Knot isosurface
     std::array<float, 4> color1 = { 1., 1., 0., 1. }, color2 = { 1., 1., 1., 1. };
@@ -3464,7 +4119,7 @@ void Sandbox::generateIsosurface() {
     unsigned int ill_defined_chi = 0;
     std::array<float,3> cellf = {(float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2]};
 
-    if (!_widget.chiColorScheme) {
+    if (_widget.chiColorScheme != 2 && _vortexShell) {
         ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _widget.isoLevel);
     }
 
@@ -3738,7 +4393,7 @@ void Sandbox::generateIsosurface() {
                 // f(chi) values at each solid angle point
                 solid_angle_f = std::unique_ptr<LC::scalar[]>(new LC::scalar[resProd]);
 
-                uint halfCubeSide = max(2. * _widget.separationDistance, pow(_vortex_line.knn * 3. / 4. / M_PI, 1. / 3.));
+                uint halfCubeSide = max(2. * 3., pow(_vortex_line.knn * 3. / 4. / M_PI, 1. / 3.));
                 uint cubeSide = 2 * halfCubeSide + 1;
                 LC_INFO("Cube side = {0} units", cubeSide);
                 uint cubeVol = cubeSide * cubeSide * cubeSide;
@@ -4016,7 +4671,12 @@ void Sandbox::generateIsosurface() {
             LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
             unsigned int* indices = gen.ReleaseSurfaceIndices();
 
-            SmoothIsosurface(verts, indices, nVert, nInd, 1, 200.f, 2);
+            //SmoothIsosurface(verts, indices, nVert, nInd, 1, 200.f, 2);
+            auto smoothing_result = TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(),
+                vNew, {1.f,1.f,1.f,1.f}, false, false, 0);
+
+            auto vertices = std::get<0>(smoothing_result);
+            auto triangles = std::get<1>(smoothing_result);
 
             // Go through vertices and color according to vortex shell tilt
             // Note needs to include preimage_translate since embedded volumes can be chosen!
@@ -4028,34 +4688,154 @@ void Sandbox::generateIsosurface() {
             A2 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., 1., -1.);
             A3 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., -1., 1.);
 
+            // Find the min and max chi_x
+            float chi_x_min = 1.;
+            float chi_x_max = -1.;
+            if (_widget.chiColorScheme != 2) {
+                for (int i = 0; i < nVert; i++) {
+                    int xx = (vertices[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
+                    int yy = (vertices[i].position[1] / data->cell_dims[1] + 0.5) * (vNew[1] - 1);
+                    int zz = (vertices[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
+                    unsigned int idx = xx + yy * vNew[0] + zz * slc;
+                    float chi_x = chi_field[idx];
+                    chi_x_min = chi_x_min > chi_x ? chi_x : chi_x_min;
+                    chi_x_max = chi_x_max < chi_x ? chi_x : chi_x_max;
+                }
+            }
+
+            float dx = data->cell_dims[0] / (vNew[0] - 1);
+            float dy = data->cell_dims[1] / (vNew[1] - 1);
+            float dz = data->cell_dims[2] / (vNew[2] - 1);
+
             for (int i = 0; i < nVert; i++) {
                 // extract indices from position
-                int xx = (verts[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
-                int yy = (verts[i].position[1] / data->cell_dims[1] + 0.5) * (vNew[1] - 1);
-                int zz = (verts[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
+                int xx = (vertices[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
+                int yy = (vertices[i].position[1] / data->cell_dims[1] + 0.5) * (vNew[1] - 1);
+                int zz = (vertices[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
+
 
                 // Get chi
                 Color3 tilt_color;
 
                 // Chosen color scheme
-                // 0 == tilt coloring
-                // 1 == quaternion coloring
-                if (!_widget.chiColorScheme) {
-                    unsigned int idx = xx + yy * vNew[0] + zz * slc;
+                // 0 == tilt (theta)
+                // 1 == tilt (chi_x)
+                // 2 == quaternion coloring
+                if (_widget.chiColorScheme != 2) {
 
-                    float chi_x = chi_field[idx];
-                    float chi_y = chi_field[idx + vol];
-                    float chi_z = chi_field[idx + 2 * vol];
+                    // (xx,yy,zz) is the bottom vertex of the voxel containing this (vx,vy,vz) position
+                    // Use the 8 corners to linearly interpolate what chi_x, chi_y, and chi_z is at the center
+                    
+                    // Center the vertex into cube of [0,1]^3
+                    float xd = (vertices[i].position[0] - xx * dx) / dx;
+                    float yd = (vertices[i].position[1] - yy * dy) / dy;
+                    float zd = (vertices[i].position[2] - zz * dz) / dz;
+
+
+                    // Data mapping
+                    // 0 -> (0,0,0)
+                    // 1 -> (1,0,0)
+                    // 2 -> (0,1,0)
+                    // 3 -> (1,1,0)
+                    // 4 -> (0,0,1)
+                    // 5 -> (1,0,1)
+                    // 6 -> (0,1,1)
+                    // 7 -> (1,1,1)
+
+                    std::array<float, 8> c_ijk_x;
+                    std::array<float, 8> c_ijk_y;
+                    std::array<float, 8> c_ijk_z;
+
+                    std::array<float, 4> c_jk_x;
+                    std::array<float, 4> c_jk_y;
+                    std::array<float, 4> c_jk_z;
+
+                    std::array<float, 2> c_k_x;
+                    std::array<float, 2> c_k_y;
+                    std::array<float, 2> c_k_z;
+
+                    for (int id_z = 0; id_z < 1; id_z++)
+                        for (int id_y = 0; id_y < 1; id_y++)
+                            for (int id_x = 0; id_x < 1; id_x++)
+                            {
+                                int id = id_x + 2 * id_y + 4 * id_z;
+                                unsigned int idx = (xx + id_x) + (yy + id_y) * vNew[0] + (zz + id_z) * slc;
+
+                                if (idx >= vol) {
+                                    c_ijk_x[id] = 0.f;
+                                    c_ijk_y[id] = 0.f;
+                                    c_ijk_z[id] = 0.f;
+                                }
+                                else {
+                                    c_ijk_x[id] = chi_field[idx];
+                                    c_ijk_y[id] = chi_field[idx + size];
+                                    c_ijk_z[id] = chi_field[idx + 2 * size];
+                                }
+                            }
+
+
+                    // Begin interpolation
+                    for (int id_z = 0; id_z < 1; id_z++)
+                        for (int id_y = 0; id_y < 1; id_y++)
+                        {
+                            c_jk_x[id_y + 2 * id_z] = c_ijk_x[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_x[1 + 2 * id_y + 4 * id_z] * xd;
+                            c_jk_y[id_y + 2 * id_z] = c_ijk_y[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_y[1 + 2 * id_y + 4 * id_z] * xd;
+                            c_jk_z[id_y + 2 * id_z] = c_ijk_z[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_z[1 + 2 * id_y + 4 * id_z] * xd;
+                        }
+
+                    for (int id_z = 0; id_z < 1; id_z++) {
+                        c_k_x[id_z] = c_jk_x[2 * id_z] * (1.f - yd) + c_jk_x[1 + 2 * id_z] * yd;
+                        c_k_y[id_z] = c_jk_y[2 * id_z] * (1.f - yd) + c_jk_y[1 + 2 * id_z] * yd;
+                        c_k_z[id_z] = c_jk_z[2 * id_z] * (1.f - yd) + c_jk_z[1 + 2 * id_z] * yd;
+                    }
+
+
+                    float chi_x = c_k_x[0] * (1.f - zd) + c_k_x[1] * zd;
+                    float chi_y = c_k_y[0] * (1.f - zd) + c_k_y[1] * zd;
+                    float chi_z = c_k_z[0] * (1.f - zd) + c_k_z[1] * zd;
+
+                    // Normalize
+                    LC::Math::Normalize(chi_x, chi_y, chi_z);
+
+                    // Flip chi -> -chi if chi_z does not align with far-field (chosen to be +zhat)
+                    if (chi_z < 0) {
+                        chi_x = -chi_x;
+                        chi_y = -chi_y;
+                        chi_z = -chi_z;
+                    }
 
 
                     // Get angle in xy plane
+                    if (_widget.chiColorScheme == 0)
                     {
                         float theta = acos(chi_z);
                         float phi = 2 * atan2(chi_y, chi_x);
                         if (phi < 0.0f) phi = phi + 2 * M_PI;
 
-                        tilt_color = LC::Imaging::Colors::RungeSphere(M_PI / 2., phi);
+                        tilt_color = LC::Imaging::Colors::RungeSphere(M_PI/2., phi);
                         //tilt_color = pow(cos(angle2), 2) * purple + pow(sin(angle2),2) * tilt_color;
+                    }
+                    else if (_widget.chiColorScheme == 1)
+                    {
+                        Color3 neutral = Color3(.29f, 0.f, 0.51f); // Indigo
+                        Color3 cyan = Color3::cyan();
+                        Color3 yellow = Color3::yellow();
+
+                        // Map chi_x into range [0,1]
+                        float zbar;
+                        if (chi_x_max != chi_x_min)
+                            zbar = (chi_x - chi_x_min) / (chi_x_max - chi_x_min);
+                        else
+                            zbar = 1.0;
+
+                        Color3 result;
+
+                        // Map negative values to yellow: zbar in [0, 0.5]
+                        if (chi_x < 0.) result = (1. - zbar / .5) * yellow + zbar / .5 * neutral;
+                        // Map positive values to cyan: zbar in [0.5, 1]
+                        else result = (1. - (zbar - 0.5) / .5) * neutral + (zbar - 0.5) / .5 * cyan;
+
+                        tilt_color = result;
                     }
                 }
                 else {
@@ -4065,6 +4845,8 @@ void Sandbox::generateIsosurface() {
                     if (_quaternion_field)
                         q = _quaternion_field[idx];
 
+#define SU2modQ8 0
+#if SU2modQ8
                     // Project q onto SU2/Q8
                     auto projection = q.w() * I3 + q.x() * A1 + q.y() * A2 + q.z() * A3;
 
@@ -4084,15 +4866,61 @@ void Sandbox::generateIsosurface() {
                         tilt_color = Color3::red();
                     else if (comp == 2)
                         tilt_color = Color3::green();
+#else
+                    // Color mapping
+                    // 0 -> negative qx : green
+                    // 1 -> positive qx : pink
+                    // 2 -> negative qy : cyan
+                    // 3 -> positive qy : yellow
+                    // 4 -> negative qz : dark blue
+                    // 5 -> positive qz : red
+                    int col_sel = q.x() > 0. ? 1 : 0;
+                    float qmax = abs(q.x());
+
+                    if (qmax < abs(q.y()))
+                    {
+                        qmax = abs(q.y());
+                        col_sel = q.y() > 0. ? 3 : 2;
+                    }
+                    
+                    if (qmax < abs(q.z())) {
+                        qmax = abs(q.z());
+                        col_sel = q.z() > 0. ? 5 : 4;
+                    }
+
+                    switch (col_sel) {
+                        case 0:
+                            tilt_color = Color3::green();
+                            break;
+                        case 1:
+                            tilt_color = Color3(1.f, .41f, .71f); // pink
+                            break;
+                        case 2:
+                            tilt_color = Color3::cyan();
+                            break;
+                        case 3:
+                            tilt_color = Color3::yellow();
+                            break;
+                        case 4:
+                            tilt_color = Color3::blue();
+                            break;
+                        case 5:
+                            tilt_color = Color3::red();
+                            break;
+                        default:
+                            LC_WARN("Quaternion color cases failed");
+                    }
+
+#endif
                 }
 
                 // Apply the color
                 for (int d = 0; d < 3; d++) {
 
-                    verts[i].color[d] = tilt_color[d];
+                    vertices[i].color[d] = tilt_color[d];
 
                     if (_vortexShell->invertNormals)
-                        verts[i].normal[d] *= -1;
+                        vertices[i].normal[d] *= -1;
                 }
 
             }
@@ -4100,7 +4928,7 @@ void Sandbox::generateIsosurface() {
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
 
             // Fill magnum class with generated surface data
-            _vortexShell->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
+            _vortexShell->surface.Init((LC::Surface::Vertex*)&vertices[0], vertices.size(), &triangles[0][0], triangles.size() * 3, _widget.preimage_translate);
 
             // Delete data
             delete[] verts;
@@ -4305,8 +5133,10 @@ void Sandbox::computeEnergy() {
     FOFDSolver* solver = (FOFDSolver*)(_solver.get());
 
     // Update list
-    LC::scalar unit_density = data->cell_dims[0] * data->cell_dims[1] * data->cell_dims[2] / ((data->voxels[0] - 1) * (data->voxels[1] - 1) * (data->voxels[2] - 1));
-
+    LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+    LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+    LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+    LC::scalar unit_density = 1. / ((data->cell_dims[0] - 2*dx) * (data->cell_dims[1]-2*dy) * (data->cell_dims[2]-2*dz));
     LC::scalar energy = 0.0;
 
     if (_widget.radioEn == 0)

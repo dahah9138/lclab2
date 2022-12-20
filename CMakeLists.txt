@@ -14,6 +14,13 @@ add_subdirectory(external/corrade EXCLUDE_FROM_ALL)
 if (WIN32)
 	add_definitions(-DLC_PLATFORM_WIN32)
 
+	# Necessary for if projects get too big
+	if (MSVC)
+		add_compile_options(/bigobj)
+	else ()
+		add_compile_options(-Wa,-mbig-obj)
+	endif ()
+
 	# Append sdl to cmake prefix path
 	# If using linux or mac, get from package manager:
 	# 	sudo pacman -S sdl2             # on ArchLinux

@@ -13,5 +13,6 @@ add_executable(foel FOelectric-main.cpp
 	SmoothIsosurface.h
 	CrossSection.h
 	QuaternionFromBasis.h
-	LehmanCluster.h)
+	LehmanCluster.h
+	InteractionWidget.h)
 target_link_libraries(foel PRIVATE lclab2)

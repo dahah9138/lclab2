@@ -4,8 +4,8 @@
 #include "../Solver.h"
 #include "FOAssets.h"
 #include "Header.h"
-
 #include <Eigen/Geometry>
+
 
 /*
 	Basic LC elastic FD solver type
@@ -277,6 +277,25 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 
 namespace Electric {
 
+	// Helper template for trivially initialized variables (no arrays!!)
+	template <typename T> void CheckInitializedTrivialVariable(std::unique_ptr<T>& variable, const T& value, const std::string& var_name) {
+		if (variable == 0) {
+			variable = std::unique_ptr<T>(new T(value));
+			LC_CORE_INFO("{0} initialized", var_name.c_str());
+		}
+	}
+
+	// Helper template for initialized array variables (no singlet pointers!!)
+	template <typename T> void CheckInitializedArrayVariable(std::unique_ptr<T[]>& variable, const T& value, const uint32_t& sz, const std::string& var_name) {
+		if (variable == 0) {
+			variable = std::unique_ptr<T[]>(new T[sz]);
+			for (auto i = 0; i < sz; i++)
+				variable[i] = value;
+			LC_CORE_INFO("{0} initialized", var_name.c_str());
+		}
+	}
+
+
 	struct FOFDSolver : public Solver {
 
 		typedef Eigen::TensorMap<Eigen::Tensor<scalar, 4>> Tensor4;
@@ -359,20 +378,181 @@ namespace Electric {
 				return map;
 			}
 
-			static Config Toron() {
-				return [](Tensor4& n, int i, int j, int k, int* voxels) {
+			static Config Toron(const std::array<scalar, 3>& cell_thickness, const float &Q) {
+				return [cell_thickness, Q](Tensor4& n, int i, int j, int k, int* voxels) {
 
-					int d[3] = { voxels[0] / 4, voxels[1] / 4, voxels[2] / 4 };
+					// Scale coordinates to cell positions in terms of pitch
+					scalar x = (i / scalar(voxels[0] - 1) - 0.5) * cell_thickness[0];
+					scalar y = (j / scalar(voxels[1] - 1) - 0.5) * cell_thickness[1];
+					scalar z = (k / scalar(voxels[2] - 1) - 0.5) * cell_thickness[2];
 
-					if (abs(k - voxels[2] / 2) < d[2] && abs(i - voxels[0] / 2) < d[0] && abs(j - voxels[1] / 2) < d[1]) {
-						n(i, j, k, 2) = -1.0;
-					}
+					scalar r_pol = sqrt(x * x + y * y);
+					scalar rr = sqrt(r_pol * r_pol + z * z);
+					scalar theta = 2. * M_PI * r_pol; // Pi twist out from center
+					scalar lambda = 1/3.;
+
+					Eigen::Quaternion<scalar> rot_quat;
+					if (rr < 1e-4) // Avoids divide by zero issue
+						rot_quat = { 1., 0., 0., 0. };
 					else {
-						n(i, j, k, 2) = 1.0;
+						Eigen::Vector3d n(x / rr, y / rr, z / rr);
+						scalar ct = cos(0.5 * theta);
+						scalar st = sin(0.5 * theta);
+						rot_quat = { ct , st * n(0), st * n(1), st * n(2)};
 					}
 
-					n(i, j, k, 0) = 0.0;
-					n(i, j, k, 1) = 0.0;
+					Eigen::Vector3d vec(0., 0., 1.);
+
+					if (r_pol < 0.5 * Q && abs(z) < 0.4) {
+
+						scalar exp_factor = exp(-abs(z) / lambda);
+						Eigen::Quaternion<scalar> result(0., 0., 0., -1.);
+						result = rot_quat * result * rot_quat.conjugate();
+						vec(0) = result.x();
+						vec(1) = result.y();
+						vec(2) = result.z();
+
+						vec = exp_factor * vec + (1 - exp_factor) * Eigen::Vector3d(0., 0., 1.);
+						vec.normalize();
+					}
+
+					n(i, j, k, 0) = vec(0);
+					n(i, j, k, 1) = vec(1);
+					n(i, j, k, 2) = vec(2);
+				};
+			}
+
+			static Config ToronNemaktis(const std::array<scalar, 3>& cell_thickness) {
+				
+				scalar d = 1.;
+				scalar xi = 0.025;
+				scalar R = 0.25;
+
+				auto alpha = [d, xi](scalar r, scalar z) {
+					scalar u = 1.;
+					if (abs(3. * z / d) >= 1.)
+						u = 0.;
+					return M_PI / 2. * ((1. - exp(-r * r / (2. * xi * xi))) * cos(M_PI * z / d) + u * exp(-r*r/(2.*xi*xi)));
+				};
+				auto beta = [d](scalar z) {
+					return -M_PI * abs(z) / d;
+				};
+				auto gamma = [R](scalar r) {
+					return M_PI * (1 - exp(-r * r / R * R));
+				};
+				auto nr = [alpha, beta, gamma](scalar r, scalar z) {
+					scalar a = alpha(r, z);
+					scalar b = beta(z);
+					scalar g = gamma(r);
+					return sin(a) * cos(b) * sin(g) + sin(2. * a) * sin(b) * pow(cos(g / 2.), 2);
+				};
+				auto nphi = [alpha, beta, gamma](scalar r, scalar z) {
+					scalar a = alpha(r, z);
+					scalar b = beta(z);
+					scalar g = gamma(r);
+					return sin(a) * cos(b) * sin(g) + sin(2 * a) * sin(b) * pow(cos(g / 2), 2);
+				};
+				auto nx = [nr, nphi](scalar x, scalar y, scalar z) {
+					scalar r = sqrt(x * x + y * y);
+					if (r > 0.) return (x / r) * nr(r, z) - (y / r) * nphi(r, z);
+					else return 0.;
+				};
+				auto ny = [nr, nphi](scalar x, scalar y, scalar z) {
+					scalar r = sqrt(x * x + y * y);
+					if (r > 0.) return (y / r) * nr(r, z) + (x / r) * nphi(r, z);
+					else return 0.;
+				};
+
+				auto nz = [nr, nphi, alpha, gamma](scalar x, scalar y, scalar z) {
+					scalar r = sqrt(x * x + y * y);
+					scalar a = alpha(r, z);
+					scalar g = gamma(r);
+					return 1. - 2. * pow(sin(a), 2) * pow(cos(g / 2.), 2);
+				};
+				
+				return [cell_thickness,nx, ny, nz](Tensor4& n, int i, int j, int k, int* voxels) {
+					scalar x = (i / scalar(voxels[0] - 1) - 0.5) * cell_thickness[0];
+					scalar y = (j / scalar(voxels[1] - 1) - 0.5) * cell_thickness[1];
+					scalar z = (k / scalar(voxels[2] - 1) - 0.5) * cell_thickness[2];
+
+					scalar r_pol = sqrt(x * x + y * y);
+					scalar rr = sqrt(r_pol * r_pol + z * z);
+					
+					Eigen::Vector3d vec(nx(x, y, z), ny(x, y, z), nz(x, y, z));
+					vec.normalize();
+
+					n(i, j, k, 0) = vec(0);
+					n(i, j, k, 1) = vec(1);
+					n(i, j, k, 2) = vec(2);
+				};
+			}
+
+			static Config Twistion(const std::array<scalar, 3> &cell_thickness) {
+
+				// Configuration to create a toron centered at the origin, here r is the scalar version of i,j,k in range [-0.5,0.5]^3
+				auto create_toron = [cell_thickness](Tensor4& n, int i, int j, int k, const Eigen::Vector3d& r, scalar rescale_x = 1.) {
+					scalar x = r.x() * cell_thickness[0] * rescale_x;
+					scalar y = r.y() * cell_thickness[1];
+					scalar z = r.z() * cell_thickness[2];
+					scalar r_pol = sqrt(x * x + y * y);
+					scalar rr = sqrt(r_pol * r_pol + z * z);
+					scalar theta = 2. * M_PI * r_pol; // Pi twist out from center
+					scalar lambda = 1/3.;
+
+					Eigen::Quaternion<scalar> rot_quat;
+					if (rr < 1e-4) // Avoids divide by zero issue
+						rot_quat = { 1., 0., 0., 0. };
+					else {
+						Eigen::Vector3d n(x / rr, y / rr, z / rr);
+						scalar ct = cos(0.5 * theta);
+						scalar st = sin(0.5 * theta);
+						rot_quat = { ct , st * n(0), st * n(1), st * n(2) };
+					}
+					Eigen::Vector3d vec(0., 0., 1.);
+
+					if (r_pol < 0.5 && abs(z) < 0.4) {
+
+						scalar exp_factor = exp(-abs(z) / lambda);
+						Eigen::Quaternion<scalar> result(0., 0., 0., -1.);
+						result = rot_quat * result * rot_quat.conjugate();
+						vec(0) = result.x();
+						vec(1) = result.y();
+						vec(2) = result.z();
+						vec = exp_factor * vec + (1 - exp_factor) * Eigen::Vector3d(0., 0., 1.);
+						vec.normalize();
+						
+					}
+
+					return vec;
+				};
+
+				return [create_toron, cell_thickness](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					scalar x = i / scalar(voxels[0] - 1) - 0.5;
+					scalar y = j / scalar(voxels[1] - 1) - 0.5;
+					scalar z = k / scalar(voxels[2] - 1) - 0.5;
+
+					// Twistion right toron
+					scalar xp1 = x - 0.25 / cell_thickness[0];
+					// Twistion left toron
+					scalar xp2 = x + 0.25 / cell_thickness[0];
+
+					auto toron0 = create_toron(n, i, j, k, { x, y, z }, 0.5);
+					auto toron1 = create_toron(n, i, j, k, { xp1, y, z });
+					auto toron2 = create_toron(n, i, j, k, { xp2, y, z });
+
+					// Superpose torons
+					Eigen::Vector3d twist;
+					if (z <= 0.) // Bottom has two point defects
+						twist = exp(-abs(xp1) / 2.) * toron1 + exp(-abs(xp2) / 2.) * toron2;
+					else // Top has 1 point defect
+						twist = toron0;
+
+					twist.normalize();
+
+					n(i, j, k, 0) = twist(0);
+					n(i, j, k, 1) = twist(1);
+					n(i, j, k, 2) = twist(2);
 				};
 			}
 
@@ -383,6 +563,24 @@ namespace Electric {
 					n(i, j, k, 0) = -sin(omega);
 					n(i, j, k, 1) = cos(omega);
 					n(i, j, k, 2) = 0.0;
+				};
+			}
+
+			static Config CF3(scalar cellx = 1.0) {
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					scalar x = ((scalar)i / (scalar)(voxels[0] - 1) - 0.5) * cellx;
+					scalar omega;
+					if (x >= 0.)
+					{
+						omega = M_PI;
+					}
+					else
+					{
+						omega = 0.;
+					}
+					n(i, j, k, 0) = 0.0;
+					n(i, j, k, 1) = -sin(omega);
+					n(i, j, k, 2) = cos(omega);
 				};
 			}
 
@@ -423,7 +621,6 @@ namespace Electric {
 
 						auto result = q * v * qinv;
 
-						// Needs to break a symmetry...
 						nn[0] = result.x();
 						nn[1] = result.y();
 						nn[2] = result.z();
@@ -443,12 +640,7 @@ namespace Electric {
 			}
 
 			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
-				
-				// Create a lambda func that squishes z coordinate where z in [-1,1]
-				auto lmb = [=](scalar x, scalar y, scalar z) {
-					return (scalar)lambda;
-				};
-
+			
 				
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 
@@ -472,7 +664,7 @@ namespace Electric {
 
 					if (r < lambda) {
 
-						scalar theta = 2 * M_PI * r * Q / lmb(p[0],p[1],p[2]);
+						scalar theta = 2 * M_PI * r * Q / lambda;
 
 						Eigen::Matrix<scalar, 3, 1> nn;
 
@@ -486,8 +678,8 @@ namespace Electric {
 
 						auto result = q * v * qinv;
 
-						// Needs to break a symmetry...
 						nn[0] = result.x();
+						// Needs to break a symmetry...
 						nn[1] = result.z();
 						nn[2] = -result.y();
 
@@ -612,6 +804,7 @@ namespace Electric {
 
 		void Init() override;
 		void Relax(const std::size_t& iterations, bool GPU) override;
+		void Relax(const std::size_t& iterations, bool GPU, bool silent);
 
 		void Export(Header& header) override;
 		void Import(Header& header) override;

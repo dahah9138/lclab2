@@ -460,12 +460,15 @@ namespace Electric {
 
 #ifdef LCLAB2_CUDA_AVAIL
 	namespace FD {
-		extern void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method);
+		extern void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method, bool silent = true);
 		extern void UpdateVoltageGPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar rate, unsigned int iterations, int routine);
-		extern void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality);
+		extern void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality, bool order4 = true);
 		extern void ComputeEnergyFunctionalDerivativeAbsSum(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality);
 	}
 #endif
+
+	
+
 
 	bool FOFDSolver::Dataset::chkErrors() {
 
@@ -531,20 +534,18 @@ namespace Electric {
 
 	}
 
-
 	void FOFDSolver::Dataset::readDataFromHeader(Header& header) {
 
 		// Clear header objects. It is assumed that any raw dynamic data has been
 		// freed at this point
 		header.clean();
-
 		header.read();
 		header.readBody();
+
 
 		// Import data
 
 		// Iterator
-		std::size_t iter = 0;
 		std::unique_ptr<LC::scalar> p_chir, p_rate;
 		std::unique_ptr<LC::scalar[]> p_cell;
 		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData("Scalar size")));
@@ -562,12 +563,22 @@ namespace Electric {
 			directors = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Directors")));
 			voltage = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Voltage")));
 
+			// Determine if objects exist and initialize them to trivial values if not critical
+
 			if (voltage == 0) {
 				LC_CORE_WARN("Voltage was not found");
 				// Initialize voltage
 				voltage = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
 				LC_CORE_INFO("Voltage initialized");
 			}
+
+			CheckInitializedTrivialVariable(p_type, LC_TYPE::_5CB, "LC Type");
+			CheckInitializedTrivialVariable(p_chir, (LC::scalar)1., "Chirality");
+			CheckInitializedTrivialVariable(p_rate, (LC::scalar)-0.1, "Relax rate");
+			CheckInitializedTrivialVariable(p_relaxKind, Dataset::RelaxKind::Algebraic, "Relax kind");
+			CheckInitializedTrivialVariable(p_iter, (size_t)0, "Iterations");
+			CheckInitializedArrayVariable(p_cell, (LC::scalar)1., 3, "Cell");
+			CheckInitializedArrayVariable(p_bc, true, 3, "Boundaries");
 
 			size_of_scalar = *p_size_of_scalar;
 
@@ -605,6 +616,9 @@ namespace Electric {
 			// Initialize energy density
 			en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
 			
+		}
+		else if (p_size_of_scalar == 0) {
+			LC_CORE_CRITICAL("Scalar size unspecified");
 		}
 		else {
 			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
@@ -725,33 +739,37 @@ namespace Electric {
 #ifdef LCLAB2_CUDA_AVAIL
 		FD::ComputeEnergyDensity(data.en_density.get(), data.directors.get(), data.voltage.get(),
 			&data.voxels[0], k11, k22, k33,
-			data.epar, data.eper, &data.cell_dims[0], data.chirality);
+			data.epar, data.eper, &data.cell_dims[0], data.chirality, true);
 #endif
-
+		std::array<int, 3> dims_reduced = { data.voxels[0] - 4, data.voxels[1] - 4, data.voxels[2] - 4 };
+		// Numerically integrate over the total en.
 		scalar total_energy = 0.0;
 
 		std::size_t slice = data.voxels[0] * data.voxels[1];
 		std::size_t N = slice * data.voxels[2];
 
-		std::unique_ptr<scalar[]> density2D(new scalar[data.voxels[0] * data.voxels[1]]);
-		std::unique_ptr<scalar[]> density1D(new scalar[data.voxels[0]]);
+		std::size_t slice_reduced = dims_reduced[0] * dims_reduced[1];
+		std::size_t vol_reduced = slice_reduced * dims_reduced[2];
+
+		std::unique_ptr<scalar[]> density2D(new scalar[slice_reduced]);
+		std::unique_ptr<scalar[]> density1D(new scalar[dims_reduced[0]]);
 
 		auto index = [&](int i, int j, int k) {
 			unsigned int idx = i + data.voxels[0] * j + slice * k;
 			return idx;
 		};
 
-		for (int x = 0; x < data.voxels[0]; x++) {
-			for (int y = 0; y < data.voxels[1]; y++) {
+		for (int x = 0; x < dims_reduced[0]; x++) {
+			for (int y = 0; y < dims_reduced[1]; y++) {
 				scalar znew = 0.0;
 				scalar zprev = 0.0;
-				density2D[x + y * data.voxels[0]] = 0.0;
+				density2D[x + y * dims_reduced[0]] = 0.0;
 
-				for (int z = 1; z < data.voxels[2]; z++) {
+				for (int z = 1; z < dims_reduced[2]; z++) {
 
-					zprev = data.en_density[index(x, y, z - 1)];
-					znew = data.en_density[index(x, y, z)];
-					density2D[x + y * data.voxels[0]] += 0.5 * (zprev + znew);
+					zprev = data.en_density[index(x+2, y+2, z)];
+					znew = data.en_density[index(x+2, y+2, z + 1)];
+					density2D[x + y * dims_reduced[0]] += 0.5 * (zprev + znew);
 
 				}
 			}
@@ -759,24 +777,31 @@ namespace Electric {
 
 		density1D[0] = 0.0;
 
-		for (int x = 1; x < data.voxels[0]; x++) {
+		for (int x = 1; x < dims_reduced[0]; x++) {
 			density1D[x] = 0.0;
 			scalar znew = 0.0;
 			scalar zprev = 0.0;
 
-			for (int y = 1; y < data.voxels[1]; y++) {
-				zprev = density2D[x - 1 + y * data.voxels[0]];
-				znew = density2D[x + y * data.voxels[0]];
+			for (int y = 1; y < dims_reduced[1]; y++) {
+				zprev = density2D[x - 1 + y * dims_reduced[0]];
+				znew = density2D[x + y * dims_reduced[0]];
 				density1D[x] += 0.5 * (zprev + znew);
 			}
 		}
-		for (int x = 1; x < data.voxels[0]; x++) {
+
+		for (int x = 1; x < dims_reduced[0]; x++) {
 			scalar zprev = density1D[x - 1];
 			scalar znew = density1D[x];
 			total_energy += 0.5 * (zprev + znew);
 		}
 
-		return total_energy;
+		scalar dx = data.cell_dims[0] / (data.voxels[0] - 1);
+		scalar dy = data.cell_dims[1] / (data.voxels[1] - 1);
+		scalar dz = data.cell_dims[2] / (data.voxels[2] - 1);
+
+		return total_energy * ((data.cell_dims[2]-4*dz) / dims_reduced[2]) 
+			* ((data.cell_dims[1] - 4 * dy) / dims_reduced[1]) 
+			* ((data.cell_dims[0] - 4 * dx) / dims_reduced[0]);
 	}
 
 	scalar FOFDSolver::TotalEnergyFunctionalDerivativeAbsSum() {
@@ -917,6 +942,100 @@ namespace Electric {
 			scalar k33 = data.k33.first;
 
 			FD::RelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0], data.chirality, data.rate, iterations, static_cast<int>(data.relaxKind));
+			data.numIterations += iterations;
+			return;
+		}
+#endif
+
+		typedef void (FOFDSolver::* FunctionPtr)(Tensor4&, int, int, int);
+		bool oneConst = static_cast<int>(data.relaxKind) & static_cast<int>(Dataset::RelaxKind::OneConst);
+		bool algebraic = static_cast<int>(data.relaxKind) & static_cast<int>(Dataset::RelaxKind::Algebraic);
+		bool order4 = static_cast<int>(data.relaxKind) & static_cast<int>(Dataset::RelaxKind::Order4);
+		FunctionPtr relaxMethod;
+		FunctionPtr boundaryMethod;
+		FunctionPtr voltageMethod;
+
+		if (oneConst && algebraic && order4) relaxMethod = &FOFDSolver::OneConstAlgebraicOrder4;
+		else if (oneConst && algebraic) relaxMethod = &FOFDSolver::OneConstAlgebraicOrder2;
+		else if (oneConst && order4) relaxMethod = &FOFDSolver::OneConstFunctionalOrder4;
+		else if (oneConst) relaxMethod = &FOFDSolver::OneConstFunctionalOrder2;
+		else if (algebraic && order4) relaxMethod = &FOFDSolver::FullAlgebraicOrder4;
+		else if (algebraic) relaxMethod = &FOFDSolver::FullAlgebraicOrder2;
+		else if (order4) relaxMethod = &FOFDSolver::FullFunctionalOrder4;
+		else relaxMethod = &FOFDSolver::FullFunctionalOrder2;
+
+		if (order4) {
+			boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder4;
+			voltageMethod = &FOFDSolver::UpdateVoltageOrder4;
+		}
+		else {
+			boundaryMethod = &FOFDSolver::HandleBoundaryConditionsOrder2;
+			voltageMethod = &FOFDSolver::UpdateVoltageOrder2;
+		}
+
+
+		/* Create tensor map */
+		Tensor4 nn(data.directors.get(), data.voxels[0], data.voxels[1], data.voxels[2], 3);
+
+
+		for (std::size_t it = 0; it < iterations; it++) {
+
+			for (int i = 0; i < data.voxels[0]; i++)
+			{
+				for (int j = 0; j < data.voxels[1]; j++)
+				{
+					for (int k = 0; k < data.voxels[2]; k++)
+					{
+						(this->*boundaryMethod)(nn, i, j, k);
+
+						(this->*relaxMethod)(nn, i, j, k);
+
+						(this->*voltageMethod)(nn, i, j, k);
+
+						Normalize(nn, i, j, k);
+					}
+				}
+			}
+
+		}
+
+		data.numIterations += iterations;
+
+	}
+
+	void FOFDSolver::Relax(const std::size_t& iterations, bool GPU, bool silent) {
+
+
+
+		if (errors != Solver::Error::None) {
+			LC_CORE_WARN("Abort: Attempting to relax with errors!");
+			return;
+		}
+
+		if (data.voltage.get() == 0) {
+			LC_CORE_WARN("Attempting to relax with unitialized voltage!");
+			LC_CORE_INFO("Setting voltage to 1 V");
+			SetVoltage(1.0);
+		}
+
+		// Determine electric constants
+		if (!(data.lc_type == LC_TYPE::CUSTOM)) {
+			data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
+			data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		}
+
+
+		/* Relax routine */
+#ifdef LCLAB2_CUDA_AVAIL
+		if (GPU) {
+			scalar k11 = data.k11.first;
+			scalar k22 = data.k22.first;
+			scalar k33 = data.k33.first;
+
+			FD::RelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], 
+				k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0], 
+				data.chirality, data.rate, iterations,
+				static_cast<int>(data.relaxKind), silent);
 			data.numIterations += iterations;
 			return;
 		}

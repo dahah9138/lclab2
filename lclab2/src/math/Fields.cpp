@@ -55,19 +55,16 @@ namespace LC { namespace Math {
 		};
 	}
 
-
 	VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda, scalar lim,
-		const Eigen::Matrix<scalar, 3, 1>& translation, bool background) {
+		const Eigen::Matrix<scalar, 3, 1>& translation, scalar phi0, bool background) {
 
 		return [=](scalar x, scalar y, scalar z) {
 
 			scalar layersscale = ceil(2 * Q * lim);
-			Eigen::Matrix<scalar, 3, 1> coords{ x / cell[0], y / cell[1], z / cell[2] };
-			Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
+			Eigen::Matrix<scalar, 3, 1> coords{ x, y, z };
+			Eigen::Matrix<scalar, 3, 1> p = coords - translation;
 
-			scalar phi = atan2(p[1], p[0]);
-			scalar rrpolar = sqrt(p[0] * p[0] + p[1] * p[1]);
-			scalar omega = 2 * M_PI * layersscale * (coords[2] + 0.5) / lambda;
+			scalar omega = 2 * M_PI * coords[2] / lambda + phi0;
 
 			if (p.dot(p) == 0.0) p[2] = 1.0;
 
@@ -77,11 +74,6 @@ namespace LC { namespace Math {
 			scalar rsq = p.dot(p);
 			scalar r = sqrt(rsq);
 
-			// Rotate each z - plane
-			p[0] = rrpolar * cos(phi - omega);
-			p[1] = p[2] / lim;
-			p[2] = rrpolar * sin(phi - omega);
-
 			if (r < lambda) {
 
 				scalar theta = 2 * M_PI * r * Q / lambda;
@@ -89,26 +81,18 @@ namespace LC { namespace Math {
 				Eigen::Matrix<scalar, 3, 1> nn;
 
 
-				nn[0] = (1 - cos(theta)) * p[2] * p[0] / rsq + sin(theta) * p[1] / r;
-				nn[1] = (1 - cos(theta)) * p[2] * p[1] / rsq - sin(theta) * p[0] / r;
-				nn[2] = (1 - cos(theta)) * p[2] * p[2] / rsq + cos(theta);
+				scalar cost2 = cos(theta / 2.);
+				scalar sint2 = sin(theta / 2.);
 
-				// flip handedness
+				Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
+				Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
+				Eigen::Quaternion<scalar> v(0., -sin(omega), cos(omega), 0.);
 
-				scalar nytemp = nn[1];
-				nn[1] = nn[2];
-				nn[2] = -nytemp;
+				auto result = qinv * v * q;
 
-
-				// Rotate directors
-				
-				scalar nxtemp = cos(omega) * nn[0] - sin(omega) * nn[1];
-				nytemp = sin(omega) * nn[0] + cos(omega) * nn[1];
-
-				nn[0] = nxtemp;
-				nn[1] = nytemp;
-
-				// Normalize
+				nn[0] = result.x();
+				nn[1] = result.y();
+				nn[2] = -result.z();
 
 				nn.normalize();
 

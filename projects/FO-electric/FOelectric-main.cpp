@@ -6,6 +6,7 @@
 #include "SmoothIsosurface.h"
 #include "QuaternionFromBasis.h"
 #include <tuple>
+#include <set>
 
 using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
@@ -303,7 +304,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
         .Cell(2 * Q + 1, 2 * Q + 1, 2 * Q + 1)
         .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Configuration(Dataset::Heliknoton(Q));
+        .Configuration(Dataset::Heliknoton(Q,1.,1.5));
 
     /*
         Set voltage
@@ -1937,6 +1938,29 @@ void Sandbox::handleZProfileWindow() {
                 _widget.thermalRandomization, _widget.chain_units, _widget.temperature,
             _widget.omegabar, _widget.inversion_temp);
 
+            // For each director on the plane, update the
+            // boundary conditions based on the tangent at that point
+            int V = data->voxels[0];
+            int U = data->voxels[1];
+            int W = data->voxels[2];
+            uint32_t vol = V * U * W;
+            for (int x = 1; x < V-1; x++) {
+                for (int y = 1; y < U-1; y++) {
+                    // Compute the local tangent
+                    auto y1 = _zprofile->graph->data[x + V * (y-1)];
+                    auto y2 = _zprofile->graph->data[x + V * (y+1)];
+                    auto x1 = _zprofile->graph->data[(x-1) + V * y];
+                    auto x2 = _zprofile->graph->data[(x+1) + V * y];
+                    Vector3 u = x2 - x1;
+                    Vector3 v = y2 - y1;
+                    Vector3 n = Math::cross(u, v);
+                    n = n / n.length();
+                    // Copy to director data
+                    data->directors[x + V * y + V * U * (W - 1)] = n.x();
+                    data->directors[x + V * y + V * U * (W - 1) + vol] = n.y();
+                    data->directors[x + V * y + V * U * (W - 1) + vol * 2] = n.z();
+                }
+            }
         }
 
         if (ImGui::RadioButton("x-line", &_widget.radioZProfileAxis, 0))
@@ -1988,7 +2012,7 @@ void Sandbox::handleZProfileWindow() {
 
             if (ImPlot::BeginPlot(plt_title.c_str(),"L / p", "h / p", ImVec2(-1,0), 0, fautofit, fautofit)) {
                 ImPlot::SetNextMarkerStyle(ImPlotMarker_Circle);
-                ImPlot::PlotLine(("Z(" + letter + ")").c_str(), ax.get(), line_scan.get(), vox_x);
+                ImPlot::PlotLine(("Z(" + letter + ")").c_str(), ax.get(), line_scan.get(), vox_x, 0, sizeof(float));
                 ImPlot::EndPlot();
             }
 
@@ -2270,7 +2294,8 @@ void Sandbox::handleLCINFOWindow() {
 
                 // Reset points
                 if (_widget.updateImageFromLoad) points = MAX_GRAPH_POINTS;
-                ImPlot::PlotLine("F", &_widget.series_x_axis_vec[0], &_widget.energy_series_vec[0], points);
+
+                ImPlot::PlotLine("F", &_widget.series_x_axis_vec[0], &_widget.energy_series_vec[0], points, 0, sizeof(LC::precision_scalar));
                 ImPlot::EndPlot();
             }
         }
@@ -2418,183 +2443,157 @@ void Sandbox::handleModificationWindow() {
             updateColor();
         }
 
-        ImGui::PushItemWidth(80.f);
-        ImGui::InputInt("Tilt angle (deg)", &_widget.tilt_angle);
-        ImGui::SameLine();
-        ImGui::InputInt("Tilt direction (deg)", &_widget.tilt_direction);
-        ImGui::PopItemWidth();
+        if (ImGui::CollapsingHeader("Tilt and Lehman")) {
 
-        if (ImGui::Button("Tilt")) {
+            ImGui::PushItemWidth(80.f);
+            ImGui::InputInt("Tilt angle (deg)", &_widget.tilt_angle);
+            ImGui::SameLine();
+            ImGui::InputInt("Tilt direction (deg)", &_widget.tilt_direction);
+            ImGui::PopItemWidth();
 
-            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * data->voxels[0] * data->voxels[1] * data->voxels[2]]);
+            if (ImGui::Button("Tilt")) {
 
-            // tilt direction vector
-            LC::scalar tilt_angle_rad = _widget.tilt_angle * M_PI / 180.;
-            LC::scalar tilt_dir_rad = _widget.tilt_direction * M_PI / 180.;
-            LC::scalar ux = -sin(tilt_dir_rad);
-            LC::scalar uy = cos(tilt_dir_rad);
-            LC::scalar uz = 0.;
-            Eigen::Quaternion<LC::scalar> q(cos(tilt_angle_rad / 2.), ux * sin(tilt_angle_rad / 2.), uy * sin(tilt_angle_rad / 2.), uz * sin(tilt_angle_rad / 2.));
-            Eigen::Quaternion<LC::scalar> qbar = q.conjugate();
-    
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            FOFDSolver::Tensor4 nn_new(field_nn.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+                std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * data->voxels[0] * data->voxels[1] * data->voxels[2]]);
 
-            // Copy
-            for (int i = 0; i < data->voxels[0]; i++) {
-                for (int j = 0; j < data->voxels[1]; j++) {
-                    for (int k = 0; k < data->voxels[2]; k++) {
+                // tilt direction vector
+                LC::scalar tilt_angle_rad = _widget.tilt_angle * M_PI / 180.;
+                LC::scalar tilt_dir_rad = _widget.tilt_direction * M_PI / 180.;
+                LC::scalar ux = -sin(tilt_dir_rad);
+                LC::scalar uy = cos(tilt_dir_rad);
+                LC::scalar uz = 0.;
+                Eigen::Quaternion<LC::scalar> q(cos(tilt_angle_rad / 2.), ux * sin(tilt_angle_rad / 2.), uy * sin(tilt_angle_rad / 2.), uz * sin(tilt_angle_rad / 2.));
+                Eigen::Quaternion<LC::scalar> qbar = q.conjugate();
 
-                        for (int d = 0; d < 3; d++) {
-                            nn_new(i, j, k, d) = nn(i, j, k, d);
+                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+                FOFDSolver::Tensor4 nn_new(field_nn.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+                // Copy
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int j = 0; j < data->voxels[1]; j++) {
+                        for (int k = 0; k < data->voxels[2]; k++) {
+
+                            for (int d = 0; d < 3; d++) {
+                                nn_new(i, j, k, d) = nn(i, j, k, d);
+                            }
+
                         }
-
                     }
                 }
-            }
 
 
-            for (int i = 0; i < data->voxels[0]; i++) {
-                for (int j = 0; j < data->voxels[1]; j++) {
-                    for (int k = 0; k < data->voxels[2]; k++) {
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int j = 0; j < data->voxels[1]; j++) {
+                        for (int k = 0; k < data->voxels[2]; k++) {
 
-                        // Rotate using quaternion conjugation
-                        Eigen::Quaternion<LC::scalar> n_i(0., nn_new(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
+                            // Rotate using quaternion conjugation
+                            Eigen::Quaternion<LC::scalar> n_i(0., nn_new(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
 
-                        auto result = q * n_i * qbar;
+                            auto result = q * n_i * qbar;
 
-                        Eigen::Quaternion<LC::scalar> vpos(0., i - (data->voxels[0]-1) / 2., j - (data->voxels[1]-1) / 2., k - (data->voxels[2]-1) / 2.);
-                        
-                        //auto vresult = q * vpos * qbar;
+                            Eigen::Quaternion<LC::scalar> vpos(0., i - (data->voxels[0] - 1) / 2., j - (data->voxels[1] - 1) / 2., k - (data->voxels[2] - 1) / 2.);
 
-                        //int in = vresult.x() + (data->voxels[0] - 1) / 2.;
-                        //int jn = vresult.y() + (data->voxels[1] - 1) / 2.;
-                        //int kn = vresult.z() + (data->voxels[2] - 1) / 2.;
+                            //auto vresult = q * vpos * qbar;
 
-                        int in = i;
-                        int jn = j;
-                        int kn = k;
+                            //int in = vresult.x() + (data->voxels[0] - 1) / 2.;
+                            //int jn = vresult.y() + (data->voxels[1] - 1) / 2.;
+                            //int kn = vresult.z() + (data->voxels[2] - 1) / 2.;
 
-                        if (in < 0 || in >= data->voxels[0] || jn < 0 || jn >= data->voxels[1] || kn < 0 || kn >= data->voxels[2]) {
-                            continue;
+                            int in = i;
+                            int jn = j;
+                            int kn = k;
+
+                            if (in < 0 || in >= data->voxels[0] || jn < 0 || jn >= data->voxels[1] || kn < 0 || kn >= data->voxels[2]) {
+                                continue;
+                            }
+
+                            // Normalize result
+                            LC::scalar len = sqrt(result.x() * result.x() + result.y() * result.y() + result.z() * result.z());
+
+                            if (len == 0.0) {
+                                nn_new(in, jn, kn, 0) = 0.;
+                                nn_new(in, jn, kn, 1) = 0.;
+                                nn_new(in, jn, kn, 2) = 1.;
+                            }
+                            else {
+
+                                nn_new(in, jn, kn, 0) = result.x() / len;
+                                nn_new(in, jn, kn, 1) = result.y() / len;
+                                nn_new(in, jn, kn, 2) = result.z() / len;
+
+                            }
+
                         }
-                        
-                        // Normalize result
-                        LC::scalar len = sqrt(result.x() * result.x() + result.y() * result.y() + result.z() * result.z());
-
-                        if (len == 0.0) {
-                            nn_new(in, jn, kn, 0) = 0.;
-                            nn_new(in, jn, kn, 1) = 0.;
-                            nn_new(in, jn, kn, 2) = 1.;
-                        }
-                        else {
-
-                            nn_new(in, jn, kn, 0) = result.x() / len;
-                            nn_new(in, jn, kn, 1) = result.y() / len;
-                            nn_new(in, jn, kn, 2) = result.z() / len;
-
-                        }
-
                     }
                 }
-            }
 
-            // Copy back
-            for (int i = 0; i < data->voxels[0]; i++) {
-                for (int j = 0; j < data->voxels[1]; j++) {
-                    for (int k = 0; k < data->voxels[2]; k++) {
-                        
-                        for (int d = 0; d < 3; d++) {
-                            nn(i, j, k, d) = nn_new(i, j, k, d);
+                // Copy back
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int j = 0; j < data->voxels[1]; j++) {
+                        for (int k = 0; k < data->voxels[2]; k++) {
+
+                            for (int d = 0; d < 3; d++) {
+                                nn(i, j, k, d) = nn_new(i, j, k, d);
+                            }
+
                         }
-
                     }
                 }
+
+                _widget.updateImage = true;
             }
 
-            _widget.updateImage = true;
-        }
+            if (ImGui::Button("Helical field")) {
+                auto helical = LC::Math::Planar(2, 1);
+                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
-        if (ImGui::Button("Helical field")) {
-            auto helical = LC::Math::Planar(2, 1);
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+                std::array<float, 3> pos;
 
-            std::array<float, 3> pos;
+                LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+                LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
 
-            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
-            LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
+                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
+                        for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
 
-            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
-                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
-                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
+                            pos[0] = -data->cell_dims[0] / 2.0 + i * dx;
+                            pos[1] = -data->cell_dims[1] / 2.0 + j * dy;
+                            pos[2] = -data->cell_dims[2] / 2.0 + k * dz;
 
-                        pos[0] = -data->cell_dims[0] / 2.0 + i * dx;
-                        pos[1] = -data->cell_dims[1] / 2.0 + j * dy;
-                        pos[2] = -data->cell_dims[2] / 2.0 + k * dz;
+                            auto n = helical(pos[0], pos[1], pos[2] - _widget.helicalLayerOffset);
 
-                        auto n = helical(pos[0], pos[1], pos[2] - _widget.helicalLayerOffset);
-
-                        for (int d = 0; d < 3; d++) {
-                            nn(i, j, k, d) = n[d];
+                            for (int d = 0; d < 3; d++) {
+                                nn(i, j, k, d) = n[d];
+                            }
                         }
-                    }
-        }
-
-        ImGui::SameLine();
-        ImGui::PushItemWidth(50.f);
-        ImGui::InputFloat("Layer offset (p)", &_widget.helicalLayerOffset);
-        ImGui::PopItemWidth();
-        ImGui::SameLine();
-
-        if (ImGui::Button("Uniform field")) {
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-            std::array<float, 3> pos;
-
-            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
-                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
-                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
-                        nn(i, j, k, 0) = 0;
-                        nn(i, j, k, 1) = 0;
-                        nn(i, j, k, 2) = 1.0;
-                    }
-        }
-
-
-
-        // Resets/initializes lehman cluster
-        if (ImGui::Button("Fill Lehman cluster")) {
-            _lehman_xsection.fill(data->voxels, data->cell_dims, _widget.lehman_upsample);
-            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
-            for (uint i = 0; i < _lehman_xsection.size(); i++) {
-                uint id = _lehman_xsection.index(i);
-                data->directors[id] = _lehman_xsection.nodes[i].director.x();
-                data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
-                data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
             }
-        }
-        ImGui::PushItemWidth(75.f);
-        ImGui::SameLine();
-        ImGui::InputInt("Up-sample##Lehman", &_widget.lehman_upsample);
 
-        ImGui::InputFloat("Arclength (dz)", &_widget.lehmanArclength);
-        ImGui::SameLine();
-        ImGui::InputFloat("z translation (dz)", &_widget.lehman_dz);
+            ImGui::SameLine();
+            ImGui::PushItemWidth(50.f);
+            ImGui::InputFloat("Layer offset (p)", &_widget.helicalLayerOffset);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
 
-        ImGui::InputFloat("Total z distance (p)", &_widget.total_lehman_z_dist);
-        ImGui::SameLine();
-        ImGui::InputFloat("Total fwd distance (p)", &_widget.total_lehman_forward_dist);
-        ImGui::PopItemWidth();
+            if (ImGui::Button("Uniform field")) {
+                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
-        if (ImGui::Button("Forward")) {
-            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
-            int iterations = _widget.total_lehman_forward_dist / (0.5 * dz);
-            for (int it = 0; it < iterations; it++) {
-                // Apply the translation
-                _lehman_xsection.forward(0.5 * dz);
-                // Fill data
+                std::array<float, 3> pos;
+
+                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
+                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
+                        for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
+                            nn(i, j, k, 0) = 0;
+                            nn(i, j, k, 1) = 0;
+                            nn(i, j, k, 2) = 1.0;
+                        }
+            }
+
+
+
+            // Resets/initializes lehman cluster
+            if (ImGui::Button("Fill Lehman cluster")) {
+                _lehman_xsection.fill(data->voxels, data->cell_dims, _widget.lehman_upsample);
+                uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
                 for (uint i = 0; i < _lehman_xsection.size(); i++) {
                     uint id = _lehman_xsection.index(i);
                     data->directors[id] = _lehman_xsection.nodes[i].director.x();
@@ -2602,203 +2601,231 @@ void Sandbox::handleModificationWindow() {
                     data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
                 }
             }
-        }
+            ImGui::PushItemWidth(75.f);
+            ImGui::SameLine();
+            ImGui::InputInt("Up-sample##Lehman", &_widget.lehman_upsample);
 
-        ImGui::SameLine();
+            ImGui::InputFloat("Arclength (dz)", &_widget.lehmanArclength);
+            ImGui::SameLine();
+            ImGui::InputFloat("z translation (dz)", &_widget.lehman_dz);
 
-        bool z_translation = false;
-        if (ImGui::Button("Up")) {
-            z_translation = true;
-        }
+            ImGui::InputFloat("Total z distance (p)", &_widget.total_lehman_z_dist);
+            ImGui::SameLine();
+            ImGui::InputFloat("Total fwd distance (p)", &_widget.total_lehman_forward_dist);
+            ImGui::PopItemWidth();
 
-        ImGui::SameLine();
-
-        int sgn = 1;
-
-        if (ImGui::Button("Down")) {
-            sgn = -1;
-            z_translation = true;
-        }
-
-
-        // Fill data with translated lehman cluster
-        if (z_translation) {
-            uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
-         
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
-            int iterations = _widget.total_lehman_z_dist / (_widget.lehman_dz * dz);
-
-            for (int it = 0; it < iterations; it++) {
-                // Apply the rotation
-                _lehman_xsection.rotation(_widget.lehmanArclength * dz, sgn * _widget.lehman_dz * dz);
-                // Fill data
-                for (uint i = 0; i < _lehman_xsection.size(); i++) {
-                    uint id = _lehman_xsection.index(i);
-                    data->directors[id] = _lehman_xsection.nodes[i].director.x();
-                    data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
-                    data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+            if (ImGui::Button("Forward")) {
+                uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+                int iterations = _widget.total_lehman_forward_dist / (0.5 * dz);
+                for (int it = 0; it < iterations; it++) {
+                    // Apply the translation
+                    _lehman_xsection.forward(0.5 * dz);
+                    // Fill data
+                    for (uint i = 0; i < _lehman_xsection.size(); i++) {
+                        uint id = _lehman_xsection.index(i);
+                        data->directors[id] = _lehman_xsection.nodes[i].director.x();
+                        data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
+                        data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+                    }
                 }
             }
 
+            ImGui::SameLine();
 
-        }
+            bool z_translation = false;
+            if (ImGui::Button("Up")) {
+                z_translation = true;
+            }
+
+            ImGui::SameLine();
+
+            int sgn = 1;
+
+            if (ImGui::Button("Down")) {
+                sgn = -1;
+                z_translation = true;
+            }
 
 
-        // Prototyping
-        if (ImGui::Button("Lehman cluster line")) {
-            // Default field configuration: ng = (-sin(qz), cos(qz), 0) so ng(z=0) = (0,1,0)
-            // Want the Lehman cluster to be in the xz plane
-            auto helical = LC::Math::Planar(2, 1);
+            // Fill data with translated lehman cluster
+            if (z_translation) {
+                uint vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
 
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+                int iterations = _widget.total_lehman_z_dist / (_widget.lehman_dz * dz);
 
-            LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+                for (int it = 0; it < iterations; it++) {
+                    // Apply the rotation
+                    _lehman_xsection.rotation(_widget.lehmanArclength * dz, sgn * _widget.lehman_dz * dz);
+                    // Fill data
+                    for (uint i = 0; i < _lehman_xsection.size(); i++) {
+                        uint id = _lehman_xsection.index(i);
+                        data->directors[id] = _lehman_xsection.nodes[i].director.x();
+                        data->directors[id + vol] = _lehman_xsection.nodes[i].director.y();
+                        data->directors[id + 2 * vol] = _lehman_xsection.nodes[i].director.z();
+                    }
+                }
 
-            // Input:
-            // r0: Position of the defect
-            // y0: Y plane where the defect is placed
-            // sgn: Which side the defect is placed (+ right, - left)
-            auto LehmanCluster = [&](Eigen::Vector3d r0, int y0, int sgn) {
 
-                std::array<LC::scalar, 3> n0 = helical(r0.x(), r0.y(), r0.z());
+            }
 
-                for (int x = 0; x < data->voxels[0]; x++) {
-                    for (int z = 0; z < data->voxels[2]; z++) {
-                        // Get current position
-                        Eigen::Vector3d pos(
-                            -data->cell_dims[0] * 0.5 + x * dx,
-                            0.,
-                            -data->cell_dims[2] * 0.5 + z * dz
-                        );
 
-                        // Position relative to the point defect
-                        Eigen::Vector3d rprime = pos - r0;
-                        LC::scalar rprime_len = rprime.norm();
+            // Prototyping
+            if (ImGui::Button("Lehman cluster line")) {
+                // Default field configuration: ng = (-sin(qz), cos(qz), 0) so ng(z=0) = (0,1,0)
+                // Want the Lehman cluster to be in the xz plane
+                auto helical = LC::Math::Planar(2, 1);
 
-                        // If within half a pitch from the point defect and to the right of the defect
-                        if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
-                            Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
-                            // Angle of position relative to point defect in the defect plane
-                            LC::scalar phi = atan2(rprime.z(), rprime.x());
+                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
 
-                            // Radial rotation quaternion
+                LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+                // Input:
+                // r0: Position of the defect
+                // y0: Y plane where the defect is placed
+                // sgn: Which side the defect is placed (+ right, - left)
+                auto LehmanCluster = [&](Eigen::Vector3d r0, int y0, int sgn) {
+
+                    std::array<LC::scalar, 3> n0 = helical(r0.x(), r0.y(), r0.z());
+
+                    for (int x = 0; x < data->voxels[0]; x++) {
+                        for (int z = 0; z < data->voxels[2]; z++) {
+                            // Get current position
+                            Eigen::Vector3d pos(
+                                -data->cell_dims[0] * 0.5 + x * dx,
+                                0.,
+                                -data->cell_dims[2] * 0.5 + z * dz
+                            );
+
+                            // Position relative to the point defect
+                            Eigen::Vector3d rprime = pos - r0;
                             LC::scalar rprime_len = rprime.norm();
-                            LC::scalar theta = 2. * M_PI * rprime_len;
-                            LC::scalar ct, st;
-                            ct = cos(0.5 * theta);
-                            st = sin(0.5 * theta);
-                            Eigen::Quaterniond rot_quat;
-                            rot_quat.w() = ct;
-                            rot_quat.x() = st * rprime.x() / rprime_len;
-                            rot_quat.y() = st * rprime.y() / rprime_len;
-                            rot_quat.z() = st * rprime.z() / rprime_len;
 
-                            // Apply the quaternion to phihat
-                            Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
-                            nn(x, y0, z, 0) = n.x();
-                            nn(x, y0, z, 1) = n.y();
-                            nn(x, y0, z, 2) = n.z();
+                            // If within half a pitch from the point defect and to the right of the defect
+                            if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
+                                Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
+                                // Angle of position relative to point defect in the defect plane
+                                LC::scalar phi = atan2(rprime.z(), rprime.x());
 
-                        }
+                                // Radial rotation quaternion
+                                LC::scalar rprime_len = rprime.norm();
+                                LC::scalar theta = 2. * M_PI * rprime_len;
+                                LC::scalar ct, st;
+                                ct = cos(0.5 * theta);
+                                st = sin(0.5 * theta);
+                                Eigen::Quaterniond rot_quat;
+                                rot_quat.w() = ct;
+                                rot_quat.x() = st * rprime.x() / rprime_len;
+                                rot_quat.y() = st * rprime.y() / rprime_len;
+                                rot_quat.z() = st * rprime.z() / rprime_len;
 
-                    }
+                                // Apply the quaternion to phihat
+                                Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
+                                nn(x, y0, z, 0) = n.x();
+                                nn(x, y0, z, 1) = n.y();
+                                nn(x, y0, z, 2) = n.z();
 
-                }
-            };
-
-            for (int y = 0.25 * data->voxels[1]; y < 0.75 * data->voxels[1]; y++) {
-                // Lehman cluster at x = -0.5
-                LehmanCluster({ -0.5, 0., 0. }, y, 1);
-                // Lehman cluster at x = 0.5
-                LehmanCluster({ 0.5, 0., 0. }, y, -1);
-            }
-
-        }
-
-
-        // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
-
-
-        ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation region");
-        ImGui::Text("nn(%d:%d,%d:%d,%d:%d,:)", _widget.shrink_interval_begin[0], _widget.shrink_interval_end[0],
-            _widget.shrink_interval_begin[1], _widget.shrink_interval_end[1],
-            _widget.shrink_interval_begin[2], _widget.shrink_interval_end[2]
-        );
-        ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation direction");
-        bool arrow_up = ImGui::ArrowButton("Up", ImGuiDir_Up);
-        ImGui::SameLine();
-        bool arrow_down = ImGui::ArrowButton("Down", ImGuiDir_Down);
-        ImGui::SameLine();
-        ImGui::PushItemWidth(100.0f);
-        ImGui::InputInt("x", &_widget.translationNumber);
-        ImGui::SameLine();
-        ImGui::Checkbox("helical", &_widget.helicalTranslation);
-        ImGui::PopItemWidth();
-
-        if (arrow_up || arrow_down) {
-
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-            int startz, endz;
-
-            startz = arrow_up ? _widget.shrink_interval_end[2] - 1 : _widget.shrink_interval_begin[2] - 1;
-            endz = arrow_up ? _widget.shrink_interval_begin[2] - 1 : _widget.shrink_interval_end[2] - 1;
-            int translate = _widget.translationNumber;
-
-            if (arrow_down) translate *= -1;
-
-            auto loop = LC::Utility::create_search_list(LC::Utility::irange_pair(startz, endz));
-
-            LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
-            LC::scalar dtheta = 2. * M_PI * data->chirality * dz;
-            LC::scalar cosNtheta = cos(translate * dtheta);
-            LC::scalar sinNtheta = sin(translate * dtheta);
-
-            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++) {
-                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++) {
-                    for (const auto &k : loop) {
-
-                        int kup = k + translate;
-                        int kdown = k - translate;
-
-                        kup = kup >= data->voxels[2] ? kup % data->voxels[2] : kup;
-                        kup = kup < 0 ? data->voxels[2] + kup : kup;
-
-                        kdown = kdown >= data->voxels[2] ? kdown % data->voxels[2] : kdown;
-                        kdown = kdown < 0 ? data->voxels[2] + kdown : kdown;
-
-                        for (int d = 0; d < 3; d++) {
-
-                            // First translate up (down)
-                            nn(i, j, kup, d) = nn(i, j, k, d);
-                            // then copy from below (above) by same amount
-                            nn(i, j, k, d) = nn(i, j, kdown, d);
-                        }
-
-                        if (_widget.helicalTranslation) {
-                            // Apply a rotation based on chirality, translate, and dz
-                            LC::scalar n1x = nn(i, j, kup, 0);
-                            LC::scalar n1y = nn(i, j, kup, 1);
-                            LC::scalar n2x = nn(i, j, k, 0);
-                            LC::scalar n2y = nn(i, j, k, 1);
-
-                            nn(i, j, kup, 0) = n1x * cosNtheta - n1y * sinNtheta;
-                            nn(i, j, kup, 1) = n1x * sinNtheta + n1y * cosNtheta;
-
-                            nn(i, j, k, 0) = n2x * cosNtheta - n2y * sinNtheta;
-                            nn(i, j, k, 1) = n2x * sinNtheta + n2y * cosNtheta;
+                            }
 
                         }
 
                     }
+                };
+
+                for (int y = 0.25 * data->voxels[1]; y < 0.75 * data->voxels[1]; y++) {
+                    // Lehman cluster at x = -0.5
+                    LehmanCluster({ -0.5, 0., 0. }, y, 1);
+                    // Lehman cluster at x = 0.5
+                    LehmanCluster({ 0.5, 0., 0. }, y, -1);
                 }
+
             }
 
 
-            _widget.updateImage = true;
-        }
+            // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
 
+
+            ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation region");
+            ImGui::Text("nn(%d:%d,%d:%d,%d:%d,:)", _widget.shrink_interval_begin[0], _widget.shrink_interval_end[0],
+                _widget.shrink_interval_begin[1], _widget.shrink_interval_end[1],
+                _widget.shrink_interval_begin[2], _widget.shrink_interval_end[2]
+            );
+            ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation direction");
+            bool arrow_up = ImGui::ArrowButton("Up", ImGuiDir_Up);
+            ImGui::SameLine();
+            bool arrow_down = ImGui::ArrowButton("Down", ImGuiDir_Down);
+            ImGui::SameLine();
+            ImGui::PushItemWidth(100.0f);
+            ImGui::InputInt("x", &_widget.translationNumber);
+            ImGui::SameLine();
+            ImGui::Checkbox("helical", &_widget.helicalTranslation);
+            ImGui::PopItemWidth();
+
+            if (arrow_up || arrow_down) {
+
+                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+                int startz, endz;
+
+                startz = arrow_up ? _widget.shrink_interval_end[2] - 1 : _widget.shrink_interval_begin[2] - 1;
+                endz = arrow_up ? _widget.shrink_interval_begin[2] - 1 : _widget.shrink_interval_end[2] - 1;
+                int translate = _widget.translationNumber;
+
+                if (arrow_down) translate *= -1;
+
+                auto loop = LC::Utility::create_search_list(LC::Utility::irange_pair(startz, endz));
+
+                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+                LC::scalar dtheta = 2. * M_PI * data->chirality * dz;
+                LC::scalar cosNtheta = cos(translate * dtheta);
+                LC::scalar sinNtheta = sin(translate * dtheta);
+
+                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++) {
+                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++) {
+                        for (const auto& k : loop) {
+
+                            int kup = k + translate;
+                            int kdown = k - translate;
+
+                            kup = kup >= data->voxels[2] ? kup % data->voxels[2] : kup;
+                            kup = kup < 0 ? data->voxels[2] + kup : kup;
+
+                            kdown = kdown >= data->voxels[2] ? kdown % data->voxels[2] : kdown;
+                            kdown = kdown < 0 ? data->voxels[2] + kdown : kdown;
+
+                            for (int d = 0; d < 3; d++) {
+
+                                // First translate up (down)
+                                nn(i, j, kup, d) = nn(i, j, k, d);
+                                // then copy from below (above) by same amount
+                                nn(i, j, k, d) = nn(i, j, kdown, d);
+                            }
+
+                            if (_widget.helicalTranslation) {
+                                // Apply a rotation based on chirality, translate, and dz
+                                LC::scalar n1x = nn(i, j, kup, 0);
+                                LC::scalar n1y = nn(i, j, kup, 1);
+                                LC::scalar n2x = nn(i, j, k, 0);
+                                LC::scalar n2y = nn(i, j, k, 1);
+
+                                nn(i, j, kup, 0) = n1x * cosNtheta - n1y * sinNtheta;
+                                nn(i, j, kup, 1) = n1x * sinNtheta + n1y * cosNtheta;
+
+                                nn(i, j, k, 0) = n2x * cosNtheta - n2y * sinNtheta;
+                                nn(i, j, k, 1) = n2x * sinNtheta + n2y * cosNtheta;
+
+                            }
+
+                        }
+                    }
+                }
+
+
+                _widget.updateImage = true;
+            }
+        }
 
         // 0 -> spherical interaction energy
         // 1 -> radial interaction energy
@@ -3034,7 +3061,6 @@ void Sandbox::handleModificationWindow() {
                         for (int k = 0; k < data->voxels[2]; k++) {
                             // New zero point due to translation of center of mass
                             LC::scalar z = -0.5 * data->cell_dims[2] + k * dz;
-                            LC::scalar z0 = center_of_mass[2];
                             auto bg = helical(0., 0., z);
 
                             for (int d = 0; d < 3; d++) {
@@ -3045,9 +3071,15 @@ void Sandbox::handleModificationWindow() {
                 }
             };
 
-#define RELAXED_HELIKNOTON 1
+
+#define RELAXED_HELIKNOTON 0
+
             auto embed_heliknoton = [&](Eigen::Vector3d translation_vector) {
+
 #if RELAXED_HELIKNOTON
+
+                std::set<uint32_t> update_list;
+
                 // reset nn temp
                 for (int i = 0; i < vNew[0]; i++)
                     for (int j = 0; j < vNew[1]; j++)
@@ -3055,8 +3087,10 @@ void Sandbox::handleModificationWindow() {
                             for (int d = 0; d < 3; d++)
                                 nn_temp(i, j, k, d) = 0.;
 
+
+
                 // Embed the heliknoton in the new volume
-                for (const auto &p : heliknoton) {
+                for (const auto& p : heliknoton) {
 
                     // Apply a rotation + translation to heliknoton position
                     LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
@@ -3082,43 +3116,48 @@ void Sandbox::handleModificationWindow() {
                     int j = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
                     int k = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
 
+                    // Add index to update list
+                    update_list.insert(i + vNew[0] * j + vNew[0] * vNew[1] * k);
+
                     // add translated + rotated point
                     for (int d = 0; d < 3; d++)
                         nn_temp(i, j, k, d) += newDir[d];
                 }
 
-                for (const auto& p : heliknoton) {
-
-                    LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
-                    LC::scalar ctheta = cos(theta_z);
-                    LC::scalar stheta = sin(theta_z);
-                    Position newPos;
-
-                    newPos[0] = ctheta * p.position[0] - stheta * p.position[1] + translation_vector[0];
-                    newPos[1] = stheta * p.position[0] + ctheta * p.position[1] + translation_vector[1];
-                    newPos[2] = p.position[2] + translation_vector[2];
+                for (const auto& idx : update_list) {
 
                     // Transform new position to index space
-                    int i = (newPos[0] + 0.5 * data->cell_dims[0]) / dx;
-                    int j = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
-                    int k = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
+                    int k = idx / (vNew[0] * vNew[1]);
+                    int j = (idx - k * vNew[0] * vNew[1]) / vNew[0];
+                    int i = idx - j * vNew[0] - k * vNew[0] * vNew[1];
 
                     // Normalize the points
                     LC::scalar nn_length = 0.0;
                     for (int d = 0; d < 3; d++)
                         nn_length += nn_temp(i, j, k, d) * nn_temp(i, j, k, d);
                     nn_length = sqrt(nn_length);
-                    
+
                     for (int d = 0; d < 3; d++)
                         nn(i, j, k, d) = nn_temp(i, j, k, d) / nn_length;
                 }
+
+                // Turn update list into a vector
+                std::vector<uint32_t> update_list_vec(update_list.size());
+                uint32_t count = 0;
+                for (auto idx : update_list)
+                    update_list_vec[count++] = idx;
+
+                return update_list_vec;
 #else // Initialize from initial conditions
 
-                translation_vector[0] = translation_vector[0] / data->cell_dims[0] * 3;
-                translation_vector[1] = translation_vector[1] / data->cell_dims[1] * 3;
-                translation_vector[2] = translation_vector[2] / data->cell_dims[2] * 3;
+                //translation_vector[0] = translation_vector[0] / data->cell_dims[0] * 3;
+                //translation_vector[1] = translation_vector[1] / data->cell_dims[1] * 3;
+                //translation_vector[2] = translation_vector[2] / data->cell_dims[2] * 3;
 
-                auto heliknoton_cfg = FOFDSolver::Dataset::Heliknoton(1, 3. / data->cell_dims[2], 1., translation_vector, false);
+                //auto heliknoton_cfg = FOFDSolver::Dataset::Heliknoton(1, 3. / data->cell_dims[2], 1., { 0.0,0.0,0.0 }, false);
+                LC::scalar phi0 = 2. * M_PI * data->chirality * translation_vector[2];
+                auto heli_vfield = LC::Math::Heliknoton(1, data->cell_dims, 1., 1., { 0.,0.,0. }, phi0, false);
+                std::vector<uint32_t> update_list;
 
                 for (int i = 0; i < vNew[0]; i++)
                     for (int j = 0; j < vNew[1]; j++)
@@ -3129,22 +3168,21 @@ void Sandbox::handleModificationWindow() {
                             pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
                             pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
 
-                            // Rotate coords
-                            LC::scalar theta_z = 2. * M_PI * data->chirality * translation_vector[2];
-                            LC::scalar ctheta = cos(theta_z);
-                            LC::scalar stheta = sin(theta_z);
-                            Position newPos;
+                            pos = pos - translation_vector;
 
-                            newPos[0] = ctheta * pos[0] - stheta * pos[1] + translation_vector[0];
-                            newPos[1] = stheta * pos[0] + ctheta * pos[1] + translation_vector[1];
-                            newPos[2] = pos[2] + translation_vector[2];
+                            // Add index to update list if less than relax radius
+                            if (pos.norm() < 1.5)
+                                update_list.push_back(i + vNew[0] * j + vNew[0] * vNew[1] * k);
 
-                            int ip = (newPos[0] + 0.5 * data->cell_dims[0]) / dx;
-                            int jp = (newPos[1] + 0.5 * data->cell_dims[1]) / dy;
-                            int kp = (newPos[2] + 0.5 * data->cell_dims[2]) / dz;
-
-                            heliknoton_cfg(nn, i, j, k, &data->voxels[0]);
+                            auto res = heli_vfield(pos[0], pos[1], pos[2]);
+                            if (res[0] != 0. || res[1] != 0. || res[2] != 0.) {
+                                    nn(i, j, k, 0) = res[0];
+                                    nn(i, j, k, 1) = res[1];
+                                    nn(i, j, k, 2) = res[2];
+                            }
                         }
+
+                return update_list;
 #endif
 
             };
@@ -3233,7 +3271,10 @@ void Sandbox::handleModificationWindow() {
                 for (int ri = 0; ri < r_points; ri++) {
 
                     LC::scalar r;
-                    r = start_dist + (LC::scalar)ri / (r_points - 1) * (end_dist - start_dist);
+                    if (r_points == 1)
+                        r = start_dist;
+                    else
+                        r = start_dist + (LC::scalar)ri / (r_points - 1) * (end_dist - start_dist);
 
 
                     LC::scalar rr = 0.5 * r;
@@ -3278,37 +3319,119 @@ void Sandbox::handleModificationWindow() {
             LC::scalar kbT_conversion = Kp / (kb * T);
             LC_INFO("Conversion factor = {0}", kbT_conversion);
 
-            clear_heliknotons();
-            embed_heliknoton({ 0.f,0.f,0.f });
-            solver->SetVoltage(EField * data->cell_dims[2], 100);
-            solver->Relax(_widget.interactionIterations, true, true);
-            LC::scalar zero_point_en = 2. * kbT_conversion * solver->TotalEnergy();
-            LC_INFO("Zero point energy = {0}", zero_point_en);
+            //clear_heliknotons();
+            //embed_heliknoton({ 0.f,0.f,0.f });
+            //solver->SetVoltage(EField * data->cell_dims[2], 100);
+            //solver->Relax(_widget.interactionIterations, true, true);
 
             // Run the test
 #if FULL_HELIKNOTON_INTERACTION
             int count = 0;
             for (const auto& translation : translations) {
 
+                // Create the update list the combined region
+                LC::scalar r_0 = 1.5;
+                LC::scalar L;
+                if (radioInteractionType == 0) // Spherical
+                    L = sqrt(pow(_widget.separationDistancex, 2) +
+                        pow(_widget.separationDistancey, 2) +
+                        pow(_widget.separationDistancez, 2)) + 5.;
+                else // Radial
+                    L = 2. * translation.norm() + 5.;
+
+                auto nhat = translation;
+                nhat.normalize();
+
+                // Make a vector perpendicular
+                Eigen::Vector3d nperp(0., 0., 1);
+
+                nperp = nhat.cross(nperp);
+                if (nperp.squaredNorm() == 0) {
+                    nperp = nhat.cross(Eigen::Vector3d{ 0.,1.,0. });
+                }
+
+                nperp.normalize();
+
+                std::vector<uint32_t> full_region;
+
+                for (int i = 0; i < vNew[0]; i++) {
+                    LC::scalar x = dx * i - data->cell_dims[0] * 0.5;
+                    for (int j = 0; j < vNew[1]; j++) {
+                        LC::scalar y = dy * j - data->cell_dims[1] * 0.5;
+                        for (int k = 0; k < vNew[2]; k++) {
+                            LC::scalar z = dz * k - data->cell_dims[2] * 0.5;
+
+                            Eigen::Vector3d vec(x, y, z);
+
+                            // Check if point is in bounds
+                            if (abs(vec.dot(nperp)) <= r_0 && abs(vec.dot(nhat)) <= L / 2)
+                                full_region.push_back(i + vNew[0] * j + vNew[0] * vNew[1] * k);
+
+
+
+                        }
+                    }
+                }
+
                 LC::scalar en_avg = 0.;
                 std::vector<LC::scalar> en_data(Navg, 0.0);
+
+#define SPECIAL_BG 1
 
                 // Average the energy due to variations from relaxing with GPU
                 for (int i = 0; i < Navg; i++) {
                 
                     clear_heliknotons();
+#if SPECIAL_BG
+                    solver->SetVoltage(EField* data->cell_dims[2], 50);
+#endif
+                    LC::scalar E_bg = kbT_conversion * solver->TotalEnergy();
+
                     // Center the interaction in the middle of the volume
+                    auto region1 = embed_heliknoton(translation);
+
+#if SPECIAL_BG == 0
+                    auto region2 = embed_heliknoton(-translation);
+
+                    // Combine the heliknoton update lists together
+                    std::vector<uint32_t> sub_region;
+
+                    sub_region.reserve(region1.size() + region2.size()); // preallocate memory
+                    sub_region.insert(sub_region.end(), region1.begin(), region1.end());
+                    sub_region.insert(sub_region.end(), region2.begin(), region2.end());
+#endif
+                    // Set voltage and relax voltage
+                    solver->SetVoltage(EField * data->cell_dims[2], 50);
+
+#if SPECIAL_BG == 0
+                    // Relax each heliknoton separately
+                    solver->DomainRelax(_widget.interactionIterations, sub_region, true, true);
+#else
+                    solver->DomainRelax(_widget.interactionIterations, region1, true, true);
+#endif
+
+                    // Compute the energy for two separate heliknotons
+                    LC::scalar E_H = kbT_conversion * solver->TotalEnergy();
+                    LC_INFO("E_bg = {0}\tE_H = {1}", E_bg, E_H);
+
+                    // Reset
+                    clear_heliknotons();
+
                     embed_heliknoton(translation);
                     embed_heliknoton(-translation);
 
-                    // Set voltage and relax voltage E-field = .5 V/p -> V(z=top) = .5 V/p * (cell_z in pitch), V(z=bot) = 0
-                    solver->SetVoltage(EField * data->cell_dims[2], 100);
-                    // Relax for enough iterations that heliknotons can 'feel' each other
-                    solver->Relax(_widget.interactionIterations, true, true);
+                    // Set voltage and relax voltage
+                    solver->SetVoltage(EField* data->cell_dims[2], 50);
 
-                    LC::scalar en = kbT_conversion * solver->TotalEnergy();
-                    en_data[i] = en;
-                    en_avg += en / Navg;
+                    solver->DomainRelax(_widget.interactionIterations, full_region, true, true);
+
+                    LC::scalar E_HH = kbT_conversion * solver->TotalEnergy();
+#if SPECIAL_BG == 0
+                    en_data[i] = E_HH - E_H;
+#else
+                    en_data[i] = E_HH - 2. * E_H + E_bg;
+#endif
+                    en_avg += en_data[i] / Navg;
                 }
                 
                 // Compute the standard deviation
@@ -3319,14 +3442,15 @@ void Sandbox::handleModificationWindow() {
                 sigma = sqrt(sigma);
 
                 // Compute and save the energy
-                interaction_data[count].energy = en_avg - zero_point_en;
+                interaction_data[count].energy = en_avg;// -zero_point_en;
                 interaction_data[count].en_sigma = sigma;
                 LC_INFO("Energy: {2} (+-{3}), Iteration {0}/{1}", count+1, translations.size(), interaction_data[count].energy, sigma);
                 ++count;
             }
 
             // Save data
-            std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
+            //std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
+            std::string saveName = "D:\\lclab2 data\\interactions\\" + std::string(interaction_fname);
             
             std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
 

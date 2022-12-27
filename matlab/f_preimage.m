@@ -1,23 +1,9 @@
-function f_preimage(nn, sample)
+function f_preimage(nn, sample, thetad, phid)
 
 % Cone error
 eps = 0.2;
 
 preimg_alpha = 1;
-
-% Cut off some of nn
-
-%[~,~,p0,~] = size(nn);
-
-%p01 = int32(p0 *3/9);
-%p02 = int32(p0 *6/9);
-%cutnn = nn(:,:,p01:p02,:);
-%nn = cutnn;
-
-% reference vector
-
-thetad = [0, 180];
-phid = [0, 0];
 
 epsilon = eps*ones(size(thetad));
 
@@ -32,20 +18,15 @@ zz = linspace(1,p,p*sample);
 
 [xx,yy,zz] = ndgrid(xx,yy,zz);
 
-disp('Created ndgrid')
-
 nn_int(:,:,:,1) = interp3(nn(:,:,:,1),yy,xx,zz,'cubic');
 nn_int(:,:,:,2) = interp3(nn(:,:,:,2),yy,xx,zz,'cubic');
 nn_int(:,:,:,3) = interp3(nn(:,:,:,3),yy,xx,zz,'cubic');
 
-disp('interpolated')
 % % normalize director field after interpolation
 modnn = sqrt(nn_int(:,:,:,1).^2+nn_int(:,:,:,2).^2+nn_int(:,:,:,3).^2);
 nn_int(:,:,:,1) = nn_int(:,:,:,1)./modnn;
 nn_int(:,:,:,2) = nn_int(:,:,:,2)./modnn;
 nn_int(:,:,:,3) = nn_int(:,:,:,3)./modnn;
-
-disp('finished normalization')
 
 for cone=1:length(theta)
     
@@ -56,11 +37,9 @@ for cone=1:length(theta)
     diffmag = sqrt((nn_int(:,:,:,1)-phixs).^2+...
         (nn_int(:,:,:,2)-py).^2+(nn_int(:,:,:,3)-pz).^2);
     
-    disp('Finished diffmag')
-    
     fv = isosurface(xx,yy,zz,diffmag,epsilon(cone));
     
-    disp('Created a isosurface')
+    fprintf('Isosurface (%d/%d)\n',cone,length(theta));
     
     
     if numel(fv.vertices)>3
@@ -84,12 +63,9 @@ for cone=1:length(theta)
             'EdgeColor','none',...
             'SpecularStrength',0.4,...
             'AmbientStrength',0.75);
-
-        disp('finished patching')
     
     end
     
-    disp('Made a preimage')
 
 end
 

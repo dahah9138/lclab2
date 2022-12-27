@@ -460,10 +460,18 @@ namespace Electric {
 
 #ifdef LCLAB2_CUDA_AVAIL
 	namespace FD {
-		extern void RelaxGPU(scalar* directors, scalar *voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method, bool silent = true);
+		extern void RelaxGPU(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method, bool silent = true);
+		extern void StableRelaxGPU(scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar chirality, scalar rate, unsigned int iterations, int method, bool silent = true);
 		extern void UpdateVoltageGPU(scalar* directors, scalar* voltage, const int* vXi, scalar epar, scalar eper, const bool* bc, const scalar* cXi, scalar rate, unsigned int iterations, int routine);
 		extern void ComputeEnergyDensity(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality, bool order4 = true);
 		extern void ComputeEnergyFunctionalDerivativeAbsSum(scalar* en_density, scalar* directors, scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar epar, scalar eper, const scalar* cXi, scalar chirality);
+		extern void DomainRelaxGPU(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar k11, scalar k22, scalar k33,
+			scalar epar, scalar eper, const bool* bc, const scalar* cXi,
+			scalar chirality, scalar rate, unsigned int iterations, int routine, bool silent = true);
+		extern void StableDomainRelaxGPU(scalar* directors, scalar* voltage, const int* vXi, const uint32_t* index_list, uint32_t nIndices, scalar k11, scalar k22, scalar k33,
+			scalar epar, scalar eper, const bool* bc, const scalar* cXi,
+			scalar chirality, scalar rate, unsigned int iterations, int routine, bool silent = true);
+
 	}
 #endif
 
@@ -1003,7 +1011,7 @@ namespace Electric {
 
 	}
 
-	void FOFDSolver::Relax(const std::size_t& iterations, bool GPU, bool silent) {
+	void FOFDSolver::Relax(const std::size_t& iterations, bool GPU, bool silent, bool stable) {
 
 
 
@@ -1032,10 +1040,15 @@ namespace Electric {
 			scalar k22 = data.k22.first;
 			scalar k33 = data.k33.first;
 
-			FD::RelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], 
-				k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0], 
-				data.chirality, data.rate, iterations,
-				static_cast<int>(data.relaxKind), silent);
+			if (stable) FD::StableRelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0],
+					k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0],
+					data.chirality, data.rate, iterations,
+					static_cast<int>(data.relaxKind), silent);
+			else FD::RelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], 
+					k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0], 
+					data.chirality, data.rate, iterations,
+					static_cast<int>(data.relaxKind), silent);
+
 			data.numIterations += iterations;
 			return;
 		}
@@ -1094,6 +1107,49 @@ namespace Electric {
 		}
 
 		data.numIterations += iterations;
+
+	}
+
+	void FOFDSolver::DomainRelax(const std::size_t& iterations, const std::vector<uint32_t>& list, bool GPU, bool silent, bool stable) {
+
+		if (errors != Solver::Error::None) {
+			LC_CORE_WARN("Abort: Attempting to relax with errors!");
+			return;
+		}
+
+		if (data.voltage.get() == 0) {
+			LC_CORE_WARN("Attempting to relax with unitialized voltage!");
+			LC_CORE_INFO("Setting voltage to 1 V");
+			SetVoltage(1.0);
+		}
+
+		// Determine electric constants
+		if (!(data.lc_type == LC_TYPE::CUSTOM)) {
+			data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
+			data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		}
+
+
+		/* Relax routine */
+#ifdef LCLAB2_CUDA_AVAIL
+		if (GPU) {
+			scalar k11 = data.k11.first;
+			scalar k22 = data.k22.first;
+			scalar k33 = data.k33.first;
+
+			if (stable) FD::StableDomainRelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], &list[0], list.size(),
+					k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0],
+					data.chirality, data.rate, iterations,
+					static_cast<int>(data.relaxKind), silent);
+			else FD::DomainRelaxGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], &list[0], list.size(),
+					k11, k22, k33, data.epar, data.eper, &data.bc[0], &data.cell_dims[0],
+					data.chirality, data.rate, iterations,
+					static_cast<int>(data.relaxKind), silent);
+
+			data.numIterations += iterations;
+			return;
+		}
+#endif
 
 	}
 

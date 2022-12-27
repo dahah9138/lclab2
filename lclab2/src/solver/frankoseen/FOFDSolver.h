@@ -646,7 +646,7 @@ namespace Electric {
 
 					scalar layersscale = ceil(2 * Q * lim);
 					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0] - 1) - 0.5, (scalar)j / (scalar)(voxels[1] - 1) - 0.5, (scalar)k / (scalar)(voxels[2] - 1) - 0.5 };
-					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - 0.5 * translation;
+					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - translation / lim;
 
 					scalar omega = 2 * M_PI * layersscale * coords[2] / lambda;
 
@@ -657,10 +657,6 @@ namespace Electric {
 
 					scalar rsq = p.dot(p);
 					scalar r = sqrt(rsq);
-
-					scalar ptemp = p[1];
-					p[1] = p[2];
-					p[2] = ptemp;
 
 					if (r < lambda) {
 
@@ -673,16 +669,13 @@ namespace Electric {
 
 						Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
 						Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
-						Eigen::Quaternion<scalar> v(0., -sin(omega), 0., cos(omega));
+						Eigen::Quaternion<scalar> v(0., -sin(omega), cos(omega), 0.);
 
-
-						auto result = q * v * qinv;
+						auto result = qinv * v * q;
 
 						nn[0] = result.x();
-						// Needs to break a symmetry...
-						nn[1] = result.z();
-						nn[2] = -result.y();
-
+						nn[1] = result.y();
+						nn[2] = -result.z();
 
 						nn.normalize();
 
@@ -804,7 +797,8 @@ namespace Electric {
 
 		void Init() override;
 		void Relax(const std::size_t& iterations, bool GPU) override;
-		void Relax(const std::size_t& iterations, bool GPU, bool silent);
+		void Relax(const std::size_t& iterations, bool GPU, bool silent, bool stable = true);
+		void DomainRelax(const std::size_t& iterations, const std::vector<uint32_t> &list, bool GPU, bool silent = true, bool stable = true);
 
 		void Export(Header& header) override;
 		void Import(Header& header) override;

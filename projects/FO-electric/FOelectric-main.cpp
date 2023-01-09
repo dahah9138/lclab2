@@ -303,8 +303,10 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     (*data).Voxels((2 * Q + 1)* npp, (2 * Q + 1)* npp, (2 * Q + 1)* npp)
         .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
         .Cell(2 * Q + 1, 2 * Q + 1, 2 * Q + 1)
-        .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-        .Configuration(Dataset::Heliknoton(Q,1.,1.5));
+        .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB());
+
+    // Configuration needs voxels and cell dims
+    (*data).Configuration(Dataset::Heliknoton(Q,data->voxels,data->cell_dims,1.,1.));
 
     /*
         Set voltage
@@ -330,7 +332,7 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
         translations.push_back({ 0.0, 0.0, dz });
         translations.push_back({ 0.0, 0.0, -dz });
 
-        Dataset::Config helis = Dataset::Heliknoton(1, translations, 0.50, 3);
+        Dataset::Config helis = Dataset::Heliknoton(1,data->voxels,data->cell_dims, translations, 0.50, 3);
 
         (*data).Voxels(5 * npp, 5 * npp, (2 * Q + 1) * npp)
             .Boundaries(1, 1, 0)
@@ -2356,11 +2358,13 @@ void Sandbox::handleModificationWindow() {
 
         if (ImGui::Button("Generate")) {
 
+            std::array<int, 3> V = { _widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp };
+
             (*data).Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
 
             Dataset::Config cfg;
 
-            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
+            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q,V,data->cell_dims);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
             else if (_widget.hopfion_type == 2) cfg = Dataset::Twistion(data->cell_dims);
             else if (_widget.hopfion_type == 3) cfg = Dataset::CF3(data->cell_dims[0]);
@@ -2368,9 +2372,9 @@ void Sandbox::handleModificationWindow() {
 
             data->chirality = _widget.chirality;
 
-            (*data).Voxels(_widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp)
-                .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
-                .Configuration(cfg);
+            (*data).Voxels(V[0], V[1], V[2])
+                .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2]);
+            (*data).Configuration(cfg);
 
             // Reset data
             (*data).numIterations = 0;
@@ -2396,7 +2400,7 @@ void Sandbox::handleModificationWindow() {
 
             // Embed a heliknoton into the selected region
             Dataset::Config cfg;
-            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q);
+            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q,data->voxels,data->cell_dims);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
             else cfg = Dataset::Toron(data->cell_dims, Q);
 
@@ -3319,10 +3323,11 @@ void Sandbox::handleModificationWindow() {
             LC::scalar kbT_conversion = Kp / (kb * T);
             LC_INFO("Conversion factor = {0}", kbT_conversion);
 
-            //clear_heliknotons();
-            //embed_heliknoton({ 0.f,0.f,0.f });
-            //solver->SetVoltage(EField * data->cell_dims[2], 100);
-            //solver->Relax(_widget.interactionIterations, true, true);
+            clear_heliknotons();
+            solver->SetVoltage(EField* data->cell_dims[2], 50);
+            LC::scalar E_bg = kbT_conversion * solver->TotalEnergy();
+            LC::scalar E_H;
+            LC::scalar z_prev = -1000000.;
 
             // Run the test
 #if FULL_HELIKNOTON_INTERACTION
@@ -3376,43 +3381,45 @@ void Sandbox::handleModificationWindow() {
                 LC::scalar en_avg = 0.;
                 std::vector<LC::scalar> en_data(Navg, 0.0);
 
+
 #define SPECIAL_BG 1
 
                 // Average the energy due to variations from relaxing with GPU
                 for (int i = 0; i < Navg; i++) {
                 
-                    clear_heliknotons();
-#if SPECIAL_BG
-                    solver->SetVoltage(EField* data->cell_dims[2], 50);
-#endif
-                    LC::scalar E_bg = kbT_conversion * solver->TotalEnergy();
+                    if (abs(z_prev - translation.z()) > 1e-6) { // Recompute heliknoton energy for this layer
+                        clear_heliknotons();
 
-                    // Center the interaction in the middle of the volume
-                    auto region1 = embed_heliknoton(translation);
+                        // Center the interaction in the middle of the volume
+                        auto region1 = embed_heliknoton(translation);
 
 #if SPECIAL_BG == 0
-                    auto region2 = embed_heliknoton(-translation);
+                        auto region2 = embed_heliknoton(-translation);
 
-                    // Combine the heliknoton update lists together
-                    std::vector<uint32_t> sub_region;
+                        // Combine the heliknoton update lists together
+                        std::vector<uint32_t> sub_region;
 
-                    sub_region.reserve(region1.size() + region2.size()); // preallocate memory
-                    sub_region.insert(sub_region.end(), region1.begin(), region1.end());
-                    sub_region.insert(sub_region.end(), region2.begin(), region2.end());
+                        sub_region.reserve(region1.size() + region2.size()); // preallocate memory
+                        sub_region.insert(sub_region.end(), region1.begin(), region1.end());
+                        sub_region.insert(sub_region.end(), region2.begin(), region2.end());
 #endif
-                    // Set voltage and relax voltage
-                    solver->SetVoltage(EField * data->cell_dims[2], 50);
+                        // Set voltage and relax voltage
+                        solver->SetVoltage(EField * data->cell_dims[2], 50);
 
 #if SPECIAL_BG == 0
-                    // Relax each heliknoton separately
-                    solver->DomainRelax(_widget.interactionIterations, sub_region, true, true);
+                        // Relax each heliknoton separately
+                        solver->DomainRelax(_widget.interactionIterations, sub_region, true, true);
 #else
-                    solver->DomainRelax(_widget.interactionIterations, region1, true, true);
+                        solver->DomainRelax(_widget.interactionIterations, region1, true, true);
 #endif
 
-                    // Compute the energy for two separate heliknotons
-                    LC::scalar E_H = kbT_conversion * solver->TotalEnergy();
-                    LC_INFO("E_bg = {0}\tE_H = {1}", E_bg, E_H);
+                        // Compute the energy for two separate heliknotons
+
+                        E_H = kbT_conversion * solver->TotalEnergy();
+                        z_prev = translation.z();
+                        LC_INFO("E_bg = {0}\tE_H = {1}", E_bg, E_H);
+                    }
+
 
                     // Reset
                     clear_heliknotons();

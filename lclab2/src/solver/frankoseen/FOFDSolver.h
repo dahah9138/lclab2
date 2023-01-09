@@ -584,7 +584,7 @@ namespace Electric {
 				};
 			}
 
-			static Config Hopfion(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
+			static Config Hopfion(int Q, scalar lambda = 1.0, scalar lim = 1., const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
 
 				// Create a lambda func that squishes z coordinate where z in [-1,1]
 				auto lmb = [=](scalar x, scalar y, scalar z) {
@@ -639,58 +639,33 @@ namespace Electric {
 				};
 			}
 
-			static Config Heliknoton(int Q, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
+			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, scalar lambda = 1.0, scalar lim = 1., const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
 			
-				
+				Configuration::VectorField n_field = LC::Math::Heliknoton(Q, cdims, lambda, lim, translation, 0., background);
+
+				scalar dx = cdims[0] / scalar(vox[0] - 1);
+				scalar dy = cdims[1] / scalar(vox[1] - 1);
+				scalar dz = cdims[2] / scalar(vox[2] - 1);
+
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 
-					scalar layersscale = ceil(2 * Q * lim);
-					Eigen::Matrix<scalar, 3, 1> coords{ (scalar)i / (scalar)(voxels[0] - 1) - 0.5, (scalar)j / (scalar)(voxels[1] - 1) - 0.5, (scalar)k / (scalar)(voxels[2] - 1) - 0.5 };
-					Eigen::Matrix<scalar, 3, 1> p = 2.0 * coords - translation / lim;
+					// Convert indices to (x,y,z)
+					scalar x = -0.5 * cdims[0] + i * dx;
+					scalar y = -0.5 * cdims[1] + j * dy;
+					scalar z = -0.5 * cdims[2] + k * dz;
 
-					scalar omega = 2 * M_PI * layersscale * coords[2] / lambda;
+					auto nn = n_field(x, y, z);
 
-					if (p.dot(p) == 0.0) p[2] = 1.0;
+					scalar nsq = nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2];
 
-					// Rescale
-					p = lim * p;
-
-					scalar rsq = p.dot(p);
-					scalar r = sqrt(rsq);
-
-					if (r < lambda) {
-
-						scalar theta = 2 * M_PI * r * Q / lambda;
-
-						Eigen::Matrix<scalar, 3, 1> nn;
-
-						scalar cost2 = cos(theta / 2.);
-						scalar sint2 = sin(theta / 2.);
-
-						Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
-						Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
-						Eigen::Quaternion<scalar> v(0., -sin(omega), cos(omega), 0.);
-
-						auto result = qinv * v * q;
-
-						nn[0] = result.x();
-						nn[1] = result.y();
-						nn[2] = -result.z();
-
-						nn.normalize();
-
+					if (abs(nsq - 1.) < 1e-8)
 						for (int d = 0; d < 3; d++)
 							n(i, j, k, d) = nn[d];
-					}
-					else if (background) {
-						n(i, j, k, 0) = -sin(omega);
-						n(i, j, k, 1) = cos(omega);
-						n(i, j, k, 2) = 0.0;
-					}
+
 				};
 			}
 
-			static Config Heliknoton(int Q, const std::vector<Eigen::Matrix<scalar, 3, 1>>& translations, scalar factor, int layers = -1, scalar lim = 1.135) {
+			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, const std::vector<Eigen::Matrix<scalar, 3, 1>>& translations, scalar factor, int layers = -1, scalar lim = 1.135) {
 
 				if (layers == -1) layers = ceil(2 * Q * lim);
 
@@ -700,7 +675,7 @@ namespace Electric {
 
 				// Construct the heliknoton configurations
 				for (int i = 0; i < cfgs.size(); i++) {
-					cfgs[i] = Heliknoton(Q, factor, lim, translations[i], false);
+					cfgs[i] = Heliknoton(Q, vox, cdims, factor, lim, translations[i], false);
 				}
 
 				// Helical background

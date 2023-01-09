@@ -2,49 +2,23 @@ clear
 clf
 clc
 
-file = 'D:/lclab2 data/interactions/sph_s2_2_200_iter_20npp.bin';
+file = 'D:/lclab2 data/interactions/mat files/sph_s2_5_3const';
 half_sphere = 1;
 upsample = 4;
-% don't touch
-s = dir(file);
-double_sz = 8;
-datastruct_size = 5 * double_sz;
-num_points = (s.bytes-1) / datastruct_size;
 
-fID = fopen(file, 'r');
-interaction_type = fread(fID, 1, 'char*1');
-data = fread(fID, [5 num_points], 'double');
-fclose(fID);
+load([file,'.mat'],'data');
 
 % Throw out the first data point
 data = data(:,2:end);
-num_points = num_points - 1;
-
-scan = [];
-
-for i=1:num_points
-    if abs(data(3,i)) < 1e6
-        scan(:,end+1) = data(:,i);
-    end
-end
-
-data = scan;
-clear scan
 
 radius = 0.5*data(3,:);
 
-% Choose the largest standard deviation
+% Energy is expressed in units of kbT
 energy = round(data(4,:));
-en_sigma = data(5,:);
-sigma = max(en_sigma);
-en_precision = abs(floor(log10(sigma)));
-if isinf(en_precision) == false
-    %energy = round(energy, en_precision);
-end
 
 % F(phi, theta) = energy
 F = scatteredInterpolant(data(2,:)', pi/2 - data(1,:)', energy');
-pts = num_points;
+pts = length(data(1,:));
 
 [pq, tq] = meshgrid(linspace(0, 2*pi, pts*upsample),...
 linspace(pi/2, 0, pts*upsample));
@@ -75,8 +49,7 @@ axis equal off
 grid off
 %camlight
 
-fig = gcf;
-fig.Color = [1 1 1];
+f1.Color = [1 1 1];
 colorbar
 
 f2 = figure(2);

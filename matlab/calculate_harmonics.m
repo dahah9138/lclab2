@@ -1,8 +1,8 @@
 clear
 clc
 
-file = 'D:/lclab2 data/base_heliknoton_dense';
-R = 0.6; % Radius at which the harmonics are evaluated
+file = 'D:/lclab2 data/heliknoton_new_3const';
+R = 0.73; % Radius at which the harmonics are evaluated
 component = 'x';
 qn = 4; % The principle quantum number for which to compute harmonics
 density = 50;

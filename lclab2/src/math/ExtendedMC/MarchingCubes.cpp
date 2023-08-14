@@ -92,9 +92,6 @@ void MarchingCubes::run(real iso)
 				 */
 				process_cube();
 			}
-
-	printf("New Marching Cubes 33:ran in %lf secs.\n",
-	(double) (clock() - time) / CLOCKS_PER_SEC);
 }
 //_____________________________________________________________________________
 

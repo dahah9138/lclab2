@@ -6,14 +6,14 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = '../data/mat/asymmetric_Q2_normal';
+file = '../data/mat/ring-heliknoton-interp';
 %file = 'trefoil_smallest';
 
 % Cone error
 eps = 0.15;
 
 % Sampling rate for isosurfaces of preimages
-sample = 3;
+sample = 2;
 preimg_alpha = 1;
 seifert = 0;
 
@@ -328,7 +328,7 @@ mArrow3([1 1 1],[1 arrow_length 1],'facealpha', 1, 'stemWidth', stemwidth);
 % text(2,24,2,'y','FontSize',12)
 mArrow3([1 1 1],[1 1 arrow_length],'facealpha', 1, 'stemWidth', stemwidth);
 % text(2,2,24,'z','FontSize',12)
-set(gcf,'Color',1*[1 1 1])
+set(gcf,'Color',[.8 .8 .8])
 
 %% axis arrows and box
 

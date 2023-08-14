@@ -56,13 +56,11 @@ tdata = fread(fileID, 1, type);
 Data(9, :) = { Objects(8, 2), tdata };
 
 % Directors
-
 tdata = fread(fileID, 3 * N, type);
 tdata = reshape(tdata, [vox(1) vox(2) vox(3) 3]);
 Data(10,:) = { Objects(10, 2), tdata };
 
 % Voltage
-
 tdata = fread(fileID, N, type);
 tdata = reshape(tdata, [vox(1) vox(2) vox(3)]);
 Data(11,:) = { Objects(11, 2), tdata };

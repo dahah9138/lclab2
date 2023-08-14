@@ -57,6 +57,7 @@ namespace MeshLib {
 		void read_pnc_mesh(const std::vector<PNCVertex<T>>& vertices, const std::vector<Triangle>& triangles);
 		void read_pnc_mesh(const PNCVertex<T>* vertices, unsigned int nVerts, const Triangle* triangles, unsigned int nTriangles);
 		int write_obj(const char *output);
+		int write_ply(const char* output);
 		void write_obj(std::vector<PNCVertex<T>>& vertices, std::vector<Triangle>& triangles, bool normals = true);
 
 		int numVertices();
@@ -428,9 +429,10 @@ namespace MeshLib {
 		// Read vertices
 		for (const auto& vertex : vertices) {
 			Point<T> p(vertex.position[0], vertex.position[1], vertex.position[2]);
-
+			Point<T> c(vertex.color[0], vertex.color[1], vertex.color[2]);
 			Vertex<T>* v = create_vertex(vid);
 			v->point() = p;
+			v->color() = c;
 			v->id() = vid++;
 		}
 
@@ -455,9 +457,11 @@ namespace MeshLib {
 		for (int ii = 0; ii < nVerts; ii++) {
 			PNCVertex<T> vertex = vertices[ii];
 			Point<T> p(vertex.position[0], vertex.position[1], vertex.position[2]);
+			Point<T> c(vertex.color[0], vertex.color[1], vertex.color[2]);
 
 			Vertex<T>* v = create_vertex(vid);
 			v->point() = p;
+			v->color() = c;
 			v->id() = vid++;
 		}
 
@@ -664,6 +668,9 @@ namespace MeshLib {
 			for (int i = 0; i < 3; i++) {
 				fprintf(_os, " %g", v->point()[i]);
 			}
+			for (int i = 0; i < 3; i++) {
+				fprintf(_os, " %g", v->color()[i]);
+			}
 			fprintf(_os, "\n");
 		}
 
@@ -684,6 +691,49 @@ namespace MeshLib {
 			HalfEdge<T> *he = f->halfedge();
 			do {
 				fprintf(_os, " %d/%d", he->target()->id(),he->target()->id());
+				he = he->he_next();
+			} while (he != f->halfedge());
+
+
+			fprintf(_os, "\n");
+		}
+		fclose(_os);
+		return 0;
+	}
+
+	template <typename T>
+	int Mesh<T>::write_ply(const char* output) {
+		FILE* _os = fopen(output, "w");
+		assert(_os);
+
+		std::string vertexstr = std::string("element vertex " + std::to_string(m_vertices.size()));
+		std::string facestr = std::string("element face " + std::to_string(m_faces.size()));
+		// Write the header
+		fprintf(_os, "ply\nformat ascii 1.0\ncomment author: LCLAB2\ncomment object: Mesh\n");
+		fprintf(_os, "%s\n", vertexstr.c_str());
+		fprintf(_os, "property float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\n");
+		fprintf(_os, "%s\n", facestr.c_str());
+		fprintf(_os, "property list uchar int vertex_index\nend_header\n");
+
+		for (typename std::list<Vertex<T>*>::iterator viter = m_vertices.begin(); viter != m_vertices.end(); viter++) {
+			Vertex<T>* v = *viter;
+
+			for (int i = 0; i < 3; i++) {
+				fprintf(_os, " %g", v->point()[i]);
+			}
+			for (int i = 0; i < 3; i++) {
+				fprintf(_os, " %d", int(255*v->color()[i]));
+			}
+			fprintf(_os, "\n");
+		}
+
+		for (typename std::list<Face<T>*>::iterator fiter = m_faces.begin(); fiter != m_faces.end(); fiter++) {
+			Face<T>* f = *fiter;
+			fprintf(_os, "3"); // 3 for triangle face
+
+			HalfEdge<T>* he = f->halfedge();
+			do {
+				fprintf(_os, " %d", he->target()->id()-1);
 				he = he->he_next();
 			} while (he != f->halfedge());
 

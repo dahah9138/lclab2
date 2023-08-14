@@ -219,6 +219,27 @@ namespace LC
 		// Check if Ctrl + S or Ctrl + O is pressed
 		if ((event.key() == KeyEvent::Key::S) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { save(); }
 		else if ((event.key() == KeyEvent::Key::O) && (event.modifiers() & KeyEvent::Modifier::Ctrl)) { open(); }
+		else if ((event.key() == KeyEvent::Key::Up) || (event.key() == KeyEvent::Key::Down)) { // Zoom
+			bool up_key = (event.key() == KeyEvent::Key::Up) ? 1 : 0;
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
+				Float delta = .15f;
+				if (!up_key) delta *= -1.f;
+
+				if (Magnum::Math::abs(delta) >= 1.0e-2f) _arcballCamera->zoom(delta);
+			}
+			if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::Group)) {
+
+
+				/* Distance to origin */
+				const Float distance = _cameraObject.transformation().translation().z();
+
+				/* Move 15% of the distance back or forward */
+				_cameraObject.translate(Vector3::zAxis(
+					distance * (1.0f - (up_key > 0 ? 1 / 0.85f : 0.85f))));
+			}
+		}
+
+
 		if (_imgui.handleKeyPressEvent(event)) _ioUpdate = true;
 	}
 

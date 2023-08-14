@@ -8,7 +8,268 @@ using namespace Magnum;
 using namespace Math::Literals;
 using Key = Magnum::Platform::Sdl2Application::KeyEvent::Key;
 
+
 struct Widget {
+	struct KnotInteraction {
+		/*
+			Position selector to choose positions where to spawn solitons
+		*/
+	struct PositionGui {
+		std::vector<Vector3> position_array;
+		Vector3 pot_pos;
+		void SubGUI() {
+			ImGui::InputFloat3("Position##PositionGUI", &pot_pos[0]);
+
+			if (ImGui::Button("Add position##PositionGUI")) {
+				position_array.emplace_back(pot_pos);
+			}
+			ImGui::Separator();
+			// Display initialized positions
+			int ctr = 0;
+			bool triggered = false;
+			int trigger_index = -1;
+			for (auto& p : position_array) {
+				++ctr;
+				ImGui::Text("[%d]: (%f, %f, %f)", ctr, p[0], p[1], p[2]);
+				ImGui::SameLine();
+				if (ImGui::Button(std::string("Delete##PositionGUI" + std::to_string(ctr)).c_str()) && !triggered) {
+					triggered = true;
+					trigger_index = ctr - 1;
+				}
+			}
+
+			if (triggered)
+				position_array.erase(position_array.begin() + trigger_index);
+
+		}
+
+	};
+
+	struct EFieldSwitch {
+		// Value to switch the Efield to
+		float efield = 0.f;
+		// number of frames to apply this efield
+		int dframes = 0;
+	};
+
+	struct VectorPreimage {
+		int theta = 0;
+		int phi = 0;
+	};
+
+		bool showWindow = false;
+		PositionGui pos_gui;
+		// Knot color [default = red]
+		Magnum::Color4 knotColor{ 1.f, 0.f, 0.f, 1.f };
+		// Isovalue for knot surface
+		float isoValue = 0.58f;
+		float gradSval = 0.15f;
+		float tolerance = 0.0f;
+		int node_density = 45;
+		// Upsampling for background grid to compute vortex lines
+		float upsampling_multiplier = 1.25f;
+		// Upper (magnitude) band threshold
+		float sb_pos_iso_ratio_upper = 100.f;
+		float sb_neg_iso_ratio_upper = 100.f;
+		// Lower (magnitude) band threshold
+		float sb_pos_iso_ratio_lower = 2.0f;
+		float sb_neg_iso_ratio_lower = 3.0f;
+
+		std::vector<EFieldSwitch> switching_data;
+		std::vector< VectorPreimage > preimages = { {0,0}, {180,0} };
+		float preimage_isovalue = 0.4;
+		// Continously alternate between
+		bool cycleEfield = 0;
+
+		int saturation = 3;
+		int sb_saturation = 2;
+		float point_density = 1.f;
+		
+		// Start the interaction
+		bool start = false;
+
+		// Start from initial conditions
+		int useInitialConditions = 0;
+
+		// Initial interaction conditions
+		float theta0 = 0.78539816339f; // pi/4
+		float phi0 = M_PI;
+		float seperation = 1.8f;
+		std::array<float, 3> CELL = { 5.f, 5.f, 5.f };
+
+		// File location
+		std::string file_loc = LCLAB2_ROOT_PATH + std::string("/data/knot/");
+		// File name
+		std::string file, subdirectory;
+
+		const static size_t fname_buffer_size = 128;
+		char fname_buffer[fname_buffer_size];
+
+		const static size_t fsubdir_buffer_size = 128;
+		char fsubdir_buffer[fsubdir_buffer_size];
+		
+		// Number of [frames] to save
+		int nFrames = 1;
+		// frame offset if more frames are desired
+		int nFrameOffset = 0;
+		// Number of iterations to prerelax the simulation volume
+		int nPrerelax = 0;
+		// Relaxation iterations per frame
+		int nRelax_per_frame = 0;
+		// Relaxation rate (negative is underrelaxation)
+		float relaxRate = -0.2f;
+		// Color convention
+		// 0 - nematic
+		// 1 - chi field
+		int color_convention = 0;
+		bool saveStringKnots = 1;
+
+		bool GUI() {
+			if (!showWindow)
+				return showWindow;
+
+			ImGui::Begin("Knot interaction##Knot-interaction", &showWindow);
+
+			ImGui::InputText("Subdirectory##Knot-interaction", fsubdir_buffer, fsubdir_buffer_size);
+			// Copy buffer to string
+			subdirectory = std::string(fsubdir_buffer);
+			ImGui::InputText("File name##Knot-interaction", fname_buffer, fname_buffer_size);
+			ImGui::SameLine();
+			ImGui::Checkbox("Save string knots", &saveStringKnots);
+			// Copy buffer to string
+			file = std::string(fname_buffer);
+
+			ImGui::PushItemWidth(100.f);
+			ImGui::InputInt("Node density##Knot-interaction", &node_density);
+			ImGui::SameLine();
+			ImGui::InputFloat("Upsampling##Knot-interaction", &upsampling_multiplier);
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(50.f);
+			ImGui::InputFloat("Knot isovalue##Knot-interaction", &isoValue);
+			ImGui::InputFloat("grad(S) isovalue##Knot-interaction", &gradSval);
+			ImGui::InputFloat("SB iso upper bd (p)##Knot-interaction", &sb_pos_iso_ratio_upper);
+			ImGui::InputFloat("SB iso lower bd (p)##Knot-interaction", &sb_pos_iso_ratio_lower);
+			ImGui::InputFloat("SB iso upper bd (n)##Knot-interaction", &sb_neg_iso_ratio_upper);
+			ImGui::InputFloat("SB iso lower bd (n)##Knot-interaction", &sb_neg_iso_ratio_lower);
+			ImGui::InputFloat("Chi field tolerance##Knot-interaction", &tolerance);
+			ImGui::InputFloat("Theta##Knot-interation", &theta0);
+			ImGui::SameLine();
+			ImGui::InputFloat("Phi##Knot-interation", &phi0);
+			ImGui::SameLine();
+			ImGui::InputFloat("Separation##Knot-interaction", &seperation);
+			ImGui::InputFloat("Knot point density##Knot-interaction", &point_density);
+
+			ImGui::Separator();
+			ImGui::Text("Construct Efield sequence");
+			ImGui::SameLine();
+			ImGui::Checkbox("Cycle##KNot-interaction-efield", &cycleEfield);
+			if (ImGui::Button("Add Switch##Knot-interaction-field")) {
+				// Check that the duration is not zero
+				switching_data.push_back({ 0.f, 1 });
+			}
+
+			std::vector<int> remove_switch;
+
+			// Display current data
+			for (int i = 0; i < switching_data.size(); i++) {
+
+				if (switching_data[i].dframes <= 0)
+					switching_data[i].dframes = 1;
+
+				std::string str_id = "S" + std::to_string(i);
+				std::string str_efield = std::string("Efield##Knot-interaction-field") + std::to_string(i);
+				std::string str_duration = std::string("Duration##Knot-interaction-field") + std::to_string(i);
+				std::string str_delete = std::string("X##Knot-interaction-field") + std::to_string(i);
+				ImGui::Text(str_id.c_str());
+				ImGui::SameLine();
+				ImGui::PushItemWidth(100.f);
+				ImGui::InputFloat(str_efield.c_str(), &switching_data[i].efield);
+				ImGui::SameLine();
+				ImGui::InputInt(str_duration.c_str(), &switching_data[i].dframes);
+				ImGui::PopItemWidth();
+				ImGui::SameLine();
+				
+				if (ImGui::Button(str_delete.c_str())) {
+					remove_switch.push_back(i);
+				}
+			}
+
+			// parse through switches to remove one at a time
+			while (!remove_switch.empty()) {
+				switching_data.erase(switching_data.begin() + remove_switch.back());
+				remove_switch.pop_back();
+			}
+			ImGui::Separator();
+
+			ImGui::InputFloat("Relax rate##Knot-interaction", &relaxRate);
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(100.f);
+			ImGui::InputInt("Saturation##Knot-interaction", &saturation);
+			ImGui::InputInt("Saturation (SB)##knot-interaction", &sb_saturation);
+			ImGui::InputInt("Iterations (prerelax)##Knot-interaction", &nPrerelax);
+			ImGui::InputInt("Iterations/frame##Knot-interaction", &nRelax_per_frame);
+			ImGui::InputInt("Frames##Knot-interaction", &nFrames);
+			ImGui::InputInt("Frame Offset##Knot-interaction", &nFrameOffset);
+			ImGui::Text("Coloring");
+			ImGui::SameLine();
+			ImGui::RadioButton("Nematic##Knot-interaction", &color_convention, 0);
+			ImGui::SameLine();
+			ImGui::RadioButton("Chi##Knot-interaction", &color_convention, 1);
+			ImGui::SameLine();
+			ImGui::RadioButton("Handedness##Knot-interaction", &color_convention, 2);
+			ImGui::PopItemWidth();
+
+			// Check whether to use initial conditions or not
+			// True -> generate using thet0 and phi0
+			// False -> use what is already in the simulation scope
+			ImGui::Text("Initialization");
+			ImGui::Separator();
+			ImGui::RadioButton("Preset##Knot-interaction", &useInitialConditions, 0);
+			ImGui::SameLine();
+			ImGui::RadioButton("Dimer##Knot-interaction", &useInitialConditions, 1);
+			ImGui::SameLine();
+			ImGui::RadioButton("Generalized##Knot-interaction", &useInitialConditions, 2);
+
+			if (useInitialConditions == 2) {
+				ImGui::InputFloat3("Cell size##Knot-interaction", &CELL[0]);
+				pos_gui.SubGUI();
+			}
+
+			if (ImGui::Button("Generate##Knot-interaction"))
+				start = true;
+
+			ImGui::End();
+			// Return the status of showWindow
+			return showWindow;
+		}
+
+		bool Dispatch() {
+			if (!start) return false;
+			else {
+				// Set start to false and begin dispatch
+				start = false;
+				return true;
+			}
+		}
+
+		std::array<LC::scalar, 3> GetCell() const {
+			return { CELL[0], CELL[1], CELL[2] };
+		}
+
+		std::string FileName() {
+			return file_loc + subdirectory + "/" + file;
+		}
+
+		std::string PathToFile() {
+			return file_loc + subdirectory;
+		}
+
+		std::string InfoFile(std::string inf = "info.txt") {
+			return file_loc + subdirectory + "/" + inf;
+		}
+
+	};
+
 
 	// From example
 	bool showDemoWindow = false;
@@ -70,18 +331,20 @@ struct Widget {
 	int interactionThetaPoints = 1;
 	int interactionPhiPoints = 30;
 	int interactionIterations = 200;
+	bool singleInteractionHeliknoton = false;
+	float interactionOmegaOffset = 0.f;
 	int interactionNPP = 20;
-	bool forceInteractionCellSize = false;
+	bool forceInteractionCellSize = true;
 	float interactionCellSize = 6.f;
 	bool interactionSymmetry = 1;
 
 	int ptheta = 0.0f;
 	int pphi = 0.0f;
-	int smoothingIterations = 1;
+	int smoothingIterations = 20;
 	// Laplacian smoothing parameter
 	float smoothingAlpha = 0.25f;
 	// Taubin smoothing parameters
-	float smoothingLambda = 0.33f;
+	float smoothingLambda = 0.35f;// 0.33f;
 	float smoothingMu = -0.34f;
 	int smoothingType = 2;
 	float preimage_alpha = 1.0f;
@@ -156,6 +419,10 @@ struct Widget {
 
 	// Default pitch in micrometers
 	LC::SIscalar pitch = { 5.0, "um" };
+
+	KnotInteraction knot_interaction_handle;
+
+	bool multiplane_window = false;
 };
 
 

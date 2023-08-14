@@ -13,6 +13,10 @@ namespace LC { namespace Imaging {
 		ImageSeries() = default;
 		ImageSeries(std::int32_t w, std::int32_t h, std::string file = "SERIES");
 
+		void ResetCount() { count = 0; }
+		void SetCount(std::int32_t ct) { count = ct; }
+		std::int32_t GetCount() const { return count; }
+
 		void operator = (const ImageSeries& rhs);
 		
 		// order 0 means (x,y) maps to x + X * y in data

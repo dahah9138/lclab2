@@ -6,8 +6,8 @@ format long e
 hold all
 
 % reference vector
-cthetad = [0 180 90];
-cphid = [0 0 0];
+cthetad = [0 180];
+cphid = [0 0];
 
 % Double angle counting
 S2_Z2 = 0;

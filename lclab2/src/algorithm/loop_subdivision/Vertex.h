@@ -27,6 +27,7 @@ namespace MeshLib {
 
 		Point<T> &point() { return m_point; };
 		Point<T> &normal() { return m_normal; };
+		Point<T> &color() { return m_color; };
 		Point2<T> &uv() { return m_uv; };
 
 		HalfEdge<T> * & halfedge() { return m_halfedge; };
@@ -46,6 +47,7 @@ namespace MeshLib {
 
 		Point<T> m_point;
 		Point<T> m_normal;
+		Point<T> m_color;
 		Point2<T> m_uv;
 
 		HalfEdge<T> *m_halfedge;

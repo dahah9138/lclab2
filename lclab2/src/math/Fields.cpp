@@ -60,11 +60,10 @@ namespace LC { namespace Math {
 
 		return [=](scalar x, scalar y, scalar z) {
 
-			scalar layersscale = ceil(2 * Q * lim);
 			Eigen::Matrix<scalar, 3, 1> coords{ x, y, z };
 			Eigen::Matrix<scalar, 3, 1> p = coords - translation;
 
-			scalar omega = 2 * M_PI * coords[2] / lambda + phi0;
+			scalar omega = 2 * M_PI * coords[2] / lambda + phi0;// -M_PI / 2.;
 
 			if (p.dot(p) == 0.0) p[2] = 1.0;
 

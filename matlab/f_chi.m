@@ -1,14 +1,11 @@
 % Code originally written by Benny
 % Modified by Darian Hall to be faster
-function chi = f_chi(nn, tol)
+function [chi,ill_defined] = f_chi(nn)
 
 method = 'tensor';
 
 % Eigenvalue error tolerance
-tol = 0.0001;
-if ~exist('tol','var')
-      tol = 0.0001;
-end
+tol = 0.01;
 
 [m,n,p,~] = size(nn);
 
@@ -36,114 +33,73 @@ nz001 = derivativeZ(nn(:,:,:,3),dz);
 
 twist = zeros(m-2,n-2,p-2,3);
 
+x11 = nz100.*ny000 - ny100.*nz000;
+x12 = nx100.*nz000 - nz100.*nx000;
+x13 = ny100.*nx000 - nx100.*ny000;
+x21 = nz010.*ny000 - ny010.*nz000;
+x22 = nx010.*nz000 - nz010.*nx000;
+x23 = ny010.*nx000 - nx010.*ny000;
+x31 = nz001.*ny000 - ny001.*nz000;
+x32 = nx001.*nz000 - nz001.*nx000;
+x33 = ny001.*nx000 - nx001.*ny000;
+ill_defined = zeros(m-4, n-4, p-4);
 
-switch(method)
-    case 'tensor'
-    x11 = nz100.*ny000 - ny100.*nz000;
-    x12 = nx100.*nz000 - nz100.*nx000;
-    x13 = ny100.*nx000 - nx100.*ny000;
-    x21 = nz010.*ny000 - ny010.*nz000;
-    x22 = nx010.*nz000 - nz010.*nx000;
-    x23 = ny010.*nx000 - nx010.*ny000;
-    x31 = nz001.*ny000 - ny001.*nz000;
-    x32 = nx001.*nz000 - nz001.*nx000;
-    x33 = ny001.*nx000 - nx001.*ny000;
-    eigenvalue = zeros(m-4, n-4, p-4);
+clear nx000 ny000 nz000 nx100 nx010 ny100 ny010 nz100 nz010 nz001
+
+for i = 1:m-4
     
-    clear nx000 ny000 nz000 nx100 nx010 ny100 ny010 nz100 nz010 nz001
+    simple_waitbar(i, m-4, f)
+    
+    for j = 1:n-4
 
-    for i = 1:m-4
+     for k = 1:p-4
+
+
+         Chi_tensor = [x11(i,j,k) x12(i,j,k) x13(i,j,k);...
+             x21(i,j,k) x22(i,j,k) x23(i,j,k);...
+             x31(i,j,k) x32(i,j,k) x33(i,j,k)]; 
+
+        % Matrix Equation: Chi_tensor * V = V * D
+
+        % V is the matrix of right eigenvectors
+        % D is the diagonal eigenvalue matrix
+        % W is the matrix of left eigenvectors
+
+        trA2 = trace(Chi_tensor*Chi_tensor);
+        tr2A = trace(Chi_tensor)^2;
+        discriminant = 2 * trA2 - tr2A;
         
-        simple_waitbar(i, m-4, f)
-        
-        for j = 1:n-4
-
-         for k = 1:p-4
-
-
-             Chi_tensor = [x11(i,j,k) x12(i,j,k) x13(i,j,k);...
-                 x21(i,j,k) x22(i,j,k) x23(i,j,k);...
-                 x31(i,j,k) x32(i,j,k) x33(i,j,k)]; 
-
-
-
-            % V is the matrix of right eigenvectors
-            % D is the diagonal eigenvalue matrix
-            % W is the matrix of left eigenvectors
-
-            % Matrix Equation: W' * Chi_tensor = D * W'
-            trA2 = trace(Chi_tensor*Chi_tensor);
-            tr2A = trace(Chi_tensor)^2;
-            discriminant = (2 * trA2 - tr2A)/(2*pi)^2;
+        % Well-defined chi field
+        if discriminant > tol
+            [V,D] = eig(Chi_tensor);
+            [~,eig_label] = max(max(abs(D)));
+            twist_slice = V(:,eig_label)';
             
-            if discriminant > tol
-                [~,D,W] = eig(Chi_tensor);
-                [eig_value,eig_label] = max(max(real(D)));
-                twist_slice = eig_value * W(:,eig_label)';
-                %[eig_vec, eig_value] = power_method_left(Chi_tensor, tol, stop_it);
-                %eigenvalue(i,j,k) = eig_value;
-                %twist_slice = eig_value * eig_vec;
-            else
-                twist_slice = [0,0,0];
-            end
-            twist(i,j,k,:) = twist_slice(:);
-
-         end
+            ill_defined(i,j,k) = 0;
+        else
+            % Find the circulation direction of the defect line (eigval=0)
+            x = null(Chi_tensor);
+            ill_defined(i,j,k) = 1;
+            twist_slice = x;
         end
-    end
-    
-    case 'vector'
-        % n cross (u dot \nabla)n ~ chi 
-        % Rev. Mod. Phys. 46, 617 (1974)
-        % not general 
-        
-        % u = x unit vector
-        twistux_x = ny000.*nz100 - nz000.*ny100;
-        twistux_y = nz000.*nx100 - nx000.*nz100;
-        twistux_z = nx000.*ny100 - ny000.*nx100;
-        % u = y unit vector
-        twistuy_x = ny000.*nz010 - nz000.*ny010;
-        twistuy_y = nz000.*nx010 - nx000.*nz010;
-        twistuy_z = nx000.*ny010 - ny000.*nx010;
-        % u = z unit vector
-        twistuz_x = ny000.*nz001 - nz000.*ny001;
-        twistuz_y = nz000.*nx001 - nx000.*nz001;
-        twistuz_z = nx000.*ny001 - ny000.*nx001;
-        
-        modtwstx = sqrt(twistux_x.^2+twistux_y.^2+twistux_z.^2);
-        modtwsty = sqrt(twistuy_x.^2+twistuy_y.^2+twistuy_z.^2);
-        modtwstz = sqrt(twistuz_x.^2+twistuz_y.^2+twistuz_z.^2);
-        
-        % compare modtwst and substitute components with the largest one
-        % compare u = x, y
-        twistux_x(modtwstx<modtwsty) = twistuy_x(modtwstx<modtwsty);
-        twistux_y(modtwstx<modtwsty) = twistuy_y(modtwstx<modtwsty);
-        twistux_z(modtwstx<modtwsty) = twistuy_z(modtwstx<modtwsty);
-        
-        % compare u = x, z
-        twistux_x(modtwstx<modtwstz) = twistuz_x(modtwstx<modtwstz);
-        twistux_y(modtwstx<modtwstz) = twistuz_y(modtwstx<modtwstz);
-        twistux_z(modtwstx<modtwstz) = twistuz_z(modtwstx<modtwstz);
-        
-        twist = cat(4, twistux_x, twistux_y, twistux_z);
-%         nn = cat(4, twistuz_x, twistuz_y, twistuz_z);    
-%         nn = cat(4, twistuy_x, twistuy_y, twistuy_z);  
 
-        % % normalize
-        modnn = sqrt(twist(:,:,:,1).^2+twist(:,:,:,2).^2+twist(:,:,:,3).^2);
-        twist(:,:,:,1) = twist(:,:,:,1)./modnn;
-        twist(:,:,:,2) = twist(:,:,:,2)./modnn;
-        twist(:,:,:,3) = twist(:,:,:,3)./modnn;
+        % Normalize
+        chi_len = sqrt(dot(twist_slice,twist_slice,1));
+        if chi_len == 0
+            disp('Faulty tolerance selected')
+        end
+        twist_slice = twist_slice / chi_len;
+        twist(i,j,k,:) = twist_slice(:);
+
+     end
+    end
 end
-%%
+
 
 f.Name = 'Generated chi field';
 delete(f);
 
 chi = real(twist);
-%chi = abs(twist);
-
-
 
 % % normalize
 modnn = sqrt(chi(:,:,:,1).^2+chi(:,:,:,2).^2+chi(:,:,:,3).^2);

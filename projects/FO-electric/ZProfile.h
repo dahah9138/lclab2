@@ -35,7 +35,7 @@ struct Zprofile {
         auto flat_idx = [&](int x, int y, int z) {
             x = x >= vox[0] ? x - vox[0] : (x < 0 ? x + vox[0] : x);
             y = y >= vox[1] ? y - vox[1] : (y < 0 ? y + vox[1] : y);
-            z = z >= vox[2] ? z - vox[2] : (z < 0 ? z + vox[2] : z);
+            z = z >= vox[2] ? vox[2]-1 : (z < 0 ? 0 : z);
 
             return (unsigned int)(x + y * vox[0] + z * plane);
         };
@@ -125,8 +125,8 @@ struct Zprofile {
                     float tuningTheta = 2. * M_PI * dz;
                     float S0 = 0.5f * (3.f * pow(cos(tuningTheta), 2) - 1.f);
            
-                    if (abs(S) > S0)
-                        S = 1000000;
+                    //if (abs(S) > S0)
+                    //    S = 1000000;
 
                     //wt = 1.0 + exp(-omega * pow(S, 2) / kbT);
 
@@ -135,7 +135,18 @@ struct Zprofile {
                     dz_par2 = pow(dz, 2);
                     
 
-                    float Delta_z = (1.0f - UV_intensity) * dz + UV_intensity * sqrt(ct2 * dz_par2 + st2 * dz_perp2);
+                    float Delta_z = (1.0f - UV_intensity) * dz + UV_intensity * dz * S;//sqrt(ct2 * dz_par2 + st2 * dz_perp2);
+
+                    float A = (expansion_factor)*dz;
+
+                    Eigen::Vector3f zhat(0, 0, 1);
+                    unsigned int idx2 = flat_idx(x, y, z + 1);
+                    Eigen::Vector3f dir_j(nn[idx2], nn[idx2 + vol], nn[idx2 + 2 * vol]);
+
+                    auto p_i = (zhat.cross(dir));
+                    auto p_j = (zhat.cross(dir_j));
+
+                    //Delta_z = dz + A * p_i.dot(p_j);
 
                     graph->data[x + y * vox[0]][2] += wt * Delta_z;
                 }

@@ -681,6 +681,18 @@ namespace LC { namespace Math {
 	};
 
 	template <typename T>
+	struct StencilWeightFirstDerivatives : public StencilWeights<T> {
+		// Stencil Weights
+		StencilWeightFirstDerivatives() {
+			this->weights.reserve(3);
+			this->weights.emplace_back(WeightTag::x);
+			this->weights.emplace_back(WeightTag::y);
+			this->weights.emplace_back(WeightTag::z);
+		}
+
+	};
+
+	template <typename T>
 	class TaylorSeries {
 		using Matrix = Eigen::Matrix<T, -1, -1>;
 		using RowVector = Eigen::Matrix<T, 1, 3>;

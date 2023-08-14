@@ -1161,24 +1161,39 @@ namespace Electric { namespace FD {
 
 		scalar Xi = 8.8541878 * ea / K;
 
-		scalar a100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
-		scalar b100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + Nd]) / dr[0];
-		scalar c100 = (-c1 * nn[sub2ind(r[0] + 2, r[1], r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0] - 2, r[1], r[2], vXi) + 2 * Nd]) / dr[0];
+		unsigned int _200 = sub2ind(r[0] + 2, r[1], r[2], vXi);
+		unsigned int _020 = sub2ind(r[0], r[1] + 2, r[2], vXi);
+		unsigned int _002 = sub2ind(r[0], r[1], r[2] + 2, vXi);
+		unsigned int _100 = sub2ind(r[0] + 1, r[1], r[2], vXi);
+		unsigned int _010 = sub2ind(r[0], r[1] + 1, r[2], vXi);
+		unsigned int _001 = sub2ind(r[0], r[1], r[2] + 1, vXi);
+		unsigned int _m200 = sub2ind(r[0] - 2, r[1], r[2], vXi);
+		unsigned int _0m20 = sub2ind(r[0], r[1] - 2, r[2], vXi);
+		unsigned int _00m2 = sub2ind(r[0], r[1], r[2] - 2, vXi);
+		unsigned int _m100 = sub2ind(r[0] - 1, r[1], r[2], vXi);
+		unsigned int _0m10 = sub2ind(r[0], r[1] - 1, r[2], vXi);
+		unsigned int _00m1 = sub2ind(r[0], r[1], r[2] - 1, vXi);
 
-		scalar a010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
-		scalar b010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + Nd]) / dr[1];
-		scalar c010 = (-c1 * nn[sub2ind(r[0], r[1] + 2, r[2], vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1] + 1, r[2], vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1] - 1, r[2], vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1] - 2, r[2], vXi) + 2 * Nd]) / dr[1];
 
-		scalar a001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
-		scalar b001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + Nd]) / dr[2];
-		scalar c001 = (-c1 * nn[sub2ind(r[0], r[1], r[2] + 2, vXi) + 2 * Nd] + c2 * nn[sub2ind(r[0], r[1], r[2] + 1, vXi) + 2 * Nd] - c2 * nn[sub2ind(r[0], r[1], r[2] - 1, vXi) + 2 * Nd] + c1 * nn[sub2ind(r[0], r[1], r[2] - 2, vXi) + 2 * Nd]) / dr[2];
 
-		scalar v100 = (-c1 * vv[sub2ind(r[0] + 2, r[1], r[2], vXi)] + c2 * vv[sub2ind(r[0] + 1, r[1], r[2], vXi)] - c2 * vv[sub2ind(r[0] - 1, r[1], r[2], vXi)] + c1 * vv[sub2ind(r[0] - 2, r[1], r[2], vXi)]) / dr[0];
-		scalar v010 = (-c1 * vv[sub2ind(r[0], r[1] + 2, r[2], vXi)] + c2 * vv[sub2ind(r[0], r[1] + 1, r[2], vXi)] - c2 * vv[sub2ind(r[0], r[1] - 1, r[2], vXi)] + c1 * vv[sub2ind(r[0], r[1] - 2, r[2], vXi)]) / dr[1];
-		scalar v001 = (-c1 * vv[sub2ind(r[0], r[1], r[2] + 2, vXi)] + c2 * vv[sub2ind(r[0], r[1], r[2] + 1, vXi)] - c2 * vv[sub2ind(r[0], r[1], r[2] - 1, vXi)] + c1 * vv[sub2ind(r[0], r[1], r[2] - 2, vXi)]) / dr[2];
+		scalar a100 = (-c1 * nn[_200] + c2 * nn[_100] - c2 * nn[_m100] + c1 * nn[_m200]) / dr[0];
+		scalar b100 = (-c1 * nn[_200 + Nd] + c2 * nn[_100 + Nd] - c2 * nn[_m100 + Nd] + c1 * nn[_m200 + Nd]) / dr[0];
+		scalar c100 = (-c1 * nn[_200 + 2 * Nd] + c2 * nn[_100 + 2 * Nd] - c2 * nn[_m100 + 2 * Nd] + c1 * nn[_m200 + 2 * Nd]) / dr[0];
+
+		scalar a010 = (-c1 * nn[_020] + c2 * nn[_010] - c2 * nn[_0m10] + c1 * nn[_0m20]) / dr[1];
+		scalar b010 = (-c1 * nn[_020 + Nd] + c2 * nn[_010 + Nd] - c2 * nn[_0m10 + Nd] + c1 * nn[_0m20 + Nd]) / dr[1];
+		scalar c010 = (-c1 * nn[_020 + 2 * Nd] + c2 * nn[_010 + 2 * Nd] - c2 * nn[_0m10 + 2 * Nd] + c1 * nn[_0m20 + 2 * Nd]) / dr[1];
+
+		scalar a001 = (-c1 * nn[_002] + c2 * nn[_001] - c2 * nn[_00m1] + c1 * nn[_00m2]) / dr[2];
+		scalar b001 = (-c1 * nn[_002 + Nd] + c2 * nn[_001 + Nd] - c2 * nn[_00m1 + Nd] + c1 * nn[_00m2 + Nd]) / dr[2];
+		scalar c001 = (-c1 * nn[_002 + 2 * Nd] + c2 * nn[_001 + 2 * Nd] - c2 * nn[_00m1 + 2 * Nd] + c1 * nn[_00m2 + 2 * Nd]) / dr[2];
+
+		scalar v100 = (-c1 * vv[_200] + c2 * vv[_100] - c2 * vv[_m100] + c1 * vv[_m200]) / dr[0];
+		scalar v010 = (-c1 * vv[_020] + c2 * vv[_010] - c2 * vv[_0m10] + c1 * vv[_0m20]) / dr[1];
+		scalar v001 = (-c1 * vv[_002] + c2 * vv[_001] - c2 * vv[_00m1] + c1 * vv[_00m2]) / dr[2];
 
 		en[idx] = (pow(a100 + b010 + c100, 2) * k11 + (pow(a * (-a010 + b100) + c * (b001 - c010), 2) + pow(b * (b001 - c010) + a * (a001 - c100), 2) + pow(b * (a010 - b100) + c * (a001 - c100), 2)) * k33 +
-			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2.-pow(c * v001 + b * v010 + a * v100, 2) * Xi / 2.;
+			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2. - pow(c * v001 + b * v010 + a * v100, 2) * Xi / 2.;
 	}
 
 

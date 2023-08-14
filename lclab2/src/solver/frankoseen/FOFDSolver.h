@@ -337,7 +337,7 @@ namespace Electric {
 			scalar ne = 0.0;
 
 			DataError errors = DataError::None;
-			RelaxKind relaxKind = static_cast<RelaxKind>(static_cast<int>(RelaxKind::OneConst) |
+			RelaxKind relaxKind = static_cast<RelaxKind>(static_cast<int>(RelaxKind::Full) |
 				static_cast<int>(RelaxKind::Algebraic) |
 				static_cast<int>(RelaxKind::Order4));
 
@@ -487,7 +487,7 @@ namespace Electric {
 				};
 			}
 
-			static Config Twistion(const std::array<scalar, 3> &cell_thickness) {
+			static Config Twistion_T1B2(const std::array<scalar, 3> &cell_thickness) {
 
 				// Configuration to create a toron centered at the origin, here r is the scalar version of i,j,k in range [-0.5,0.5]^3
 				auto create_toron = [cell_thickness](Tensor4& n, int i, int j, int k, const Eigen::Vector3d& r, scalar rescale_x = 1.) {
@@ -556,6 +556,85 @@ namespace Electric {
 				};
 			}
 
+			static Config Twistion_T2B2(const std::array<scalar, 3>& cell_thickness) {
+
+				// Configuration to create a toron centered at the origin, here r is the scalar version of i,j,k in range [-0.5,0.5]^3
+				auto create_toron = [cell_thickness](Tensor4& n, int i, int j, int k, const Eigen::Vector3d& r, scalar rescale = 1., bool flip = false) {
+					scalar x = r.x() * cell_thickness[0] * rescale;
+					scalar y = r.y() * cell_thickness[1] * rescale;
+					scalar z = r.z() * cell_thickness[2] * rescale;
+					scalar r_pol = sqrt(x * x + y * y);
+					scalar rr = sqrt(r_pol * r_pol + z * z);
+					scalar theta = 2. * M_PI * r_pol; // Pi twist out from center
+					scalar lambda = 1 / 3.;
+
+					Eigen::Quaternion<scalar> rot_quat;
+					if (rr < 1e-4) // Avoids divide by zero issue
+						rot_quat = { 1., 0., 0., 0. };
+					else {
+						Eigen::Vector3d n(x / rr, y / rr, z / rr);
+						scalar ct = cos(0.5 * theta);
+						scalar st = sin(0.5 * theta);
+						rot_quat = { ct , st * n(0), st * n(1), st * n(2) };
+					}
+					Eigen::Vector3d vec(0., 0., 1.);
+
+					if (flip)
+						vec = -vec;
+
+					if (r_pol < 0.5 && abs(z) < 0.6) {
+
+						scalar exp_factor = exp(-abs(z) / lambda);
+						Eigen::Quaternion<scalar> result(0., 0., 0., -vec.z());
+						result = rot_quat * result * rot_quat.conjugate();
+						vec(0) = result.x();
+						vec(1) = result.y();
+						vec(2) = result.z();
+						vec = exp_factor * vec + (1 - exp_factor) * Eigen::Vector3d(0., 0., 1.);
+						vec.normalize();
+
+					}
+
+					return vec;
+				};
+
+				return [create_toron, cell_thickness](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					scalar x = i / scalar(voxels[0] - 1) - 0.5;
+					scalar y = j / scalar(voxels[1] - 1) - 0.5;
+					scalar z = k / scalar(voxels[2] - 1) - 0.5;
+
+					scalar xc = x * cell_thickness[0];
+					scalar yc = y * cell_thickness[1];
+					scalar zc = z * cell_thickness[2];
+
+					scalar halfDist = 0.5;
+
+					// Twistion right toron
+					scalar xp1 = x - halfDist / cell_thickness[0];
+					// Twistion left toron
+					scalar xp2 = x + halfDist / cell_thickness[0];
+
+					//auto toronC = create_toron(n, i, j, k, { x, y, z }, 2., true);
+					auto toronL = create_toron(n, i, j, k, { xp1, y, z });
+					auto toronR = create_toron(n, i, j, k, { xp2, y, z });
+
+					// Superpose torons
+					Eigen::Vector3d twist;
+
+					if (sqrt(x * x + y * y + z * z) > halfDist / cell_thickness[0])
+						twist = exp(-abs(xp1) / 2.) * toronL + exp(-abs(xp2) / 2.) * toronR;
+					else
+						twist = Eigen::Vector3d(0., 0., -1.);
+
+					twist.normalize();
+
+					n(i, j, k, 0) = twist(0);
+					n(i, j, k, 1) = twist(1);
+					n(i, j, k, 2) = twist(2);
+				};
+			}
+
 			static Config Planar(int layers, scalar lambda = 1.0) {
 				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
 					scalar z = (scalar)k / (scalar)(voxels[2] - 1);
@@ -581,6 +660,130 @@ namespace Electric {
 					n(i, j, k, 0) = 0.0;
 					n(i, j, k, 1) = -sin(omega);
 					n(i, j, k, 2) = cos(omega);
+				};
+			}
+
+			static Config CF1(const std::array<scalar,3> &varcell) {
+
+				// Load in the initial structure
+				
+				std::vector<scalar> cross_section;
+				std::array<scalar, 3> cell;
+				std::array<int, 3> vox;
+				uint32_t slc_xz;
+
+				{
+					Header h;
+					h.read(std::string(LCLAB2_ROOT_PATH) + "/custom/primitives/CF1.lmt");
+					h.readBody();
+
+					// Extract grid/cell size and directors
+					std::unique_ptr<scalar[]> p_cell = std::unique_ptr<scalar[]>(reinterpret_cast<scalar*>(h.passData("Cell dims")));
+					std::unique_ptr<int[]> p_vox(reinterpret_cast<int*>(h.passData("Voxels")));
+					std::unique_ptr<scalar[]>p_dirs = std::unique_ptr<scalar[]>(reinterpret_cast<scalar*>(h.passData("Directors")));
+
+					for (int i = 0; i < 3; i++)
+					{
+						vox[i] = p_vox[i];
+						cell[i] = p_cell[i];
+					}
+
+					slc_xz = vox[0] * vox[2];
+					uint32_t slc_xy = vox[0] * vox[1];
+					uint32_t vol = slc_xz * vox[1];
+
+					cross_section.resize(3 * slc_xz);
+
+					int y0 = vox[1] / 2;
+					// Extract the mid cross section
+					for (int xi = 0; xi < vox[0]; xi++) {
+						for (int zi = 0; zi < vox[1]; zi++) {
+							uint32_t id = xi + vox[0] * y0 + slc_xy * zi;
+							// x component
+							cross_section[xi + vox[0] * zi] = p_dirs[id];
+							// y component
+							cross_section[xi + vox[0] * zi + slc_xz] = p_dirs[id + vol];
+							// z component
+							cross_section[xi + vox[0] * zi + 2 * slc_xz] = p_dirs[id + 2 * vol];
+						}
+					}
+
+				}
+
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					scalar x = ((scalar)i / (scalar)(voxels[0] - 1) - 0.5) * varcell[0];
+					scalar y = ((scalar)j / (scalar)(voxels[1] - 1) - 0.5) * varcell[1];
+					scalar z = ((scalar)k / (scalar)(voxels[2] - 1) - 0.5) * varcell[2];
+
+					// Map new integer coords to old integer coords
+					int xi = (scalar)i / (scalar)(voxels[0] - 1) * vox[0];
+					int zi = (scalar)k / (scalar)(voxels[2] - 1) * vox[2];
+
+					if (abs(x) <= cell[0] * 0.5 && abs(z) < cell[2] * 0.5)
+					{
+						n(i, j, k, 0) = cross_section[xi + vox[0] * xi];
+						n(i, j, k, 1) = cross_section[xi + vox[0] * zi + slc_xz];
+						n(i, j, k, 2) = cross_section[xi + vox[0] * zi + 2 * slc_xz];
+					}
+					else
+					{
+						n(i, j, k, 0) = 0.0;
+						n(i, j, k, 1) = 0.0;
+						n(i, j, k, 2) = 1.0;
+					}
+				};
+			}
+
+			static Config CF1_Loop(const std::array<scalar, 3>& varcell, const scalar& R = 0.6) {
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					// Create a loop of CF1
+					scalar x = ((scalar)i / (scalar)(voxels[0] - 1) - 0.5) * varcell[0];
+					scalar y = ((scalar)j / (scalar)(voxels[1] - 1) - 0.5) * varcell[1];
+					scalar z = ((scalar)k / (scalar)(voxels[2] - 1) - 0.5) * varcell[2];
+
+					//z = -z;
+
+					scalar r = sqrt(x * x + y * y);
+
+					// Twist axis
+
+					Eigen::Vector3d rvec(x, y, z);
+					Eigen::Vector3d rho(x/r, y/r, 0.);
+					Eigen::Vector3d phi_hat(-y / r, x / r, 0.);
+
+					Eigen::Vector3d twist_axis = rho + Eigen::Vector3d(0, 0, 1.);
+					twist_axis.normalize();
+
+					Eigen::Vector3d e3 = twist_axis.cross(phi_hat);
+					e3.normalize();
+
+					scalar center = 0.3;
+
+					if (r < 0.2 && z > 0) {
+						n(i, j, k, 0) = 0.0;
+						n(i, j, k, 1) = 0.0;
+						n(i, j, k, 2) = 1.0;
+					}
+					else if (r < center && abs(z) < 0.45 * varcell[2]) {
+						n(i, j, k, 0) = 0.0;
+						n(i, j, k, 1) = 0.0;
+						n(i, j, k, 2) = 1.0;
+					}
+					else if (r < center + 0.5 && abs(z) < 0.45 * varcell[2])
+					{
+						scalar tw_angle = 2. * M_PI * rvec.dot(twist_axis) + M_PI/2.;
+						Eigen::Vector3d result = cos(tw_angle) * phi_hat + sin(tw_angle) * e3;
+						n(i, j, k, 0) = result.x();
+						n(i, j, k, 1) = result.y();
+						n(i, j, k, 2) = result.z();
+					}
+					else {
+						n(i, j, k, 0) = 0.0;
+						n(i, j, k, 1) = 0.0;
+						n(i, j, k, 2) = 1.0;
+					}
 				};
 			}
 
@@ -639,9 +842,9 @@ namespace Electric {
 				};
 			}
 
-			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, scalar lambda = 1.0, scalar lim = 1., const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, bool background = true) {
+			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, scalar lambda = 1.0, scalar lim = 1., const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, scalar phase = 0, bool background = true) {
 			
-				Configuration::VectorField n_field = LC::Math::Heliknoton(Q, cdims, lambda, lim, translation, 0., background);
+				Configuration::VectorField n_field = LC::Math::Heliknoton(Q, cdims, lambda, lim, translation, phase, background);
 
 				scalar dx = cdims[0] / scalar(vox[0] - 1);
 				scalar dy = cdims[1] / scalar(vox[1] - 1);
@@ -800,6 +1003,7 @@ namespace Electric {
 		void Normalize(Tensor4& nn, int i, int j, int k);
 		void Normalize();
 		void Print() override;
+		void SetRate(const scalar& rate);
 
 		void ConfigureHeader(Header& header);
 		void ReadDataFromHeader(Header& header);

@@ -180,7 +180,7 @@ struct NematicArray {
     Magnum::Float diffuse = 0.1f;
     Magnum::Float ambient = 1.f;
     std::map<DrawType, std::string> map = DrawMap();
-    DrawType selected_drawType = DrawType::Cone;
+    DrawType selected_drawType = DrawType::Cylinder;
 };
 }
 

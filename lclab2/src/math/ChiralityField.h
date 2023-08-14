@@ -15,7 +15,7 @@ namespace LC { namespace Math {
 		int Ny = N[1];
 		int Nz = N[2];
 
-		if (i < 2 || j < 2 || k < 2 || i > Nx - 3 || j > Ny - 3 || k > Nz - 3) {
+		if (i < 4 || j < 4 || k < 4 || i > Nx - 5 || j > Ny - 5 || k > Nz - 5) {
 			Eigen::Matrix3d chi = Eigen::Matrix3d::Zero();
 			chi(2, 2) = -2. * M_PI;
 			return chi;
@@ -28,7 +28,9 @@ namespace LC { namespace Math {
 		Eigen::Matrix3d Dn;
 		Eigen::Matrix3d chi;
 		Eigen::Vector3d n;
-		std::array<float, 4> stencil;
+
+		constexpr int ORDER = 8;
+		std::array<float, ORDER> stencil;
 
 		std::function<unsigned int(int, int, int, int)> idx_nn;
 
@@ -49,37 +51,16 @@ namespace LC { namespace Math {
 		};
 
 
-		// Order 4 derivatives
-
-
+		// Order 8 derivatives
 		auto interp = [dr, N, nn, vol](int i, int j, int k, const std::function<unsigned int(int,int,int,int)> &idx_nn, int increment) {
 			Eigen::Vector3d n;
 			// Get director from below
 			unsigned int cur_idx = idx_nn(i, j, k, increment);
-			if (k > N[2] - 1) {
-				unsigned int bot_idx = idx_nn(i, j, N[2] - 1,0);
-				float t = 2 * M_PI * dr[2] * (k - N[2] + 1);
-				float ct = cos(t);
-				float st = sin(t);
-				n(0) = nn[bot_idx] * ct - nn[bot_idx + vol] * st;
-				n(1) = nn[bot_idx] * ct + nn[bot_idx + vol] * st;
-				n(2) = 0.0f;
-			}
-			// Rotate director from above
-			else if (k < 0) {
-				unsigned int top_idx = idx_nn(i, j, 0,0);
-				float t = 2 * M_PI * dr[2] * k;
-				float ct = cos(t);
-				float st = sin(t);
-				n(0) = nn[top_idx] * ct - nn[top_idx + vol] * st;
-				n(1) = nn[top_idx] * ct + nn[top_idx + vol] * st;
-				n(2) = 0.0f;
-			}
-			else {
-				// Fill current director
-				for (int d = 0; d < 3; d++)
-					n(d) = nn[cur_idx + vol * d];
-			}
+			
+			// Fill current director
+			for (int d = 0; d < 3; d++)
+				n(d) = nn[cur_idx + vol * d];
+			
 			return n;
 		};
 
@@ -92,19 +73,16 @@ namespace LC { namespace Math {
 			else if (a == 1) idx_nn = idx_y;
 			else idx_nn = idx_z;
 
-			auto n1 = interp(i, j, k, idx_nn, -2);
-			auto n2 = interp(i, j, k, idx_nn, -1);
-			auto n3 = interp(i, j, k, idx_nn, 1);
-			auto n4 = interp(i, j, k, idx_nn, 2);
-
 			for (int b = 0; b < 3; b++) {
-
-				stencil[0] = n1(b);
-				stencil[1] = n2(b);
-				stencil[2] = n3(b);
-				stencil[3] = n4(b);
-
-				Dn(a, b) = Order4::Derivative(stencil, dr[a]);
+				int cnt = 0;
+				for (int L = -(ORDER/2); L <= (ORDER/2); L++) {
+					if (L) {
+						auto nvec = interp(i, j, k, idx_nn, L);
+						stencil[cnt++] = nvec(b);
+					}
+				}
+				
+				Dn(a, b) = Order8::Derivative(stencil, dr[a]);
 			}
 		}
 
@@ -180,11 +158,13 @@ namespace LC { namespace Math {
 						// Invalid eigenvalue condition (default is 5% tolerance)
 						if (discriminant <= vortexTolerance) {
 							valid_field[cur_idx] = 0;
-							eig.eigenvector = Eigen::Vector3d{ 0., 0., 1. };
-							eig.eigenvalue = 1.;
 							bad_eig++;
+
 							if (onlyIllDefined)
 								continue;
+
+							for (int d = 0; d < 3; d++)
+								twist[d] = 0.;
 						}
 						else if (onlyIllDefined) {
 							valid_field[cur_idx] = 1;
@@ -193,17 +173,20 @@ namespace LC { namespace Math {
 						else {
 							eig.Compute(chi);
 							valid_field[cur_idx] = 1;
+
+							for (int d = 0; d < 3; d++)
+								twist[d] = eig.eigenvector[d];
+
+							float norm = sqrt(twist[0] * twist[0] +
+								twist[1] * twist[1] +
+								twist[2] * twist[2]);
+
+							for (int d = 0; d < 3; d++)
+								twist[d] /= norm;
 						}
 
 						for (int d = 0; d < 3; d++)
-							twist[d] = eig.eigenvalue * eig.eigenvector[d];
-
-						float norm = sqrt(twist[0] * twist[0] +
-							twist[1] * twist[1] +
-							twist[2] * twist[2]);
-
-						for (int d = 0; d < 3; d++)
-							chi_field[cur_idx + d * vol] = twist[d] / norm;
+							chi_field[cur_idx + d * vol] = twist[d];
 					}
 
 				}

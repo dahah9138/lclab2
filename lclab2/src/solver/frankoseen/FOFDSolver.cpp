@@ -553,7 +553,6 @@ namespace Electric {
 
 		// Import data
 
-		// Iterator
 		std::unique_ptr<LC::scalar> p_chir, p_rate;
 		std::unique_ptr<LC::scalar[]> p_cell;
 		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData("Scalar size")));
@@ -727,6 +726,10 @@ namespace Electric {
 				}
 			}
 		}
+	}
+
+	void FOFDSolver::SetRate(const scalar& rate) {
+		data.rate = rate;
 	}
 
 	scalar FOFDSolver::TotalEnergy() {

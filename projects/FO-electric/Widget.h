@@ -72,16 +72,16 @@ struct Widget {
 		float sb_pos_iso_ratio_upper = 100.f;
 		float sb_neg_iso_ratio_upper = 100.f;
 		// Lower (magnitude) band threshold
-		float sb_pos_iso_ratio_lower = 2.0f;
-		float sb_neg_iso_ratio_lower = 3.0f;
+		float sb_pos_iso_ratio_lower = 0.1f;
+		float sb_neg_iso_ratio_lower = 0.1f;
 
 		std::vector<EFieldSwitch> switching_data;
 		std::vector< VectorPreimage > preimages = { {0,0}, {180,0} };
-		float preimage_isovalue = 0.4;
+		float preimage_isovalue = 0.062;
 		// Continously alternate between
 		bool cycleEfield = 0;
 
-		int saturation = 3;
+		int saturation = 2;
 		int sb_saturation = 2;
 		float point_density = 1.f;
 		
@@ -92,8 +92,8 @@ struct Widget {
 		int useInitialConditions = 0;
 
 		// Initial interaction conditions
-		float theta0 = 0.78539816339f; // pi/4
-		float phi0 = M_PI;
+		float theta0 = 45.f; // pi/4
+		float phi0 = 180.f;
 		float seperation = 1.8f;
 		std::array<float, 3> CELL = { 5.f, 5.f, 5.f };
 
@@ -152,9 +152,11 @@ struct Widget {
 			ImGui::InputFloat("SB iso upper bd (n)##Knot-interaction", &sb_neg_iso_ratio_upper);
 			ImGui::InputFloat("SB iso lower bd (n)##Knot-interaction", &sb_neg_iso_ratio_lower);
 			ImGui::InputFloat("Chi field tolerance##Knot-interaction", &tolerance);
-			ImGui::InputFloat("Theta##Knot-interation", &theta0);
+			ImGui::PushItemWidth(70.f);
+			ImGui::InputFloat("Theta (deg)##Knot-interation", &theta0);
 			ImGui::SameLine();
-			ImGui::InputFloat("Phi##Knot-interation", &phi0);
+			ImGui::InputFloat("Phi (deg)##Knot-interation", &phi0);
+			ImGui::PopItemWidth();
 			ImGui::SameLine();
 			ImGui::InputFloat("Separation##Knot-interaction", &seperation);
 			ImGui::InputFloat("Knot point density##Knot-interaction", &point_density);
@@ -335,7 +337,7 @@ struct Widget {
 	float interactionOmegaOffset = 0.f;
 	int interactionNPP = 20;
 	bool forceInteractionCellSize = true;
-	float interactionCellSize = 6.f;
+	std::array<float, 3> interactionCellSize = { 6.f,6.f,6.f };
 	bool interactionSymmetry = 1;
 
 	int ptheta = 0.0f;

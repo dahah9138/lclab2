@@ -47,6 +47,7 @@ namespace LC {
         };
 
         virtual void Init(PositionFunction pos = 0, Float offset = 0.0f);
+        virtual void InitManual(void *data, std::function<Magnum::Vector3(void *, std::size_t)> access, Float offset = 0.0f);
         void Set(UnsignedInt NX_, UnsignedInt NY_, Float CX_, Float CY_);
 
         Trade::MeshData Data();

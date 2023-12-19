@@ -1072,7 +1072,7 @@ namespace Electric { namespace FD {
 	}
 
 	HEMI_DEV_CALLABLE
-		void FreeEnergyDensityO2_Device(scalar *en, const scalar *nn, const scalar *vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality) {
+		void FreeEnergyDensityO2_Device(scalar *en, const scalar *nn, const scalar *vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, scalar eper, const scalar* dr, const scalar* dr2, scalar chirality) {
 		using namespace LC::Cuda;
 
 		int r[3];
@@ -1095,6 +1095,7 @@ namespace Electric { namespace FD {
 		scalar ny000 = nn[idx + Nd];
 		scalar nz000 = nn[idx + 2 * Nd];
 		scalar Xi = 8.8541878 * ea / K;
+		scalar Xp = 8.8541878 * eper / K;
 
 		scalar nx100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi)] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi)]) / (2.0 * dr[0]);
 		scalar ny100 = (nn[sub2ind(r[0] + 1, r[1], r[2], vXi) + Nd] - nn[sub2ind(r[0] - 1, r[1], r[2], vXi) + Nd]) / (2.0 * dr[0]);
@@ -1126,12 +1127,12 @@ namespace Electric { namespace FD {
 
 		en[idx] = (k11 * pow(nx100 + ny010 + nz001, 2) + k33 * (pow(nx000 * (-nx010 + ny100) + nz000 * (ny001 - nz010), 2) + pow(ny000 * (ny001 - nz010) + nx000 * (nx001 - nz100), 2) + pow(ny000 * (nx010 - ny100) + nz000 * (nx001 - nz100), 2)) -
 			2 * k22 * (nx000 * (nx002 + nx020 + nx200) + pow(nx010 - ny100, 2) + ny000 * (ny002 + ny020 + ny200) + pow(nx100 + ny010 + nz001, 2) + pow(ny001 - nz010, 2) + pow(nx001 - nz100, 2) + nz000 * (nz002 + nz020 + nz200)) +
-			k22 * pow((-nx010 + ny100) * nz000 + nx000 * (-ny001 + nz010) + ny000 * (nx001 - nz100) + 2.*PI*chirality, 2) - pow(nz000 * v001 + ny000 * v010 + nx000 * v100, 2) * Xi) / 2.;
+			k22 * pow((-nx010 + ny100) * nz000 + nx000 * (-ny001 + nz010) + ny000 * (nx001 - nz100) + 2.*PI*chirality, 2) - pow(nz000 * v001 + ny000 * v010 + nx000 * v100, 2) * Xi - Xp * (v100 * v100 + v010 * v010 + v001 * v001)) / 2.;
 		
 	}
 
 	HEMI_DEV_CALLABLE
-		void FreeEnergyDensityO4_Device(scalar* en, const scalar* nn, const scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality) {
+		void FreeEnergyDensityO4_Device(scalar* en, const scalar* nn, const scalar* vv, unsigned int idx, unsigned int Nd, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, scalar eper, const scalar* dr, const scalar* dr2, scalar chirality) {
 		using namespace LC::Cuda;
 
 		int r[3];
@@ -1160,6 +1161,7 @@ namespace Electric { namespace FD {
 		scalar c = nn[idx + 2 * Nd];
 
 		scalar Xi = 8.8541878 * ea / K;
+		scalar Xp = 8.8541878 * eper / K;
 
 		unsigned int _200 = sub2ind(r[0] + 2, r[1], r[2], vXi);
 		unsigned int _020 = sub2ind(r[0], r[1] + 2, r[2], vXi);
@@ -1193,7 +1195,7 @@ namespace Electric { namespace FD {
 		scalar v001 = (-c1 * vv[_002] + c2 * vv[_001] - c2 * vv[_00m1] + c1 * vv[_00m2]) / dr[2];
 
 		en[idx] = (pow(a100 + b010 + c100, 2) * k11 + (pow(a * (-a010 + b100) + c * (b001 - c010), 2) + pow(b * (b001 - c010) + a * (a001 - c100), 2) + pow(b * (a010 - b100) + c * (a001 - c100), 2)) * k33 +
-			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2. - pow(c * v001 + b * v010 + a * v100, 2) * Xi / 2.;
+			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2. - pow(c * v001 + b * v010 + a * v100, 2) * Xi - Xp * (v100 * v100 + v010 * v010 + v001 * v001) / 2.;
 	}
 
 
@@ -1294,17 +1296,17 @@ namespace Electric { namespace FD {
 		en_func_der[idx] /= 3.;
 	}
 
-	void FreeEnergyDensityO2(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
+	void FreeEnergyDensityO2(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, scalar eper, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
 	
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
-			FreeEnergyDensityO2_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, dr, dr2, chirality);
+			FreeEnergyDensityO2_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, eper, dr, dr2, chirality);
 		});
 	}
 
-	void FreeEnergyDensityO4(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
+	void FreeEnergyDensityO4(scalar* en_density, const scalar* directors, const scalar* voltage, const int* vXi, scalar k11, scalar k22, scalar k33, scalar ea, scalar eper, const scalar* dr, const scalar* dr2, scalar chirality, unsigned int N) {
 
 		hemi::parallel_for(0u, N, [=] HEMI_LAMBDA(unsigned int idx) {
-			FreeEnergyDensityO4_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, dr, dr2, chirality);
+			FreeEnergyDensityO4_Device(en_density, directors, voltage, idx, N, vXi, k11, k22, k33, ea, eper, dr, dr2, chirality);
 		});
 	}
 
@@ -2040,6 +2042,7 @@ namespace Electric { namespace FD {
 				k22,
 				k33,
 				ea,
+				eper,
 				dr.readOnlyDevicePtr(),
 				dr2.readOnlyDevicePtr(),
 				chirality,
@@ -2056,6 +2059,7 @@ namespace Electric { namespace FD {
 				k22,
 				k33,
 				ea,
+				eper,
 				dr.readOnlyDevicePtr(),
 				dr2.readOnlyDevicePtr(),
 				chirality,

@@ -164,7 +164,6 @@ struct NematicArray {
     static std::map<DrawType, std::string> DrawMap() { return { {Ellipsoid, "Ellipsoid" }, { Cylinder, "Cylinder" }, { Cone, "Cone" } }; }
 
     Magnum::UnsignedInt numObjects;
-
     Magnum::Containers::Array<Magnum::Vector3> polyPositions;
     Magnum::Float scale = 0.125f, hLength = 2.0f;
 

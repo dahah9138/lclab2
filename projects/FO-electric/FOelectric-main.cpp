@@ -22,6 +22,8 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<int>> exportVortexKnot(cons
     const std::vector<MeshLib::Triangle>& triangles,
     LC::scalar min_point_dist, const std::string& fname);
 
+std::vector<Eigen::Vector3d> detect_heliknoton_COM(std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>>&,const std::vector<Eigen::Vector3d>&);
+
 struct BoxInstanceData {
     Matrix4 transformationMatrix;
     Color3 color;
@@ -102,7 +104,7 @@ struct VortexKnot : public PreimageBase {
 
     void UpdateColor() {
         for (auto& v : surface.vertices) {
-            v.color = knotColor;
+           v.color = knotColor;
         }
         
         mesh = surface.Mesh();
@@ -111,6 +113,7 @@ struct VortexKnot : public PreimageBase {
     Color4 knotColor{ 1.f, 0.f, 0.f, 1.f };
     bool cullFaces = false;
     bool normalInversion = true;
+    bool ribbon = false;
     LC::SphereArray points;
 };
 
@@ -160,45 +163,586 @@ struct NematicVisual {
 
 struct NematicMultiplaneManager {
     struct NematicPlane {
+        NematicPlane(int id = -1) : node_density(35),
+                                    sheet_density(100),
+                                    plane_normal(Magnum::Vector2{ M_PI/2.f, 3.f * M_PI / 2.f }),
+                                    plane_id(id),
+                                    plane_diam(0.222f),
+                                    plane_center(Magnum::Vector3{0.f, 0.f, 0.f}),
+                                    draw(false),
+                                    opentab(true),
+                                    plane_preview(true),
+                                    initialized(false),
+                                    vortexTolerance(0.0f),
+                                    scaling(0.193f),
+                                    rod_length(3.3f),
+                                    offset(-0.02f),
+                                    pos_gamma(15.f),
+                                    neg_gamma(15.f),
+                                    cutoff(.2f),
+                                    field(0) {
+        }
         LC::NematicArray plane;
+        std::unique_ptr<LC::DynamicColorSheet> sheet;
+        GL::Mesh sheet_mesh;
+        Magnum::Vector2 plane_normal; // (theta, phi) coordinates
+        Magnum::Vector3 plane_center;
+        int node_density;
+        int sheet_density;
+        float plane_diam;
+        bool initialized;
         bool draw;
+        bool opentab;
         int plane_id;
+        int field; // 0 -> lambda, 1 -> chi, 2 -> tau
+        Float offset; // Plane offset from rods
+        bool plane_preview;
+        Float scaling;
+        Float rod_length;
+        Float pos_gamma;
+        Float neg_gamma;
+        Float cutoff;
+        float vortexTolerance;
     };
-    int Dim() const { return planes.size(); }
-    // Arguments: directors,voxels,cell_dims,indexed plane array
-    void Init(int N1, float C1, int N2, float C2) {
-        int num = N1 * N2;
-        std::unique_ptr<Magnum::Vector3[]> positions(new Magnum::Vector3[num]);
-        std::function<Magnum::Vector3(void*, std::size_t)> access = [](void* data, std::size_t i) {
-            Magnum::Vector3* pos = (Magnum::Vector3*)data;
-            return pos[i];
-        };
+
+    NematicMultiplaneManager() {
+        planes.reserve(10);
     }
-    void Draw(const Matrix4 &viewMatrix, const Matrix4 &projection) {
+
+    int Dim() const { return planes.size(); }
+
+    void CleanAll() {
+        planes.clear();
+        selected_plane = -1;
+    }
+
+    void Draw(const Matrix4 &viewMatrix, const Matrix4 &projection, Widget &widget) {
         // Iterate through the planes and draw
         for (auto& plane : planes) {
-            if (plane.draw)
+
+            plane.plane.specular = widget.specular;
+            plane.plane.diffuse = widget.diffuse;
+            plane.plane.ambient = widget.ambient;
+            plane.plane.selected_drawType = LC::NematicArray::DrawType::Cylinder;
+
+            if (plane.draw && plane.initialized)
                 plane.plane.Draw(viewMatrix,projection);
         }
     }
-    void Gui() {
-        // Section to add planes
-        
-        // Rendering gui stuff
-        for (int i = 0; i < planes.size(); i++) {
-            std::string txt = "Plane[" + std::to_string(planes[i].plane_id) + "]";
-            std::string drawtxt = "Draw##plane" + std::to_string(i);
-            std::string selecttxt = "Select##plane" + std::to_string(i);
 
-            ImGui::Separator();
-            ImGui::Text(txt.c_str());
-            ImGui::Separator();
-            ImGui::Checkbox(drawtxt.c_str(), &planes[i].draw);
-            ImGui::SameLine();
-            ImGui::InputInt(selecttxt.c_str(), &planes[i].plane_id);
+    void Update(Dataset *data) {
+        // Update planes
+        LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+        LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+        LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+        uint Nvox = data->voxels[0] * data->voxels[1] * data->voxels[2];
+
+        for (auto& plane : planes) {
+            
+            if (plane.initialized) {
+                for (int i = 0; i < plane.plane.polyPositions.size(); i++) {
+                    auto position = plane.plane.polyPositions[i];
+
+                    Float scale = plane.plane.scale / (Float)pow(plane.plane.polyPositions.size(), 1.0f / 3.0f);
+
+                    // Translate position coords to voxel space
+                    int xi = (data->cell_dims[0] * 0.5 + position[0]) / dx;
+                    int yi = (data->cell_dims[1] * 0.5 + position[1]) / dy;
+                    int zi = (data->cell_dims[2] * 0.5 + position[2]) / dz;
+
+                    // Make sure within bounds
+                    if (xi < 0 || yi < 0 || zi < 0 ||
+                        xi >= data->voxels[0] || yi >= data->voxels[1] || zi >= data->voxels[2])
+                        continue;
+
+                    uint id = xi + data->voxels[0] * yi + data->voxels[1] * data->voxels[2] * zi;
+
+
+                    // Get theta and phi for director
+                    LC::scalar fx, fy, fz;
+                    // Field is set to director
+                    if (plane.field == 0) {
+                        fx = data->directors[id];
+                        fy = data->directors[id + Nvox];
+                        fz = data->directors[id + 2 * Nvox];
+                    }
+                    else if (plane.field == 1 || plane.field == 2) {
+                        // Field is set to chi
+                        // Compute the chi field at this point
+                        // If the point is too close to the bulk, just set to homeotropic
+                        auto chi_field = LC::Math::ChiralityField_local(data->directors.get(), xi, yi, zi, data->voxels, data->cell_dims, (LC::scalar)plane.vortexTolerance);
+                        fx = chi_field(0);
+                        fy = chi_field(1);
+                        fz = chi_field(2);
+                    }
+
+                    float theta = acos(fz);
+                    float phi = atan2(fy, fx);
+
+                    // Will depend on the chosen field to draw
+
+                    Magnum::Color3 director_color;
+                    if (plane.field == 0) {
+                        director_color = LC::Imaging::Colors::RungeSphere(theta, phi);
+                    }
+                    else if (plane.field == 1) {
+                        float thetap = theta >= 0.5f * M_PI ? M_PI - theta : theta;
+                        director_color = LC::Imaging::Colors::RungeSphere(thetap, 2 * phi);
+                    }
+                    else if (plane.field == 2) {
+                        // Black directors
+                        // and splay bend colors;
+                        director_color = Color3(rod_color[0], rod_color[1], rod_color[2]);
+
+                    }
+
+                    // Apply rotation based on director
+                    float hPi = M_PI / 2.f;
+                    Matrix4 transformation = Matrix4::translation(position)
+                        * Matrix4::rotationZ(Rad{ -hPi + float(phi) })
+                        * Matrix4::rotationX(Rad{ hPi - float(theta) })
+                        * Matrix4::scaling({ scale,scale,scale });
+
+                    plane.plane.polyInstanceData[i].transformationMatrix = transformation;
+                    plane.plane.polyInstanceData[i].color = director_color;
+                    plane.plane.polyInstanceData[i].normalMatrix = transformation.normalMatrix();
+                }
+
+                // Record values so that analysis can be done
+                std::vector<Float> Ssb_plane(plane.sheet->vertices.size());
+                Float Smin(0.f), Smax(0.f), Spos_avg(0.f), Sneg_avg(0.f);
+                int NSpos = 0;
+                int NSneg = 0;
+                // Create a lambda func to access a particular node
+                auto chi_f = [&](int xi, int yi, int zi) {
+                    return LC::Math::ChiralityField_local(data->directors.get(), xi, yi, zi, data->voxels, data->cell_dims, (LC::scalar)plane.vortexTolerance);
+                };
+
+                auto qa_f = [](const Eigen::Vector3d& chi) {
+                    return 3. * chi(0) * chi(0) - 1.;
+                };
+                auto qb_f = [](const Eigen::Vector3d& chi) {
+                    return 3. * chi(0) * chi(1);
+                };
+                auto qc_f = [](const Eigen::Vector3d& chi) {
+                    return 3. * chi(0) * chi(2);
+                };
+                auto qd_f = [](const Eigen::Vector3d& chi) {
+                    return 3. * chi(1) * chi(1) - 1.;
+                };
+                auto qe_f = [](const Eigen::Vector3d& chi) {
+                    return 3. * chi(1) * chi(2);
+                };
+
+                auto splay_bend = [&](int xi, int yi, int zi) {
+                    auto _000 = chi_f(xi, yi, zi);
+                    auto _p00 = chi_f(xi + 1, yi, zi);
+                    auto _m00 = chi_f(xi - 1, yi, zi);
+                    auto _0p0 = chi_f(xi, yi + 1, zi);
+                    auto _0m0 = chi_f(xi, yi - 1, zi);
+                    auto _00p = chi_f(xi, yi, zi + 1);
+                    auto _00m = chi_f(xi, yi, zi - 1);
+                    auto _pp0 = chi_f(xi + 1, yi + 1, zi);
+                    auto _pm0 = chi_f(xi + 1, yi - 1, zi);
+                    auto _mp0 = chi_f(xi - 1, yi + 1, zi);
+                    auto _mm0 = chi_f(xi - 1, yi - 1, zi);
+                    auto _p0p = chi_f(xi + 1, yi, zi + 1);
+                    auto _m0p = chi_f(xi - 1, yi, zi + 1);
+                    auto _p0m = chi_f(xi + 1, yi, zi - 1);
+                    auto _m0m = chi_f(xi - 1, yi, zi - 1);
+                    auto _0pp = chi_f(xi, yi + 1, zi + 1);
+                    auto _0pm = chi_f(xi, yi + 1, zi - 1);
+                    auto _0mp = chi_f(xi, yi - 1, zi + 1);
+                    auto _0mm = chi_f(xi, yi - 1, zi - 1);
+
+                    Float qa200 = (qa_f(_p00) + qa_f(_m00) - qa_f(_000)) / (dx * dx);
+                    Float qa002 = (qa_f(_00p) + qa_f(_00m) - qa_f(_000)) / (dz * dz);
+                    Float qd002 = (qd_f(_00p) + qd_f(_00m) - qd_f(_000)) / (dz * dz);
+                    Float qd020 = (qd_f(_0p0) + qd_f(_0m0) - qd_f(_000)) / (dy * dy);
+                    Float qb110 = (qb_f(_pp0) + qb_f(_mm0) - qb_f(_pm0) - qb_f(_mp0)) / (4.f * dx * dy);
+                    Float qc101 = (qc_f(_p0p) + qc_f(_m0m) - qc_f(_p0m) - qc_f(_m0p)) / (4.f * dx * dz);
+                    Float qe011 = (qe_f(_0pp) + qe_f(_0mm) - qe_f(_0pm) - qe_f(_0mp)) / (4.f * dy * dz);
+
+                    return -qa002 + qa200 + 2.f * (qb110 + qc101) - qd002 + qd020 + 2.f * qe011;
+                };
+
+                for (int i = 0; i < plane.sheet->vertices.size(); i++) {
+                    auto position = plane.sheet->vertices[i].position;
+
+                    // Translate position coords to voxel space
+                    int xi = (data->cell_dims[0] * 0.5 + position[0]) / dx;
+                    int yi = (data->cell_dims[1] * 0.5 + position[1]) / dy;
+                    int zi = (data->cell_dims[2] * 0.5 + position[2]) / dz;
+
+                    // Make sure within bounds
+                    if (xi < 0 || yi < 0 || zi < 0 ||
+                        xi >= data->voxels[0] || yi >= data->voxels[1] || zi >= data->voxels[2])
+                        continue;
+
+                    uint id = xi + data->voxels[0] * yi + data->voxels[1] * data->voxels[2] * zi;
+
+
+                    // Get theta and phi for director
+                    LC::scalar fx(1.f), fy(0.f), fz(0.f);
+                    // Field is set to director
+                    if (plane.field == 0) {
+                        fx = data->directors[id];
+                        fy = data->directors[id + Nvox];
+                        fz = data->directors[id + 2 * Nvox];
+                    }
+                    else if (plane.field == 1) {
+                        // Field is set to chi
+                        // Compute the chi field at this point
+                        // If the point is too close to the bulk, just set to homeotropic
+                        auto chi_field = chi_f(xi, yi, zi);
+
+                        fx = chi_field(0);
+                        fy = chi_field(1);
+                        fz = chi_field(2);
+                    }
+                    else if (plane.field == 2) {
+
+                        Float cijk[2][2][2];
+                        Float cjk[2][2];
+                        Float ck[2];
+
+                        // Use trilinear interpolation
+                        Float x = (data->cell_dims[0] * 0.5 + position[0]);
+                        Float y = (data->cell_dims[1] * 0.5 + position[1]);
+                        Float z = (data->cell_dims[2] * 0.5 + position[2]);
+                        // Bottom corner points
+                        int i_0 = (data->cell_dims[0] * 0.5 + position[0]) / dx;
+                        int j_0 = (data->cell_dims[1] * 0.5 + position[1]) / dy;
+                        int k_0 = (data->cell_dims[2] * 0.5 + position[2]) / dz;
+                        Float x_0 = i_0 * dx;
+                        Float y_0 = j_0 * dy;
+                        Float z_0 = k_0 * dz;
+                        // Interpolation coordinates
+                        Float x_d = (x - x_0) / dx;
+                        Float y_d = (y - y_0) / dy;
+                        Float z_d = (z - z_0) / dz;
+                        // Fill the interpolant
+                        for (int a = 0; a < 2; a++)
+                            for (int b = 0; b < 2; b++)
+                                for (int c = 0; c < 2; c++)
+                                    cijk[a][b][c] = splay_bend(i_0 + a, j_0 + b, k_0 + c);
+
+                        // Begin interpolation
+                        for (int b = 0; b < 2; b++)
+                            for (int c = 0; c < 2; c++)
+                                cjk[b][c] = (1.f - x_d) * cijk[0][b][c] + x_d * cijk[1][b][c];
+
+                        // Begin interpolation
+                        for (int c = 0; c < 2; c++)
+                            ck[c] = (1.f - y_d) * cjk[0][c] + y_d * cjk[1][c];
+
+
+                        //Ssb_plane[i] = splay_bend(xi, yi, zi);
+                        Ssb_plane[i] = (1.f - z_d) * ck[0] + z_d * ck[1];
+
+                        if (Smin > Ssb_plane[i])
+                            Smin = Ssb_plane[i];
+                        if (Smax < Ssb_plane[i])
+                            Smax = Ssb_plane[i];
+
+                        if (Ssb_plane[i] > 0.f) {
+                            Spos_avg += Ssb_plane[i];
+                            NSpos++;
+                        }
+                        if (Ssb_plane[i] < 0.f) {
+                            Sneg_avg += Ssb_plane[i];
+                            NSneg++;
+                        }
+
+                    }
+
+                    float theta = acos(fz);
+                    float phi = atan2(fy, fx);
+
+                    Magnum::Color3 director_color;
+                    if (plane.field == 0) {
+                        director_color = LC::Imaging::Colors::RungeSphere(theta, phi);
+                        plane.sheet->vertices[i].color = { director_color, 0.9f };
+                    }
+                    else if (plane.field == 1) {
+                        float thetap = theta >= 0.5f * M_PI ? M_PI - theta : theta;
+                        director_color = LC::Imaging::Colors::RungeSphere(thetap, 2 * phi);
+                        plane.sheet->vertices[i].color = { director_color, 0.9f };
+                    }
+                    
+                }
+                if (plane.field == 2) {
+
+                    if (NSpos > 0)
+                        Spos_avg /= NSpos;
+                    if (NSneg > 0)
+                        Sneg_avg /= NSneg;
+
+                    Magnum::Color3 blue(0.f, 0.f, 1.f);
+                    Magnum::Color3 neutral(0.0f, 0.0f, 0.0f);
+                    Magnum::Color3 yellow(1.f, 1.f, 0.f);
+                    for (int i = 0; i < plane.sheet->vertices.size(); i++) {
+
+                        // Set the color
+                        Magnum::Color3 director_color;
+                        if (Ssb_plane[i] < 0.f) {
+                            // Parametrize the color from 0 to the most negative splay bend
+                            Float t = 0.f; Float t0 = 0.5f; Float tc = 0.75f;
+                            if (Smin < 0.f) {
+                                t = Ssb_plane[i] / Smin;
+                                t0 = Sneg_avg / Smin;
+                                // Choose cutoff between t0 and 1
+                                Float u = plane.cutoff;
+                                tc = (1.f - u) * t0 + u;
+                            }
+                            t = 1. / (1. + exp(-(t - tc) * plane.neg_gamma));
+                            director_color = (1.f - tc) * neutral + t * yellow;
+                        }
+                        else {
+                            // Parametrize the color from 0 to the most positive splay bend
+                            Float t = 0.f; Float t0 = 0.5f; Float tc = 0.75f;
+                            if (Smax > 0.f) {
+                                t = Ssb_plane[i] / Smax;
+                                // Normalize avg
+                                t0 = Spos_avg / Smax;
+                                // Choose cutoff between t0 and 1
+                                Float u = plane.cutoff;
+                                tc = (1.f - u) * t0 + u;
+                            }
+                            t = 1. / (1. + exp(-(t - tc) * plane.pos_gamma));
+                            director_color = (1.f - t) * neutral + t * blue;
+                        } 
+                        plane.sheet->vertices[i].color = { director_color, 0.9f };
+                    }
+
+                    // Apply a Gaussian blending
+                    std::vector<Color4> colors(plane.sheet->vertices.size());
+                    // Copy the colors above
+                    for (int i = 0; i < plane.sheet->vertices.size(); i++) {
+                        colors[i] = plane.sheet->vertices[i].color;
+                    }
+                    // Box blur the colors
+                    for (int i = 1; i < plane.sheet->NX-1; i++) {
+                        for (int j = 1; j < plane.sheet->NY-1; j++) {
+                            Color4 sum(0.f, 0.f, 0.f, 0.f);
+                            for (int x = -1; x <= 1; x++)
+                                for (int y = -1; y <= 1; y++)
+                                    sum = sum + colors[i + x + plane.sheet->NX * (j + y)];
+                            plane.sheet->vertices[i + plane.sheet->NX * j].color = sum / 9.f;
+                        }
+                    }
+
+                }
+
+                // Update sheet
+                Trade::MeshData meshData = plane.sheet->Data();
+                plane.sheet->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
+            }
         }
     }
+
+    void Gui(Dataset *data,
+        LC::Drawable::Object3D *manipulator,
+        Shaders::VertexColor3D &transparentShader,
+        SceneGraph::DrawableGroup3D &transparentDrawables) {
+
+        if (ImGui::Button("Add new plane")) {
+            NewPlane();
+        }
+
+        int current_plane_size;
+
+        do {
+            current_plane_size = planes.size();
+            for (int i = 0; i < current_plane_size; i++) {
+                if (!planes[i].opentab) {
+                    // Stop drawing plane and remove
+                    planes[i].draw = false;
+                    planes.erase(planes.begin() + i);
+                    break;
+                }
+            }
+
+        } while (current_plane_size != planes.size());
+
+        ImGui::ColorEdit4("Rod color##Multiplane-viewer", &rod_color[0], ImGuiColorEditFlags_NoInputs);
+
+        if (planes.size()) {
+            ImGui::Text("Planes");
+            ImGui::Separator();
+        }
+        char txtbuffer[30];
+        float maxdim = 0.5f * (std::max)({ cell[0], cell[1], cell[2] });
+
+        if (ImGui::BeginTabBar("Selected planes", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll)) {
+            int ctr = 0;
+            for (auto& p : planes) {
+
+                int n2 = sprintf(txtbuffer, "Plane %d", ++ctr);
+                // Copy to string
+                std::string txt;
+                for (int i = 0; i < n2; i++) txt += txtbuffer[i];
+
+                if (p.opentab && ImGui::BeginTabItem(txt.c_str(), &p.opentab, ImGuiTabItemFlags_None))
+                {
+                    ImGui::Text("%s", txt.c_str());
+                    ImGui::Separator();
+                    // Plane parameters
+                    ImGui::RadioButton(("lambda##plane" + txt).c_str(), &p.field, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton(("chi##plane" + txt).c_str(), &p.field, 1);
+                    ImGui::SameLine();
+                    ImGui::RadioButton(("chi-SB##plane" + txt).c_str(), &p.field, 2);
+                    if (p.field == 1 || p.field == 2) {
+                        ImGui::SliderFloat(("Vortex tolerance##plane" + txt).c_str(), &p.vortexTolerance, 0.0f, 0.1f);
+                    }
+                    ImGui::SliderFloat(("SB (+) gamma##plane" + txt).c_str(), &p.pos_gamma, 0.0f, 15.f);
+                    ImGui::SliderFloat(("SB (-) gamma##plane" + txt).c_str(), &p.neg_gamma, 0.0f, 15.f);
+                    ImGui::SliderFloat(("SB cutoff##plane" + txt).c_str(), &p.cutoff, 0.0f, 1.0f);
+                    ImGui::Text("Densities");
+                    ImGui::SliderInt(("Density##plane" + txt).c_str(), &p.node_density, 5, 60);
+                    ImGui::SliderInt(("Sheet density##plane" + txt).c_str(), &p.sheet_density, 20, 150);
+                    ImGui::SliderFloat(("Scaling##plane" + txt).c_str(), &p.scaling, 0.1f, 2.f);
+                    ImGui::SliderFloat(("Rod length##plane" + txt).c_str(), &p.rod_length, 2.f, 6.f);
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Plane Orientation");
+                    ImGui::SliderFloat(("Theta##plane" + txt).c_str(), &p.plane_normal[0], 0.0f, M_PI);
+                    ImGui::SliderFloat(("Phi##plane" + txt).c_str(), &p.plane_normal[1], 0.0f, 2.f*M_PI);
+                    ImGui::SliderFloat(("Offset##plane" + txt).c_str(), &p.offset, -0.1f, 0.1f);
+                    ImGui::Separator();
+                    ImGui::Text("Plane position");
+                    ImGui::SliderFloat(("x##plane" + txt).c_str(), &p.plane_center[0], -0.5f * cell[0], 0.5f * cell[0]);
+                    ImGui::SliderFloat(("y##plane" + txt).c_str(), &p.plane_center[1], -0.5f * cell[1], 0.5f * cell[1]);
+                    ImGui::SliderFloat(("z##plane" + txt).c_str(), &p.plane_center[2], -0.5f * cell[2], 0.5f * cell[2]);
+                    ImGui::Separator();
+                    ImGui::Text("Plane dimensions");
+                    ImGui::SliderFloat(("D##plane" + txt).c_str(), &p.plane_diam, 0, maxdim);
+                    ImGui::Separator();
+                    ImGui::Checkbox(("Draw##plane" + std::to_string(p.plane_id)).c_str(), &p.draw);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Auto-orient", &p.plane_preview);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Init")) {
+
+                        // Set initialized variable
+                        p.initialized = true;
+
+                        // Initialize the plane!
+                        std::function<Magnum::Vector3(void*, std::size_t)> access = [](void* data, std::size_t i) {
+                            Magnum::Vector3* pos = (Magnum::Vector3*)data;
+                            return pos[i];
+                        };
+                        
+                        int density = p.node_density;
+                        uint Nr = p.plane_diam * density;
+                        uint Nr_s = p.plane_diam * p.sheet_density;
+                        Float dr = p.plane_diam / (Nr - 1);
+                        Float dr_s = p.plane_diam / (Nr_s - 1);
+                        uint sz = 0;
+
+                        // Sample points on a plane
+                        std::vector<Vector2> sampled_points;
+                        for (int i = 0; i < Nr; i++) {
+                            for (int j = 0; j < Nr; j++) {
+
+                                // Sampling with spiral
+                                //Float ii = (i + j * Nr) / (float)Nr / (float)Nr;
+                                //Float u = p.plane_diam * sqrt(ii) * cos(1.618*(i + j * Nr) * 2.f * M_PI);
+                                //Float v = p.plane_diam * sqrt(ii) * sin(1.618*(i + j * Nr) * 2.f * M_PI);
+                                // Regular sampling
+                                Float u = i * dr - p.plane_diam * 0.5f;
+                                Float v = j * dr - p.plane_diam * 0.5f;
+                                sampled_points.emplace_back(u, v);
+                            }
+                        }
+                        sz = sampled_points.size();
+
+                        // Initialize position data
+                        std::unique_ptr<Vector3[]> position_data(new Vector3[sz]);
+                        std::unique_ptr<Vector3[]> sheet_position_data(new Vector3[Nr_s * Nr_s]);
+
+                        // Specify the normal vector
+                        Float sth = sin(p.plane_normal[0]);
+                        Float cth = cos(p.plane_normal[0]);
+                        Float sph = sin(p.plane_normal[1]);
+                        Float cph = cos(p.plane_normal[1]);
+                        Eigen::Vector3f nhat(sth * cph, sth * sph, cth);
+
+                        // Build an orthogonal set of vectors to nhat
+                        Eigen::Vector3f e1(1.f, 0.f, 0.f), e2;
+
+                        if(abs(e1.dot(e2)) > 0.99f) {
+                            e1(1) = 1.f;
+                        }
+                        // Orthogonalize e1 wrt nhat
+                        e1 = e1.cross(nhat);
+                        e1.normalize();
+                        e2 = nhat.cross(e1);
+
+                        for (uint i = 0; i < sz; i++) {
+                            auto point = sampled_points[i];
+                            Float u = point[0];
+                            Float v = point[1];
+
+                            position_data[i][0] = u * e1(0) + v * e2(0) + p.plane_center[0];
+                            position_data[i][1] = u * e1(1) + v * e2(1) + p.plane_center[1];
+                            position_data[i][2] = u * e1(2) + v * e2(2) + p.plane_center[2];
+                        }
+
+                        for (uint i = 0; i < Nr_s; i++) {
+                            for (uint j = 0; j < Nr_s; j++) {
+                                Float u = 1.2f * (dr_s * i - p.plane_diam * 0.5f);
+                                Float v = 1.2f * (dr_s * j - p.plane_diam * 0.5f);
+                                sheet_position_data[i + j * Nr_s][0] = u * e1(0) + v * e2(0) + p.plane_center[0] + p.offset * nhat(0);
+                                sheet_position_data[i + j * Nr_s][1] = u * e1(1) + v * e2(1) + p.plane_center[1] + p.offset * nhat(1);
+                                sheet_position_data[i + j * Nr_s][2] = u * e1(2) + v * e2(2) + p.plane_center[2] + p.offset * nhat(2);
+                            }
+                        }
+
+                        p.plane.scale = p.scaling/sqrt(density)/1.618;
+                        p.plane.hLength = p.rod_length;
+                        p.plane.Init((void*)position_data.get(), access, sz);
+
+                        //Initialize the sheet
+                        p.sheet = std::make_unique<LC::DynamicColorSheet>();
+                        p.sheet->Set(Nr_s, Nr_s, p.plane_diam, p.plane_diam);
+
+
+                        std::function<Vector3(void*,std::size_t)> sfunc = [&](void*dat,std::size_t i) {
+                            Vector3* dat_vec = static_cast<Vector3*>(dat);
+                            return dat_vec[i];
+                        };
+
+                        p.sheet->InitManual((void*)sheet_position_data.get(), sfunc);
+                        p.sheet_mesh = p.sheet->Mesh();
+                        new LC::Drawable::TransparentFlatDrawable{ *manipulator, transparentShader,
+                            p.sheet_mesh, p.draw, Vector3{0.0f, 0.0f, 0.0f}, transparentDrawables };
+                        
+                        
+                        // Call update
+                        Update(data);
+                    }
+
+                    ImGui::EndTabItem();
+                }
+            }
+            ImGui::EndTabBar();
+        }
+    }
+    void NewPlane() {
+        // Add a new plane
+        planes.push_back(NematicPlane(global_plane_counter++));
+        if (planes.size() == 1)
+            selected_plane = 0;
+    }
+
     std::vector<NematicPlane> planes;
+    std::array<LC::scalar, 3> cell;
+    Color4 rod_color = { 0.5f, 0.5, 0.5f, 1.f };
+    int selected_plane = -1;
+    
+    int global_plane_counter = 0; // Count how many planes have been created
 };
 
 
@@ -265,7 +809,7 @@ private:
     void findVortexKnotComponents(bool saveObj = false, const std::string& obj_name = "test.obj");
     void findVortexKnotComponents2(bool saveObj = false, const std::string& obj_name = "test.obj");
 
-    void findVortexKnot(bool saveObj, const std::string& obj_name,
+    std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>> findVortexKnot(bool saveObj, const std::string& obj_name,
         std::unique_ptr<float[]>& chi_field, std::unique_ptr<float[]>& field_nn, std::unique_ptr<float[]>& valid_fieldf,
         std::unique_ptr<float[]>& field_S, std::unique_ptr<float[]>& sample_grid,
         std::unique_ptr<float[]>& field_Q, std::unique_ptr<float[]>& field_Ssb,
@@ -326,7 +870,7 @@ private:
 Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
                                                                 Configuration{}.setTitle("FO Electric Simulation")
                                                                                .setWindowFlags(Configuration::WindowFlag::Resizable),
-                                                                GLConfiguration{}.setSampleCount(8)
+                                                                GLConfiguration{}.setSampleCount(16)
 
 } {
 
@@ -616,6 +1160,7 @@ void Sandbox::drawEvent() {
                 handlePreimageWindow();
                 handleVortexKnotWindow();
                 handleKnotInteractionWindow();
+                handleMultiplaneWindow();
 
                 {
                     bool prior = _widget.midplane;
@@ -833,6 +1378,9 @@ void Sandbox::drawEvent() {
             _crossSections[id].nematic->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
         }
     }
+
+    // Draw planes from plane selector
+    _multiplane_manager.Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix(), _widget);
 
     // Draw vortex points
     for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); iter++) {
@@ -1506,6 +2054,7 @@ void Sandbox::initVisuals() {
     // Manipulator rotation can be set here as well
 
     _crossSections = Containers::Array<CrossX>{ 3 };
+    _multiplane_manager.CleanAll();
 
     for (int id = 0; id < 3; id++) {
 
@@ -1881,6 +2430,8 @@ void Sandbox::handleKnotInteractionWindow() {
             LC::scalar dy = CELL[1] / (VOX[1] - 1);
             LC::scalar dz = CELL[2] / (VOX[2] - 1);
 
+            std::vector<Eigen::Vector3d> translations;
+
             // 1 Create the initial conditons (determined by settings)
             if (_widget.knot_interaction_handle.useInitialConditions) {
                 // Create initial conditions
@@ -1934,6 +2485,7 @@ void Sandbox::handleKnotInteractionWindow() {
                     }
                 };
 
+
                 auto embed_heliknoton = [&](Eigen::Vector3d translation_vector) {
                     LC::scalar phi0 = 2. * M_PI * data->chirality * translation_vector[2];
                     auto heli_vfield = LC::Math::Heliknoton(1, data->cell_dims, 1., 1., { 0.,0.,0. }, phi0, false);
@@ -1962,8 +2514,8 @@ void Sandbox::handleKnotInteractionWindow() {
                 if (_widget.knot_interaction_handle.useInitialConditions == 1) {
                     // Define the heliknoton displacement vector using GUI specifications
                     LC::scalar r = 0.5 * _widget.knot_interaction_handle.seperation;
-                    LC::scalar theta0 = _widget.knot_interaction_handle.theta0;
-                    LC::scalar phi0 = _widget.knot_interaction_handle.phi0;
+                    LC::scalar theta0 = M_PI / 180.f * _widget.knot_interaction_handle.theta0;
+                    LC::scalar phi0 = M_PI / 180.f * _widget.knot_interaction_handle.phi0;
 
 
                     disp[0] = r * sin(theta0) * cos(phi0);
@@ -1974,6 +2526,9 @@ void Sandbox::handleKnotInteractionWindow() {
                     // Set the background field to uniform
                     clear_heliknotons();
 
+                    translations.push_back(disp);
+                    translations.push_back(-disp);
+
                     // Embed the heliknotons
                     embed_heliknoton(disp);
                     embed_heliknoton(-disp);
@@ -1983,6 +2538,7 @@ void Sandbox::handleKnotInteractionWindow() {
                     clear_heliknotons();
 
                     for (auto& pos : _widget.knot_interaction_handle.pos_gui.position_array) {
+                        translations.emplace_back(Eigen::Vector3d(pos[0], pos[1], pos[2]));
                         embed_heliknoton(Eigen::Vector3d(pos[0], pos[1], pos[2]));
                     }
 
@@ -2012,30 +2568,67 @@ void Sandbox::handleKnotInteractionWindow() {
             // Create file to log energies for each knot
             std::string fname_energy = _widget.knot_interaction_handle.FileName() + "_energy.bin";
             std::vector<LC::scalar> energy_array;
+            std::string fname_positions = _widget.knot_interaction_handle.FileName() + "_positions.bin";
+            std::vector<std::vector<Eigen::Vector3d>> positions_array;
 
             // Need to extract previous iterations
             if (_widget.knot_interaction_handle.nFrameOffset) {
-                // Get size of the file
-                std::streampos fsize = 0;
+                // Load previous energy data
                 {
-                    std::ifstream tempfile(fname_energy, std::ios::binary);
+                    std::streampos fsize = 0;
+                    {
+                        std::ifstream tempfile(fname_energy, std::ios::binary);
 
-                    fsize = tempfile.tellg();
-                    tempfile.seekg(0, std::ios::end);
-                    fsize = tempfile.tellg() - fsize;
-                    tempfile.close();
+                        fsize = tempfile.tellg();
+                        tempfile.seekg(0, std::ios::end);
+                        fsize = tempfile.tellg() - fsize;
+                        tempfile.close();
+                    }
+
+                    int temp_points = fsize / sizeof(LC::scalar);
+                    std::vector<LC::scalar> tempdata(temp_points);
+
+                    // Read in data
+                    std::ifstream ifile(fname_energy, std::ios::in | std::ios::binary);
+                    if (ifile.is_open() && fsize > 0) {
+                        ifile.read((char*)&tempdata[0], fsize);
+                        ifile.close();
+                    }
+                    energy_array = tempdata;
+                }
+                // Load previous position data
+                {
+                    std::streampos fsize = 0;
+                    {
+                        std::ifstream tempfile(fname_positions, std::ios::binary);
+
+                        fsize = tempfile.tellg();
+                        tempfile.seekg(0, std::ios::end);
+                        fsize = tempfile.tellg() - fsize;
+                        tempfile.close();
+                    }
+
+                    
+
+                    // Read in data
+                    std::ifstream ifile(fname_positions, std::ios::in | std::ios::binary);
+                    if (ifile.is_open() && fsize > 0) {
+                        // Get the number of frames that will be read
+                        int pos_frames_detected;
+                        ifile.read((char*)&pos_frames_detected, sizeof(int));
+                        // For each frame
+                        for (int f = 0; f < pos_frames_detected; f++) {
+                            // Read the number of positions
+                            int nPos;
+                            ifile.read((char*)&nPos, sizeof(int));
+                            std::vector<Eigen::Vector3d> tmppos(nPos);
+                            ifile.read((char*)&tmppos[0], nPos * sizeof(Eigen::Vector3d));
+                            positions_array.push_back(tmppos);
+                        }
+                        ifile.close();
+                    }
                 }
 
-                int temp_points = fsize / sizeof(LC::scalar);
-                std::vector<LC::scalar> tempdata(temp_points);
-
-                // Read in data
-                std::ifstream ifile(fname_energy, std::ios::in | std::ios::binary);
-                if (ifile.is_open() && fsize > 0) {
-                    ifile.read((char*)&tempdata[0], fsize);
-                    ifile.close();
-                }
-                energy_array = tempdata;
             }
             // Save info file about the simulation
             else {
@@ -2105,8 +2698,6 @@ void Sandbox::handleKnotInteractionWindow() {
             int switch_frame_count = 0;
             int num_switches = _widget.knot_interaction_handle.switching_data.size();
 
-               
-
             for (int f = 0; f < _widget.knot_interaction_handle.nFrames; f++) {
 
                 int f_eff = _widget.knot_interaction_handle.nFrameOffset + f;
@@ -2145,17 +2736,45 @@ void Sandbox::handleKnotInteractionWindow() {
                 solver->Relax(_widget.knot_interaction_handle.nRelax_per_frame, true);
                 std::string fname_full = _widget.knot_interaction_handle.FileName() + std::to_string(f_eff);
                 // 3b Generate isosurface and save isosurface as ply file
-                findVortexKnot(true, fname_full, chi_field, field_nn, valid_fieldf, field_S, sample_grid,field_Q, field_Ssb, mc, mc2, vox_interp_vortex);
+                auto preimage_components = findVortexKnot(true, fname_full, chi_field, field_nn, valid_fieldf, field_S, sample_grid,field_Q, field_Ssb, mc, mc2, vox_interp_vortex);
                 energy_array.push_back(solver->TotalEnergy());
-                // 3c Generate the POM image
+                // 3c Find the vortex knots
+                // Set mc field
+                mc.set_ext_data(valid_fieldf.get());
+                auto rvecs = detect_heliknoton_COM(preimage_components,
+                    translations);
+                if (rvecs.size()) positions_array.push_back(rvecs);
+                else LC_WARN("No heliknotons were detected");
+                // 3d Generate the POM image
                 POM("POM");
                 // Update the energy file each iteration
-                std::ofstream ofile(fname_energy, std::ios::out | std::ios::binary);
+                {
+                    std::ofstream ofile(fname_energy, std::ios::out | std::ios::binary);
                 
-                if (ofile.is_open()) {
-                    std::size_t nBytes = sizeof(LC::scalar) * energy_array.size();
-                    ofile.write((char*)&energy_array[0], nBytes);
-                    ofile.close();
+                    if (ofile.is_open()) {
+                        std::size_t nBytes = sizeof(LC::scalar) * energy_array.size();
+                        ofile.write((char*)&energy_array[0], nBytes);
+                        ofile.close();
+                    }
+                }
+
+                // Update the position file each iteration
+                {
+                    std::ofstream ofile(fname_positions, std::ios::out | std::ios::binary);
+
+                    if (ofile.is_open()) {
+                        int nf = positions_array.size();
+                        if (nf) {
+                            ofile.write((char*)&nf, sizeof(int));
+                            // For each frame...
+                            for (const auto & h_detected : positions_array) {
+                                int com_sz = h_detected.size();
+                                ofile.write((char*)&com_sz, sizeof(int));
+                                ofile.write((char*)&h_detected[0], com_sz * sizeof(Eigen::Vector3d));
+                            }
+                        }
+                        ofile.close();
+                    }
                 }
 
             }
@@ -2177,12 +2796,6 @@ void Sandbox::handleVortexKnotWindow() {
 
         if (ImGui::Button("Find Components")) {
             findVortexKnotComponents2();
-        }
-
-        ImGui::SameLine();
-
-        if (ImGui::Button("Generate Components")) {
-            _widget.generateKnots = true;
         }
 
         ImGui::PopItemWidth();
@@ -2757,6 +3370,79 @@ void Sandbox::handleLCINFOWindow() {
         ImGui::End();
     }
 }
+
+// Find the new positions after relaxation by computing the COM of the n = +- preimages for each heliknoton
+std::vector<Eigen::Vector3d> detect_heliknoton_COM(std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>>&preimages, const std::vector<Eigen::Vector3d>& translations) {
+        
+    std::vector<Eigen::Vector3d> heliknotons_found, displacement_vectors;
+    int pimage_cnt = 0;
+    for (auto& preimage_components : preimages) {
+        ++pimage_cnt;
+        std::vector<uint>& indices = std::get<1>(preimage_components);
+        std::vector<LC::Math::IsoVertex>& verts = std::get<0>(preimage_components);
+        unsigned int nTriangles = indices.size() / 3;
+        uint nVert = verts.size();
+
+        std::map<uint, Face> unvisited_list_local;
+
+        // Note that verts currently refers to verts and not global indices
+        // Therefore, convert indices data to global index space through vertex positions
+        for (int tri = 0; tri < nTriangles; tri++) {
+            uint i1 = indices[3 * tri];
+            uint i2 = indices[3 * tri + 1];
+            uint i3 = indices[3 * tri + 2];
+
+            // Store in map
+            unvisited_list_local.insert({ tri, Face(i1, i2, i3) });
+        }
+
+        // 2. Separate by components
+        auto components = find_all_components_graph(unvisited_list_local, nVert, 20);
+        LC_INFO("Components detected for preimage[{1}] = {0}", components.size(), pimage_cnt);
+
+        // 3. Compute the COM for each component
+        if (components.size() > 0) {
+            std::vector<Eigen::Vector3d> COMs(components.size());
+            for (int i = 0; i < components.size(); i++) {
+                COMs[i] = Eigen::Vector3d(0., 0., 0.);
+                // Compute the COM
+                for (auto ci : components[i]) {
+                    COMs[i](0) += verts[ci].position[0] / float(components[i].size());
+                    COMs[i](1) += verts[ci].position[1] / float(components[i].size());
+                    COMs[i](2) += verts[ci].position[2] / float(components[i].size());
+                }
+            }
+            // Sort the COMs such that [0,1] are the closest points to <translation>
+            if (components.size() == 2) {
+                // 4. Identify the COM with the closest pair of preimages
+                Eigen::Vector3d com = COMs[0] - COMs[1];
+                //std::string c1 = std::to_string(com(0)) + ", " + std::to_string(com(1)) + ", " + std::to_string(com(2));
+                //std::string tstr = std::to_string(translation(0)) + ", " + std::to_string(translation(1)) + ", " + std::to_string(translation(2));
+                //std::cout << c1 << std::endl;
+                displacement_vectors.emplace_back(com);
+            }
+            else { // Invalid data point return empty vector
+                return heliknotons_found;
+            }
+        }
+
+    }
+
+    // <missile>
+    // From the displacement vectors computed, compute the symmetrized or antisymmetrized position (whichever is greater)
+    if (displacement_vectors.size() == 2) {
+        Eigen::Vector3d sum = 0.5 * (displacement_vectors[0] + displacement_vectors[1]);
+        Eigen::Vector3d diff = 0.5 * (displacement_vectors[0] - displacement_vectors[1]);
+        if (sum.squaredNorm() >= diff.squaredNorm())
+            heliknotons_found.emplace_back(sum);
+        else
+            heliknotons_found.emplace_back(diff);
+    }
+
+
+    return heliknotons_found;
+}
+
 
 void Sandbox::handleModificationWindow() {
     if (_widget.showModificationWindow) {
@@ -3371,7 +4057,9 @@ void Sandbox::handleModificationWindow() {
         ImGui::SameLine();
         ImGui::Checkbox("Single Heliknoton", &_widget.singleInteractionHeliknoton);
         ImGui::SameLine();
-        ImGui::InputFloat("Cell size", &_widget.interactionCellSize);
+        ImGui::PushItemWidth(150.f);
+        ImGui::InputFloat3("Cell size", &_widget.interactionCellSize[0]);
+        ImGui::PopItemWidth();
         ImGui::InputFloat("E-field", &EField);
         ImGui::InputInt("Relaxation iterations", &_widget.interactionIterations);
         ImGui::InputInt("Samples per point", &Navg);
@@ -3520,7 +4208,7 @@ void Sandbox::handleModificationWindow() {
             std::array<LC::scalar, 3> cdims;
             if (_widget.forceInteractionCellSize) {
                 for (int i = 0; i < 3; i++)
-                    cdims[i] = _widget.interactionCellSize;
+                    cdims[i] = _widget.interactionCellSize[i];
             }
             else {
                 cdims[0] = 2. * background_padding * (upper_bound[0] - lower_bound[0]) + 0.5 * _widget.separationDistancex;
@@ -3596,6 +4284,8 @@ void Sandbox::handleModificationWindow() {
                     // apply the z-translation effect to the in plane director positions and total translation
                     newPos[0] = ctheta * p.position[0] - stheta * p.position[1] + translation_vector[0];
                     newPos[1] = stheta * p.position[0] + ctheta * p.position[1] + translation_vector[1];
+                    //newPos[0] = p.position[0] + translation_vector[0];
+                    //newPos[1] = p.position[1] + translation_vector[1];
                     newPos[2] = p.position[2] + translation_vector[2];
 
                     // Rotate director due to z translation as well
@@ -3682,7 +4372,8 @@ void Sandbox::handleModificationWindow() {
                 LC::scalar separation;
                 LC::scalar energy;
                 // Standard deviation of the energy
-                LC::scalar en_sigma;
+                LC::scalar x_1f; LC::scalar y_1f; LC::scalar z_1f;
+                LC::scalar x_2f; LC::scalar y_2f; LC::scalar z_2f;
             };
 
 
@@ -3768,9 +4459,9 @@ void Sandbox::handleModificationWindow() {
                     interaction.separation = r;
 
                     Eigen::Vector3d displacement;
-                    displacement[0] = rr * sin(theta0) * cos(phi0);
-                    displacement[1] = rr * sin(theta0) * sin(phi0);
-                    displacement[2] = rr * cos(theta0);
+                    displacement[0] = rr * sin(theta0*M_PI/180.f) * cos(phi0*M_PI/180.f);
+                    displacement[1] = rr * sin(theta0*M_PI/180.f) * sin(phi0*M_PI/180.f);
+                    displacement[2] = rr * cos(theta0*M_PI/180.f);
 
                     translations.emplace_back(displacement);
                     interaction_data.push_back(interaction);
@@ -3854,7 +4545,6 @@ void Sandbox::handleModificationWindow() {
             // Get the zero point energy
             // Note that the total energy must be muiltiplied by dx, dy, or dz for the integration scaling to work out...
             // Compute the zero point energy
-            LC::scalar cell_volume = ((data->cell_dims[0] - 2 * dx) * (data->cell_dims[1] - 2 * dy) * (data->cell_dims[2] - 2 * dz));
 
             LC::scalar T = 293; // 20 C in Kelvin
             // kb
@@ -3873,30 +4563,22 @@ void Sandbox::handleModificationWindow() {
             LC::scalar z_prev = -1000000.;
 
             std::vector<uint32_t> full_region;
-
+            uint32_t volNew = vNew[0] * vNew[1] * vNew[2];
             for (int i = 0; i < vNew[0] * vNew[1] * vNew[2]; i++) {
                 full_region.push_back(i);
             }
+
+            std::unique_ptr<float[]> preimage(new float[volNew]);
+            LC::ExtendedMC::MarchingCubes mc;
+            mc.clean_all();
+            mc.set_resolution(vNew[0], vNew[1], vNew[2]);
+            mc.init_all();
+            mc.set_ext_data(preimage.get());
 
             // Run the test
 #if FULL_HELIKNOTON_INTERACTION
             int count = 0;
             for (const auto& translation : translations) {
-
-                // Create the update list the combined region
-                LC::scalar r_0 = 1.5;
-                auto nhat = translation;
-                nhat.normalize();
-
-                // Make a vector perpendicular
-                Eigen::Vector3d nperp(0., 0., 1);
-
-                nperp = nhat.cross(nperp);
-                if (nperp.squaredNorm() == 0) {
-                    nperp = nhat.cross(Eigen::Vector3d{ 0.,1.,0. });
-                }
-
-                nperp.normalize();
 
                 if (abs(z_prev - translation.z()) > 1e-6) { // Recompute heliknoton energy for this layer
                     clear_heliknotons();
@@ -3914,6 +4596,19 @@ void Sandbox::handleModificationWindow() {
                     E_H = kbT_conversion * solver->TotalEnergy();
                     z_prev = translation.z();
                     LC_INFO("E_bg = {0}\tE_H = {1}", E_bg, E_H);
+
+                    // This is the entire calculation
+                    if (_widget.singleInteractionHeliknoton) {
+                        // Compute and save the energy
+                        interaction_data[count].energy = E_H - E_bg; // Single heliknoton confinement energy
+                        interaction_data[count].separation *= 0.5; // Need to multiply by half to get the distance from the center
+                        interaction_data[count].x_1f = 0.0; 
+                        interaction_data[count].y_1f = 0.0; 
+                        interaction_data[count].z_1f = 0.0; 
+                        interaction_data[count].x_2f = 0.0; 
+                        interaction_data[count].y_2f = 0.0; 
+                        interaction_data[count++].z_2f = 0.0; 
+                    }
                 }
 
 
@@ -3934,7 +4629,14 @@ void Sandbox::handleModificationWindow() {
 
                     // Compute and save the energy
                     interaction_data[count].energy = E_HH - 2. * E_H + E_bg;// -zero_point_en;
-                    interaction_data[count].en_sigma = 0.0; // Obsolete
+
+                    std::vector<Eigen::Vector3d> translation_pair;
+                    translation_pair.push_back(translation);
+                    translation_pair.push_back(-translation);
+                    
+                    // owo
+                    // TODO: Reimplement heliknoton code, need to compute preimage then pass to detect heliknoton preimage
+                    
                     LC_INFO("Energy: {2}, Iteration {0}/{1}", count + 1, translations.size(), interaction_data[count].energy);
                     ++count;
                 }
@@ -3943,32 +4645,32 @@ void Sandbox::handleModificationWindow() {
             // Save data
             //std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
             
-            if (!_widget.singleInteractionHeliknoton) {
-                std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
-                std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
+         
+            std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
+            std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
 
-                if (!ofile) {
-                    LC_WARN("Failed to save file <{0}>", saveName.c_str());
+            if (!ofile) {
+                LC_WARN("Failed to save file <{0}>", saveName.c_str());
+            }
+            else {
+                // Write file version
+                char interactionType = 'e'; // Default: e -> error
+                if (radioInteractionType == 0) {
+                    interactionType = 's';
+                }
+                else if (radioInteractionType == 1) {
+                    interactionType = 'r';
+                }
+                else if (radioInteractionType == 2) {
+                    interactionType = 'v';
                 }
                 else {
-                    // Write file version
-                    char interactionType = 'e'; // Default: e -> error
-                    if (radioInteractionType == 0) {
-                        interactionType = 's';
-                    }
-                    else if (radioInteractionType == 1) {
-                        interactionType = 'r';
-                    }
-                    else if (radioInteractionType == 2) {
-                        interactionType = 'v';
-                    }
-                    else {
-                        LC_ERROR("Unknown interaction type [Invalid file]");
-                    }
-                    ofile.write((char*)&interactionType, sizeof(char));
-                    ofile.write((char*)&interaction_data[0], interaction_data.size() * sizeof(InteractionPotential));
+                    LC_ERROR("Unknown interaction type [Invalid file]");
                 }
+                ofile.write((char*)&interactionType, sizeof(char));
+                ofile.write((char*)&interaction_data[0], interaction_data.size() * sizeof(InteractionPotential));
             }
+            
 #else
             // See what the result is without doing the computation
             for (const auto& translation : translations) {
@@ -4359,58 +5061,6 @@ void Sandbox::findVortexKnotComponents(bool saveObj, const std::string &obj_name
 
     }
 
-    // Anneal the vortex knot
-#if 0
-    for (int iter = 0; iter < _widget.knot_interaction_handle.sb_saturation; iter++)
-    {
-        std::vector<std::size_t> vtemp = vortex_indices;
-        int pts_refined = 0;
-
-
-        for (const auto& id : vtemp) {
-            // Convert the index to i,j,k space
-
-            int R0 = 1;
-
-            int k = id / slice;
-            int j = (id - k * slice) / data->voxels[0];
-            int i = id - j * data->voxels[0] - slice * k;
-
-            int pts_near_max_half = (pow(1 + 2 * R0, 3) - 1) / 2;
-
-            for (int x = -1; x <= 1; x++)
-                for (int y = -1; y <= 1; y++)
-                    for (int z = -1; z <= 1; z++) {
-                        // Compute the index to modify
-                        uint id_ball = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                        // Make sure defect is in bounds
-                        if (id_ball < vol && id_ball != id) {
-                            int pts_near = 0;
-                            for (int x1 = -R0; x1 <= R0; x1++)
-                                for (int y1 = -R0; y1 <= R0; y1++)
-                                    for (int z1 = -R0; z1 <= R0; z1++) {
-                                        uint id_ball2 = (i + x + x1) + (j + y + y1) * data->voxels[0] + (k + z + z1) * slice;
-
-                                        if (id_ball2 < vol && id_ball2 != id_ball)
-                                            if (vortex_indices_set.find(id_ball2) != vortex_indices_set.end())
-                                                pts_near++;
-                                    }
-
-                            // Change classification of id_ball
-                            if (_vortex_line.knn <= pts_near && vortex_indices_set.find(id_ball) == vortex_indices_set.end()) {
-                                vortex_indices.push_back(id_ball);
-                                vortex_indices_set.insert(id_ball);
-                                ++pts_refined;
-                            }
-
-                        }
-                    }
-
-        }
-
-        LC_INFO("Points added {0}", pts_refined);
-    }
-#endif
     int Radius = _widget.knot_interaction_handle.saturation;
     int RadiusSq = Radius * Radius;
     // For each defect point, enhance contrast by expanding outwards
@@ -4629,8 +5279,28 @@ void Sandbox::findVortexKnotComponents(bool saveObj, const std::string &obj_name
                     v.normal[k] = verts[ci].normal[k];
                 }
                 // Set color
-                for (int k = 0; k < 4; k++)
-                    v.color[k] = color[k];
+                // possibilities
+                // 1. Auto color by component
+                // 2. Director color
+                bool choice = 1;
+                if (choice) {
+                    // Use the vertex position to determine the director location
+                    int x = (v.position[0] / cellf[0] + 0.5) * (data->voxels[0] - 1);
+                    int y = (v.position[1] / cellf[1] + 0.5) * (data->voxels[1] - 1);
+                    int z = (v.position[2] / cellf[2] + 0.5) * (data->voxels[2] - 1);
+                    uint id = x + data->voxels[0] * y + slice * z;
+                    float theta = acos(data->directors[id + 2 * vol]);
+                    float phi = atan2(data->directors[id + vol], data->directors[id]);
+                    auto dcol = LC::Imaging::Colors::RungeSphere(theta, phi);
+                    v.color[0] = dcol[0];
+                    v.color[1] = dcol[1];
+                    v.color[2] = dcol[2];
+                    v.color[3] = color[4];
+                }
+                else {
+                    for (int k = 0; k < 4; k++)
+                        v.color[k] = color[k];
+                }
 
                 vertices.insert({ ci, v });
             }
@@ -4684,7 +5354,6 @@ void Sandbox::findVortexKnotComponents(bool saveObj, const std::string &obj_name
 
             // Initialize the mesh
             knot->surface.Init(&vertlist[0], vertlist.size(), &indlist[0], indlist.size(), _widget.preimage_translate);
-
 
             // Create the mesh
             knot->mesh = knot->surface.Mesh();
@@ -4821,7 +5490,11 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
     _vortexManipulator = std::make_unique<LC::Drawable::Object3D>();
     _vortexManipulator->setParent(_manipulator.get());
 
-    std::unique_ptr<float[]> chi_field, field_nn(new float[3 * vol]), valid_fieldf(new float[vol]), field_S(new float[vol]);
+    std::unique_ptr<float[]> chi_field,
+        field_nn(new float[3 * vol]),
+        valid_fieldf(new float[vol]),
+        field_Q(new float[5 * vol]),
+        field_S(new float[vol]);
 
     for (int i = 0; i < data->voxels[0]; i++) {
         for (int j = 0; j < data->voxels[1]; j++) {
@@ -4917,7 +5590,7 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
 
 
         // Classify the current index ii
-        if (Sd2 > 0.5 && field_S[ii] < _widget.knot_interaction_handle.isoValue) {
+        if (field_S[ii] < _widget.knot_interaction_handle.isoValue) {
             vortex_indices.emplace_back(ii);
             vortex_indices_set.insert(ii);
         }
@@ -4995,7 +5668,7 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
         smooth0_trigs = std::get<1>(smoothing_result);
 
         // Clean the mc data
-        mc.clean_all();
+        mc.reset_mesh();
     }
 
     // Rescale positions
@@ -5025,6 +5698,17 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
             }
         }
     }
+
+    std::array<int, 3> vox_interp;
+    for (int d = 0; d < 3; d++)
+        vox_interp[d] = data->voxels[d] * _widget.knot_interaction_handle.upsampling_multiplier; // Can play around with this parameter
+    std::array<float, 3> dr_interp;
+    for (int d = 0; d < 3; d++) {
+        dr_interp[d] = cellf[d] / (vox_interp[d] - 1);
+    }
+    uint vol_interp = vox_interp[0] * vox_interp[1] * vox_interp[2];
+    std::unique_ptr<float[]> sample_grid(new float[vol_interp]), field_Ssb(new float[vol_interp]);
+    std::set<uint> vortex_indices_upsampled;
 
     if (smooth0_vertices.size() && smooth0_trigs.size()) {
         unsigned int nVert = smooth0_vertices.size();
@@ -5063,16 +5747,6 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
         int col_i = 0;
         float Ddeg = 360.f / (float)_vortex_line.components.size();
 
-
-        // Create the new grid
-        std::array<int, 3> vox_interp{ 300,300,300 }; // Can play around with this parameter
-        std::array<float, 3> dr_interp;
-        for (int d = 0; d < 3; d++) {
-            dr_interp[d] = cellf[d] / (vox_interp[d] - 1);
-        }
-        
-        uint vol_interp = vox_interp[0] * vox_interp[1] * vox_interp[2];
-        std::unique_ptr<float[]> sample_grid(new float[vol_interp]);
         mc2.clean_all();
         mc2.set_resolution(vox_interp[0], vox_interp[1], vox_interp[2]);
         mc2.set_ext_data(sample_grid.get());
@@ -5082,6 +5756,7 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
 
 
         // Split apart vertex data
+        
         for (auto& component : _vortex_line.components) {
 
             // Initialize the sample grid
@@ -5187,7 +5862,34 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
                 knot = &(*iter);
             }
 
+
             knot->knotColor = color;
+            // Use director cols instead
+            for (auto& v : smooth_vertices) {
+                int x = (v.position[0] / cellf[0] + 0.5) * (data->voxels[0] - 1);
+                int y = (v.position[1] / cellf[1] + 0.5) * (data->voxels[1] - 1);
+                int z = (v.position[2] / cellf[2] + 0.5) * (data->voxels[2] - 1);
+                int xi = (v.position[0] / cellf[0] + 0.5) * (vox_interp[0] - 1);
+                int yi = (v.position[1] / cellf[1] + 0.5) * (vox_interp[1] - 1);
+                int zi = (v.position[2] / cellf[2] + 0.5) * (vox_interp[2] - 1);
+                uint id = x + data->voxels[0] * y + slice * z;
+                uint idi = xi + vox_interp[0] * yi + vox_interp[0] * vox_interp[1] * zi;
+
+                if (idi < vol_interp)
+                    vortex_indices_upsampled.insert(idi);
+
+                float theta = acos(data->directors[id + 2 * vol]);
+                float phi = atan2(data->directors[id + vol], data->directors[id]);
+
+                Magnum::Color3 dcol;
+
+                dcol = LC::Imaging::Colors::RungeSphere(theta, phi);
+                v.color[0] = dcol[0];
+                v.color[1] = dcol[1];
+                v.color[2] = dcol[2];
+                v.color[3] = 1.f;
+            }
+            
 
             // Initialize the mesh
             knot->surface.Init((LC::Surface::Vertex*)&smooth_vertices[0], smooth_vertices.size(), &smooth_triangles[0][0],
@@ -5198,7 +5900,6 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
 
             // Add default vortex line to the scene
             new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
-
         }
 
         LC_INFO("Discovered {0} component(s)", _vortex_line.components.size());
@@ -5207,9 +5908,475 @@ void Sandbox::findVortexKnotComponents2(bool saveObj, const std::string& obj_nam
 
     }
 
+    // yeet
+    int Nx = data->voxels[0];
+    std::set<uint> fat_vortex_list;
+    auto sub2ind = [slice, Nx, vol](int i, int j, int k, int d) {
+        return i + Nx * j + slice * k + vol * d;
+    };
+    // Compute Qij for the chi field
+    for (int i = 0; i < data->voxels[0]; i++) {
+        for (int j = 0; j < data->voxels[1]; j++) {
+            for (int k = 0; k < data->voxels[2]; k++) {
+
+                uint ii = i + data->voxels[0] * j + slice * k;
+                // Compute the order parameter S
+
+                Eigen::Vector3d chi0(chi_field[ii], chi_field[ii + vol], chi_field[ii + 2 * vol]);
+                // Compute the scalar order parameter with the chi field
+
+                // Use the scalar order parameter value computed above
+                LC::scalar S = 1.;// field_S[ii];
+
+
+                field_Q[ii] = 0.5 * S * (3. * chi0[0] * chi0[0] - 1.); // qa
+                field_Q[ii + vol] = 0.5 * S * (3. * chi0[0] * chi0[1]); // qb
+                field_Q[ii + 2 * vol] = 0.5 * S * (3. * chi0[0] * chi0[2]); // qc
+                field_Q[ii + 3 * vol] = 0.5 * S * (3. * chi0[1] * chi0[1] - 1.); // qd
+                field_Q[ii + 4 * vol] = 0.5 * S * (3. * chi0[1] * chi0[2]); // qe
+            }
+        }
+    }
+
+    // Fill fattened vortex excluding the knot knot itself
+    int sb_rad = _widget.knot_interaction_handle.sb_saturation;
+    uint slice_interp = vox_interp[0] * vox_interp[1];
+
+    for (const auto& id : vortex_indices_upsampled) {
+        // Convert the index to i,j,k space
+        int k = id / slice_interp;
+        int j = (id - k * slice_interp) / vox_interp[0];
+        int i = id - j * vox_interp[0] - slice_interp * k;
+
+        for (int x = -sb_rad; x <= sb_rad; x++)
+            for (int y = -sb_rad; y <= sb_rad; y++)
+                for (int z = -sb_rad; z <= sb_rad; z++) {
+                    // Compute the index to modify
+                    uint id_ball = (i + x) + (j + y) * vox_interp[0] + (k + z) * slice_interp;
+                    // Make sure defect is in bounds
+                    if (id_ball < vol_interp && id_ball >= 0) {
+                        //_vortex_line.valid_field[id_ball] = 0;
+                        // Exclude the vortex knot itself
+                        if (vortex_indices_upsampled.find(id_ball) == vortex_indices_upsampled.end())
+                            fat_vortex_list.insert(id_ball);
+                    }
+                }
+
+    }
+
+    // Statistical parameters
+    float max_sb = 0.f;
+    float min_sb = 0.f;
+    float mean_sb_pos = 0.f;
+    float mean_sb_neg = 0.f;
+    float stdev = 0.f;
+    int Npos = 0;
+    int Nneg = 0;
+
+    // Next compute the splay bend around the knot
+    auto splay_bend = [&](int i, int j, int k) {
+        float qa002 = (field_Q[sub2ind(i, j, k + 1, 0)] + field_Q[sub2ind(i, j, k - 1, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[2] * dr[2]);
+        float qa200 = (field_Q[sub2ind(i + 1, j, k, 0)] + field_Q[sub2ind(i - 1, j, k, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[0] * dr[0]);
+        float qd002 = (field_Q[sub2ind(i, j, k + 1, 3)] + field_Q[sub2ind(i, j, k - 1, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[2] * dr[2]);
+        float qd020 = (field_Q[sub2ind(i, j + 1, k, 3)] + field_Q[sub2ind(i, j - 1, k, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[1] * dr[1]);
+        float qb110 = (field_Q[sub2ind(i + 1, j + 1, k, 1)] + field_Q[sub2ind(i - 1, j - 1, k, 1)]
+            - field_Q[sub2ind(i - 1, j + 1, k, 1)] - field_Q[sub2ind(i + 1, j - 1, k, 1)]) / (4.f * dr[0] * dr[1]);
+        float qc101 = (field_Q[sub2ind(i + 1, j, k + 1, 2)] + field_Q[sub2ind(i - 1, j, k - 1, 2)]
+            - field_Q[sub2ind(i - 1, j, k + 1, 2)] - field_Q[sub2ind(i + 1, j, k - 1, 2)]) / (4.f * dr[0] * dr[2]);
+        float qe011 = (field_Q[sub2ind(i, j + 1, k + 1, 4)] + field_Q[sub2ind(i, j - 1, k - 1, 4)]
+            - field_Q[sub2ind(i, j - 1, k + 1, 4)] - field_Q[sub2ind(i, j + 1, k - 1, 4)]) / (4.f * dr[1] * dr[2]);
+
+        return -qa002 + qa200 + 2.f * (qb110 + qc101) - qd002 + qd020 + 2.f * qe011;
+    };
+
+    Float cijk[2][2][2];
+    Float cjk[2][2];
+    Float ck[2];
+
+    for (int i = 0; i < vox_interp[0]; i++) {
+        for (int j = 0; j < vox_interp[1]; j++) {
+            for (int k = 0; k < vox_interp[2]; k++) {
+                uint id = i + vox_interp[0] * j + slice_interp * k;
+                if (i > 1 && i < vox_interp[0] - 2 && j > 1 && j < vox_interp[1] - 2 && k > 1 && k < vox_interp[2] - 2) {
+
+
+                    // Found area to compute the splay bend
+                    // uwu
+                    if (fat_vortex_list.find(id) != fat_vortex_list.end()) {
+                        // Use trilinear interpolation
+                        float x = i * dr_interp[0];
+                        float y = j * dr_interp[1];
+                        float z = k * dr_interp[2];
+                        // Bottom corner points
+                        int i_0 = x / dr[0];
+                        int j_0 = y / dr[1];
+                        int k_0 = z / dr[2];
+                        float x_0 = i_0 * dr[0];
+                        float y_0 = j_0 * dr[1];
+                        float z_0 = k_0 * dr[2];
+                        // Interpolation coordinates
+                        float x_d = (x - x_0) / dr[0];
+                        float y_d = (y - y_0) / dr[1];
+                        float z_d = (z - z_0) / dr[2];
+                        // Fill the interpolant
+                        for (int a = 0; a < 2; a++)
+                            for (int b = 0; b < 2; b++)
+                                for (int c = 0; c < 2; c++)
+                                    cijk[a][b][c] = splay_bend(i_0 + a, j_0 + b, k_0 + c);
+
+                        // Begin interpolation
+                        for (int b = 0; b < 2; b++)
+                            for (int c = 0; c < 2; c++)
+                                cjk[b][c] = (1.f - x_d) * cijk[0][b][c] + x_d * cijk[1][b][c];
+
+                        // Begin interpolation
+                        for (int c = 0; c < 2; c++)
+                            ck[c] = (1.f - y_d) * cjk[0][c] + y_d * cjk[1][c];
+
+                        field_Ssb[id] = (1.f - z_d) * ck[0] + z_d * ck[1];
+                    }
+                    else // splay bend not close enough to the vortex knot
+                        field_Ssb[id] = 0.f;
+                }
+                else {
+                    // Far field value
+                    field_Ssb[id] = 0.f;
+                }
+
+                if (field_Ssb[id] > 0.f) {
+                    mean_sb_pos += field_Ssb[id];
+                    Npos++;
+                }
+                else if (field_Ssb[id] < 0.f) {
+                    mean_sb_neg += field_Ssb[id];
+                    Nneg++;
+                }
+
+
+                if (field_Ssb[id] > max_sb) {
+                    max_sb = field_Ssb[id];
+                }
+                if (field_Ssb[id] < min_sb) {
+                    min_sb = field_Ssb[id];
+                }
+            }
+        }
+    }
+
+    if (Npos > 0)
+        mean_sb_pos /= (float)Npos;
+    if (Nneg > 0)
+        mean_sb_neg /= (float)Nneg;
+
+    // Choose the cutoff values
+    float up = 0.f;
+    float un = 0.f;
+    float alpha = 0.1f;
+    float tc_pos = (1.f - up) * (mean_sb_pos/max_sb) * alpha + up;
+    float tc_neg = (1.f - un) * (mean_sb_neg/min_sb) * alpha + un;
+
+
+    // ===============================
+    // Splay-bend pieces             |
+    // ===============================
+    // Positive splay-bend knot isosurface
+    auto sub2ind_int = [&](int i, int j, int k) {
+        return i + vox_interp[0] * j + slice_interp * k;
+    };
+    std::vector<uint> pos_splay_ribbon;
+    for (const auto & id : fat_vortex_list) {
+
+        int k = id / slice_interp;
+        int j = (id - k * slice_interp) / vox_interp[0];
+        int i = id - j * vox_interp[0] - k * slice_interp;
+        //if (field_Ssb[id] > max_sb * _widget.knot_interaction_handle.sb_pos_iso_ratio_lower &&
+        //    field_Ssb[id] <= max_sb * _widget.knot_interaction_handle.sb_pos_iso_ratio_upper) {
+        //    pos_splay_ribbon.emplace_back(id);
+        //}
+
+        float local_avg_field_Ssb = field_Ssb[id];
+        for (int x : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i + x, j, k)];
+        for (int y : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j + y, k)];
+        for (int z : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j, k + z)];
+
+        local_avg_field_Ssb /= 7.;
+
+        //if (_widget.knot_interaction_handle.sb_pos_iso_ratio_lower * stdev < field_Ssb[id]
+        //    && field_Ssb[id] < _widget.knot_interaction_handle.sb_pos_iso_ratio_upper * stdev) {
+        //    pos_splay_ribbon.emplace_back(id);
+        //}
+                
+        if (tc_pos <= local_avg_field_Ssb / max_sb)
+            pos_splay_ribbon.emplace_back(id);
+
+        //valid_fieldf[id] = 0.f;
+    }
+   
+    // Reset sample grid
+    for (auto id = 0; id < vol_interp; id++)
+        sample_grid[id] = 0.f;
+
+    // Choose the points to include in the isosurface
+    for (const auto& id : pos_splay_ribbon) {
+        sample_grid[id] = -1.f;
+        //valid_fieldf[id] = -1.f;
+    }
+
+
+    mc2.reset_mesh();
+    mc2.run();
+
+    for (uint i = 0; i < mc2.nverts(); ++i) {
+        LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
+        v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
+        v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
+        v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
+
+        // Normalize normals
+        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
+        if (nrm != 0)
+        {
+            nrm = 1.0 / sqrt(nrm);
+            v.nx *= nrm;
+            v.ny *= nrm;
+            v.nz *= nrm;
+        }
+    }
+
+    if (mc2.nverts() && mc2.ntrigs()) {
+        unsigned int nVert = mc2.nverts();
+        unsigned int nInd = mc2.ntrigs() * 3;
+        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
+        unsigned int* indices = new unsigned int[nInd];
+
+        LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
+        int* ind_temp = (int*)mc2.triangles();
+
+        // Feed data to indices,verts
+
+        for (int i = 0; i < nInd; i++)
+            indices[i] = ind_temp[i];
+
+        for (int i = 0; i < nVert; i++) {
+            verts[i].position[0] = temp_verts[i].x;
+            verts[i].position[1] = temp_verts[i].y;
+            verts[i].position[2] = temp_verts[i].z;
+            verts[i].normal[0] = temp_verts[i].nx;
+            verts[i].normal[1] = temp_verts[i].ny;
+            verts[i].normal[2] = temp_verts[i].nz;
+
+        }
+
+        std::array<float, 4> blue = { 0.f,0.f,1.f,1.f };
+
+        // Re-interleave data to IsoVertex format
+        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
+        LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
+        uint* iso_ind_ptr = (uint*)mc2.triangles();
+
+        for (int vi = 0; vi < mc2.nverts(); vi++) {
+            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
+        }
+
+
+        // Smooth the mesh and save it
+        //TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), data->voxels, blue, false, 0, 0, saveObj, obj_name + std::string("_SB_pos.ply"));
+
+        // Apply Taubin smoothing to the vertices
+        float lambda = 0.35f;
+        float mu = -0.34f;
+        int smoothIterations = 80;
+        auto smoothing_result = TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
+            mc2.ntrigs() * 3, field_nn.get(), data->voxels, blue, false, 0, 0);
+
+
+        smooth0_vertices = std::get<0>(smoothing_result);
+        smooth0_trigs = std::get<1>(smoothing_result);
+
+        Color4 c4_blue = { 0.f, 0.f, 1.f, 1.f }; // blue
+        _vortexKnot.push_back(VortexKnot{});
+        VortexKnot* knot;
+        {
+            // Go to the newly added vortex knot
+            std::list<VortexKnot>::iterator iter;
+            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
+                iter = it;
+            knot = &(*iter);
+        }
+
+        knot->knotColor = c4_blue;
+        knot->ribbon = true;
+
+        // Load the surface to view
+        // Initialize the mesh
+        knot->surface.Init((LC::Surface::Vertex*)&smooth0_vertices[0], smooth0_vertices.size(), &smooth0_trigs[0][0],
+            smooth0_trigs.size() * 3, _widget.preimage_translate);
+
+        // Create the mesh
+        knot->mesh = knot->surface.Mesh();
+
+        // Add default vortex line to the scene
+        new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
+        mc2.reset_mesh();
+    }
+    else {
+        LC_INFO("Not enough points for positive SB");
+    }
+
+    // yesn't
+    // Negative splay bend
+    std::vector<uint> neg_splay_ribbon;
+    for (const auto& id : fat_vortex_list) {
+
+        uint k = id / slice_interp;
+        uint j = (id - k * slice_interp) / vox_interp[0];
+        uint i = id - j * vox_interp[0] - k * slice_interp;
+        // upper(mag) <= Ssb < lower(mag)
+        //if (_widget.knot_interaction_handle.sb_neg_iso_ratio_upper * min_sb <= field_Ssb[id] &&
+        //    field_Ssb[id] < min_sb * _widget.knot_interaction_handle.sb_neg_iso_ratio_lower) {
+        //    neg_splay_ribbon.emplace_back(id);
+        //}
+
+        float local_avg_field_Ssb = field_Ssb[id];
+        for (int x : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i + x, j, k)];
+        for (int y : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j + y, k)];
+        for (int z : {-1, 1})
+            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j, k + z)];
+
+        local_avg_field_Ssb /= 7.;
+
+
+        //if (-_widget.knot_interaction_handle.sb_neg_iso_ratio_upper * stdev < field_Ssb[id]
+        //    && field_Ssb[id] < -_widget.knot_interaction_handle.sb_neg_iso_ratio_lower * stdev) {
+        //    neg_splay_ribbon.emplace_back(id);
+        //}
+
+        if (tc_neg <= local_avg_field_Ssb / min_sb)
+            neg_splay_ribbon.emplace_back(id);
+
+        //valid_fieldf[id] = 0.f;
+    }
+
+    // Reset sample grid
+    for (auto id = 0; id < vol_interp; id++)
+        sample_grid[id] = 0.f;
+
+    // Choose the points to include in the isosurface
+    for (const auto& id : neg_splay_ribbon) {
+        sample_grid[id] = -1.f;
+        //valid_fieldf[id] = -1.f;
+    }
+
+    mc2.reset_mesh();
+    mc2.run();
+
+    for (uint i = 0; i < mc2.nverts(); ++i) {
+        LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
+        v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
+        v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
+        v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
+
+        // Normalize normals
+        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
+        if (nrm != 0)
+        {
+            nrm = 1.0 / sqrt(nrm);
+            v.nx *= nrm;
+            v.ny *= nrm;
+            v.nz *= nrm;
+        }
+    }
+
+    if (mc2.nverts() && mc2.ntrigs()) {
+        unsigned int nVert = mc2.nverts();
+        unsigned int nInd = mc2.ntrigs() * 3;
+        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
+        unsigned int* indices = new unsigned int[nInd];
+
+        LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
+        int* ind_temp = (int*)mc2.triangles();
+
+        // Feed data to indices,verts
+
+        for (int i = 0; i < nInd; i++)
+            indices[i] = ind_temp[i];
+
+        for (int i = 0; i < nVert; i++) {
+            verts[i].position[0] = temp_verts[i].x;
+            verts[i].position[1] = temp_verts[i].y;
+            verts[i].position[2] = temp_verts[i].z;
+            verts[i].normal[0] = temp_verts[i].nx;
+            verts[i].normal[1] = temp_verts[i].ny;
+            verts[i].normal[2] = temp_verts[i].nz;
+
+        }
+
+
+        std::vector<MeshLib::PNCVertex<float>> vertices;
+        std::vector<MeshLib::Triangle> triangles;
+        std::array<float, 4> yellow = { 1.f,1.f,0.f,1.f };
+
+        // Re-interleave data to IsoVertex format
+        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
+        LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
+        uint* iso_ind_ptr = (uint*)mc2.triangles();
+
+        for (int vi = 0; vi < mc2.nverts(); vi++) {
+            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
+        }
+
+        // Smooth the mesh and save it
+        //TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), data->voxels, yellow, false, 0, 0, saveObj, obj_name + std::string("_SB_neg.ply"));
+
+        float lambda = 0.33f;
+        float mu = -0.34f;
+        int smoothIterations = 80;
+        auto smoothing_result = TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
+            mc2.ntrigs() * 3, field_nn.get(), data->voxels, yellow, false, 0, 0);
+
+        smooth0_vertices = std::get<0>(smoothing_result);
+        smooth0_trigs = std::get<1>(smoothing_result);
+
+        Color4 c4_yellow = { 1.f, 1.f, 0.f, 1.f }; // blue
+        _vortexKnot.push_back(VortexKnot{});
+        VortexKnot* knot;
+        {
+            // Go to the newly added vortex knot
+            std::list<VortexKnot>::iterator iter;
+            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
+                iter = it;
+            knot = &(*iter);
+        }
+
+        knot->knotColor = c4_yellow;
+        knot->ribbon = true;
+
+        // Load the surface to view
+        // Initialize the mesh
+        knot->surface.Init((LC::Surface::Vertex*)&smooth0_vertices[0], smooth0_vertices.size(), &smooth0_trigs[0][0],
+            smooth0_trigs.size() * 3, _widget.preimage_translate);
+
+        // Create the mesh
+        knot->mesh = knot->surface.Mesh();
+
+        // Add default vortex line to the scene
+        new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
+        mc2.reset_mesh();
+    }
+    else {
+        LC_INFO("Not enough points for negative SB");
+    }
+
+
 }
 
-void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
+std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>>
+Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
     // Parameters
     std::unique_ptr<float[]> &chi_field, std::unique_ptr<float[]>& field_nn, std::unique_ptr<float[]>& valid_fieldf,
     std::unique_ptr<float[]>& field_S, std::unique_ptr<float[]>& sample_grid,
@@ -5353,8 +6520,9 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
 
 
         // Classify the current index ii
-        if (Sd2 > 0.5 && field_S[ii] < _widget.knot_interaction_handle.isoValue) {
-            vortex_indices.emplace_back(ii);
+        if (field_S[ii] < _widget.knot_interaction_handle.isoValue) {
+            //if (Sd2 > 0.5)
+                vortex_indices.emplace_back(ii);
         }
 
     }
@@ -5650,7 +6818,7 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
                 // Compute the scalar order parameter with the chi field
 
                 // Use the scalar order parameter value computed above
-                LC::scalar S = field_S[ii];
+                LC::scalar S = 1.;// field_S[ii];
 
 
                 field_Q[ii] = 0.5 * S * (3. * chi0[0] * chi0[0] - 1.); // qa
@@ -5692,16 +6860,16 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
     int N = 0;
 
     // [derivative][qtensor]
-    float qD[3][5];
+    //float qD[3][5];
     // [position][qtensor][--, -, +, ++]
-    float Qt[3][5][4];
-    constexpr float c1 = 1.0 / 12.0;
-    constexpr float c2 = 2.0 / 3.0;
-    constexpr float c3 = 4.0 / 3.0;
+    //float Qt[3][5][4];
+    //constexpr float c1 = 1.0 / 12.0;
+    //constexpr float c2 = 2.0 / 3.0;
+    //constexpr float c3 = 4.0 / 3.0;
 
-    auto D2 = [&](int i, int d) {
-        qD[i][d] = (-c1 * Qt[i][d][3] + c2 * Qt[i][d][2] - c2 * Qt[i][d][1] + c1 * Qt[i][d][0]) / dr[i];
-    };
+    //auto D2 = [&](int i, int d) {
+    //    qD[i][d] = (-c1 * Qt[i][d][3] + c2 * Qt[i][d][2] - c2 * Qt[i][d][1] + c1 * Qt[i][d][0]) / dr[i];
+    //};
 
     // Next compute the seven terms needed for splay bend
     for (int i = 0; i < data->voxels[0]; i++) {
@@ -5849,142 +7017,6 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
     if (N > 0)
         stdev = sqrt(stdev / N);
 
-    // Recolor the vortex loops via alternating between +-1/2 defects
-#if 0
-    std::vector<Eigen::Vector3d> points = std::get<0>(exported_data);
-    std::vector<int> raw_pts_per_loop = std::get<1>(exported_data);
-    std::vector<Eigen::Vector3d> qpoints, refined_points;
-    std::vector<std::vector<Eigen::Vector3d>> component_list;
-    uint cumulant = 0;
-
-    for (int L : raw_pts_per_loop) {
-
-        // Fill qpoints
-        qpoints.resize(L);
-        for (int i = 0; i < L; i++)
-            qpoints[i] = points[cumulant + i];
-
-
-        // Refine the component points using Chaikin's method
-        for (int it = 0; it < 2; it++) {
-
-            refined_points.resize(2 * qpoints.size());
-
-            for (int i = 0; i < qpoints.size(); i++) {
-
-                int ip1 = (i + 1) % qpoints.size(); // Map index = size -> 0
-                refined_points[2 * i] = 0.75 * qpoints[i] + 0.25 * qpoints[ip1];
-                refined_points[2 * i + 1] = 0.25 * qpoints[i] + 0.75 * qpoints[ip1];
-            }
-            qpoints = refined_points;
-        }
-
-        // store refined points
-        component_list.emplace_back(refined_points);
-
-        cumulant += L;
-        }
-
-    // Traverse each loop
-    for (const auto& comp : component_list) {
-
-
-        Eigen::Vector3d tangent;
-
-        LC::scalar R0 = sqrt(dx * dx + dy * dz + dz * dz);
-
-        // Compute the tangent
-        for (int i = 0; i < comp.size() - 1; i++) {
-            Eigen::Vector3d pti = comp[i];
-            Eigen::Vector3d ptn = comp[i + 1];
-            Eigen::Vector3d tangent = ptn - pti;
-
-            tangent.normalize();
-
-            // Find a plane perpendicular to the tangent
-            Eigen::Vector3d e1(1., 0, 0);
-            Eigen::Vector3d e2(0., 1., 0.);
-
-            e1 = e1.cross(tangent);
-
-            LC::scalar e1_norm = e1.squaredNorm();
-
-            // Created a vector perpendicular to the tangent
-            if (e1_norm > 0.) {
-                e1.normalize();
-                e2 = e1.cross(tangent);
-                e2.normalize();
-            }
-            else {
-                // e2 will be perpendicular to the tangent
-                e1 = e2.cross(tangent);
-                e1.normalize();
-            }
-
-            // Traverse a loop of radius R0 around the tangent
-
-            const int Nphi = 32;
-            LC::scalar dphi = 2. * M_PI / (Nphi - 1);
-
-            LC::scalar Sb;
-            
-            std::array<int, Nphi> classification_arr;
-            // Point classification
-            // 1 - positive domain
-            // -1 - negative domain
-            // 0 - domain wall
-
-            int numpos = 0;
-            int numneg = 0;
-
-            for (int s = 0; s < Nphi; s++) {
-                LC::scalar phi = dphi * s;
-                Eigen::Vector3d perp_plane = pti + (R0 * cos(phi)) * e1 + (R0 * sin(phi)) * e2;
-                // convert the position in the perpendicular plane to indices
-                int x = abs(perp_plane(0) / data->cell_dims[0] + 0.5) * (data->voxels[0] - 1);
-                int y = abs(perp_plane(1) / data->cell_dims[1] + 0.5) * (data->voxels[1] - 1);
-                int z = abs(perp_plane(2) / data->cell_dims[2] + 0.5) * (data->voxels[2] - 1);
-
-                Sb = field_Ssb[sub2ind(x, y, z, 0)];
-
-                if (Sb > 5. * stdev) {
-                    classification_arr[s] = 1;
-                    numpos++;
-                }
-                else if (Sb < -5. * stdev) {
-                    classification_arr[s] = -1;
-                    numneg++;
-                }
-                else
-                    classification_arr[s] = 0;
-            }
-
-            LC::scalar point_density = (LC::scalar)(numneg + numpos) / Nphi;
-
-            // Theory: when point_density > 0.5 -> +1/2 defect
-            // < 0.5 -> -1/2 defect
-            // because domain walls will take up density. So more domain walls (e.g. -1/2 defect)
-            // will have less than 0.5 point density
-
-            // Write points to a file including color
-            // to visualize in matlab
-
-            if (point_density > 0.5) { // +1/2 color
-
-            }
-            else { // -1/2 color
-
-            }
-
-
-        }
-
-    }
-#endif
-
-
-
-
     // Compute the two isosurfaces for positive and negative-splay bend
     // -----------------------------------------------------------------
     // > Positive splay bend
@@ -6008,8 +7040,8 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
 
                 local_avg_field_Ssb /= 7.;
 
-                if (_widget.knot_interaction_handle.sb_pos_iso_ratio_lower* stdev < local_avg_field_Ssb
-                    && local_avg_field_Ssb < _widget.knot_interaction_handle.sb_pos_iso_ratio_upper * stdev) {
+                if (_widget.knot_interaction_handle.sb_pos_iso_ratio_lower* stdev < field_Ssb[id]
+                    && field_Ssb[id] < _widget.knot_interaction_handle.sb_pos_iso_ratio_upper * stdev) {
                     pos_splay_ribbon.emplace_back(id);
                 }
                 valid_fieldf[id] = 0.f;
@@ -6134,8 +7166,8 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
                 local_avg_field_Ssb /= 7.;
 
 
-                if (- _widget.knot_interaction_handle.sb_neg_iso_ratio_upper * stdev < local_avg_field_Ssb
-                    && local_avg_field_Ssb < - _widget.knot_interaction_handle.sb_neg_iso_ratio_lower * stdev) {
+                if (- _widget.knot_interaction_handle.sb_neg_iso_ratio_upper * stdev < field_Ssb[id]
+                    && field_Ssb[id] < - _widget.knot_interaction_handle.sb_neg_iso_ratio_lower * stdev) {
                     neg_splay_ribbon.emplace_back(id);
                 }
                 valid_fieldf[id] = 0.f;
@@ -6239,10 +7271,19 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
 
 #endif
 
-
+    // <dog>
     // Compute director preimages
+    Eigen::Vector3f cijk[2][2][2];
+    Eigen::Vector3f cjk[2][2];
+    Eigen::Vector3f ck[2];
+
     int preim_ct = 0;
     int nPreimages = _widget.knot_interaction_handle.preimages.size();
+
+    // Record the vertices and return
+    std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>> heliknoton_list;
+    heliknoton_list.reserve(2);
+
     for (auto preim : _widget.knot_interaction_handle.preimages) {
         float iso = _widget.knot_interaction_handle.preimage_isovalue;
         float th = preim.theta / 180.f * M_PI;
@@ -6250,19 +7291,73 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
 
         Eigen::Vector3f p0(sin(th)* cos(ph), sin(th)* sin(ph), cos(th));
 
-        for (auto i = 0; i < vol; i++) {
-            Eigen::Vector3f ni(field_nn[i], field_nn[i + vol], field_nn[i + 2 * vol]);
-            valid_fieldf[i] = (ni - p0).squaredNorm() - iso;
+        std::tuple<std::vector<LC::Math::IsoVertex>,std::vector<uint>> p_list;
+
+        auto get_director = [&](int i, int j, int k) {
+            // Apply PBCs
+            if (i >= data->voxels[0])
+                i -= data->voxels[0];
+            if (j >= data->voxels[1])
+                j -= data->voxels[1];
+            if (k >= data->voxels[2])
+                k -= data->voxels[2];
+            uint32_t v_i = i + j * data->voxels[0] + k * slice;
+            return Eigen::Vector3f(field_nn[v_i], field_nn[v_i + vol], field_nn[v_i + 2 * vol]);
+        };
+
+        for (int i = 0; i < vox_interp[0]; i++) {
+            for (int j = 0; j < vox_interp[1]; j++) {
+                for (int k = 0; k < vox_interp[2]; k++) {
+
+                    // interpolant id
+                    uint32_t ii = i + j * vox_interp[0] + k * vox_interp[0] * vox_interp[1];
+
+                    // Use trilinear interpolation
+                    float x = i * dr_interp[0];
+                    float y = j * dr_interp[1];
+                    float z = k * dr_interp[2];
+                    // Bottom corner points
+                    int i_0 = x / dr[0];
+                    int j_0 = y / dr[1];
+                    int k_0 = z / dr[2];
+                    float x_0 = i_0 * dr[0];
+                    float y_0 = j_0 * dr[1];
+                    float z_0 = k_0 * dr[2];
+                    // Interpolation coordinates
+                    float x_d = (x - x_0) / dr[0];
+                    float y_d = (y - y_0) / dr[1];
+                    float z_d = (z - z_0) / dr[2];
+                    // Fill the interpolant
+                    for (int a = 0; a < 2; a++)
+                        for (int b = 0; b < 2; b++)
+                            for (int c = 0; c < 2; c++)
+                                cijk[a][b][c] = get_director(i_0 + a, j_0 + b, k_0 + c);
+
+                    // Begin interpolation
+                    for (int b = 0; b < 2; b++)
+                        for (int c = 0; c < 2; c++)
+                            cjk[b][c] = (1.f - x_d) * cijk[0][b][c] + x_d * cijk[1][b][c];
+
+                    // Begin interpolation
+                    for (int c = 0; c < 2; c++)
+                        ck[c] = (1.f - y_d) * cjk[0][c] + y_d * cjk[1][c];
+
+                    Eigen::Vector3f result = (1.f - z_d)* ck[0] + z_d * ck[1];
+                    result.normalize();
+
+                    sample_grid[ii] = (result - p0).squaredNorm();
+                }
+            }
         }
 
-        mc.reset_mesh();
-        mc.run();
+        mc2.reset_mesh();
+        mc2.run( iso );
 
-        for (uint i = 0; i < mc.nverts(); ++i) {
-            LC::ExtendedMC::Vertex& v = mc.vertices()[i];
-            v.x = dr[0] * v.x - cellf[0] * 0.5f;
-            v.y = dr[1] * v.y - cellf[1] * 0.5f;
-            v.z = dr[2] * v.z - cellf[2] * 0.5f;
+        for (uint i = 0; i < mc2.nverts(); ++i) {
+            LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
+            v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
+            v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
+            v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
 
             // Normalize normals
             float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
@@ -6275,29 +7370,14 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
             }
         }
 
-        if (mc.nverts() && mc.ntrigs()) {
-            unsigned int nVert = mc.nverts();
-            unsigned int nInd = mc.ntrigs() * 3;
-            LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-            unsigned int* indices = new unsigned int[nInd];
+        if (mc2.nverts() && mc2.ntrigs()) {
+            unsigned int nVert = mc2.nverts();
+            unsigned int nInd = mc2.ntrigs() * 3;
 
-            LC::ExtendedMC::Vertex* temp_verts = mc.vertices();
-            int* ind_temp = (int*)mc.triangles();
+            std::get<0>(p_list).reserve(nVert);
 
-            // Feed data to indices,verts
-
-            for (int i = 0; i < nInd; i++)
-                indices[i] = ind_temp[i];
-
-            for (int i = 0; i < nVert; i++) {
-                verts[i].position[0] = temp_verts[i].x;
-                verts[i].position[1] = temp_verts[i].y;
-                verts[i].position[2] = temp_verts[i].z;
-                verts[i].normal[0] = temp_verts[i].nx;
-                verts[i].normal[1] = temp_verts[i].ny;
-                verts[i].normal[2] = temp_verts[i].nz;
-
-            }
+            LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
+            int* ind_temp = (int*)mc2.triangles();
 
             std::vector<MeshLib::PNCVertex<float>> vertices;
             std::vector<MeshLib::Triangle> triangles;
@@ -6305,30 +7385,36 @@ void Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
             std::array<float, 4> col4 = { col[0], col[1], col[2], 1.f };
 
             // Re-interleave data to IsoVertex format
-            std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc.nverts()]);
-            LC::ExtendedMC::Vertex* iso_v_ptr = mc.vertices();
-            uint* iso_ind_ptr = (uint*)mc.triangles();
+            std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
+            LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
+            uint* iso_ind_ptr = (uint*)mc2.triangles();
 
-            for (int vi = 0; vi < mc.nverts(); vi++) {
+            // Export heliknoton data
+            for (int vi = 0; vi < mc2.nverts(); vi++) {
                 iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
+                std::get<0>(p_list).emplace_back(iso_verts[vi]);
             }
 
-            // Smooth the mesh and save it
-            //TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), data->voxels, yellow, false, 0, 0, saveObj, obj_name + std::string("_SB_neg.ply"));
+            for (int i = 0; i < mc2.ntrigs(); i++) {
+                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i]);
+                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i+1]);
+                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i+2]);
+            }
 
             float lambda = 0.33f;
             float mu = -0.34f;
             int smoothIterations = 80;
             std::string fullName = obj_name + "_preim_" + std::to_string(++preim_ct) + "_of_" + std::to_string(nPreimages) + ".ply";
-            TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc.nverts(), iso_ind_ptr,
-                mc.ntrigs() * 3, field_nn.get(), data->voxels, col4, false, 0, 0, saveObj,
+            TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
+                mc2.ntrigs() * 3, field_nn.get(), data->voxels, col4, false, 0, 0, saveObj,
                 fullName);
-
-            mc.reset_mesh();
+            mc2.reset_mesh();
+            // Append to big list
+            heliknoton_list.emplace_back(p_list);
         }
     }
 
-
+    return heliknoton_list;
 }
 
 std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangle>>
@@ -8040,12 +9126,12 @@ void Sandbox::generateIsosurface() {
 
 void Sandbox::handleMultiplaneWindow() {
     if (_widget.multiplane_window) {
-        // Configure the multiplane (gets cleaned when new structure is initialized
-
-        // Generate the multiplane
-        if (ImGui::Button("Generate##multiplane")) {
-            
-        }
+        Dataset* data = (Dataset*)(_solver->GetDataPtr());
+        ImGui::Begin("Multiplane Tool", &_widget.multiplane_window);
+        // Display multiplanes
+        _multiplane_manager.cell = data->cell_dims;
+        _multiplane_manager.Gui(data, _manipulator.get(), _transparentShader, _transparentDrawables);
+        ImGui::End();
     }
 }
 

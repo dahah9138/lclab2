@@ -196,6 +196,77 @@ namespace LC { namespace Math {
 		LC_CORE_WARN("Bad eigenvalues = {0}/{1}", bad_eig, vol);
 		return bad_eig;
 	}
+
+	// Compute the chirality (helical) field relative to the director field
+	template<typename T>
+	Eigen::Vector3d ChiralityField_local(const T* nn, int i, int j, int k, const std::array<int, 3>& N, const std::array<T, 3>& cell, T vortexTolerance = 0.05f) {
+
+		int Nx = N[0];
+		int Ny = N[1];
+		int Nz = N[2];
+
+		unsigned int slice = N[1] * N[0];
+		unsigned int vol = N[2] * slice;
+
+		std::array<T, 3> dr = { cell[0] / (N[0] - 1), cell[1] / (N[1] - 1), cell[2] / (N[2] - 1) };
+		std::array<T, 3> twist;
+		Eigen::Matrix3d chi;
+		Eigen::Vector3d chi_field;
+		std::array<T, 4> stencil;
+
+		MaxEigen eig;
+
+		std::function<unsigned int(int, int, int, int)> idx_nn;
+
+		auto idx = [slice, Nx](int i, int j, int k, int increment) {
+			unsigned int id = i + increment;
+			id = id >= Nx ? id - Nx : id < 0 ? Nx + id : id;
+			return (unsigned int)(id + Nx * j + slice * k);
+		};
+
+		// Order 4 derivatives
+		unsigned int cur_idx = idx(i, j, k, 0);
+
+		if (k > N[2] - 3 || k < 2) { // Not well defined PBCs (because I usually cut the z-dim)
+			chi_field(0) = 0.0f;
+			chi_field(1) = 0.0f;
+			chi_field(2) = 1.0f;
+		}
+		else {
+			chi = HandednessTensor(i, j, k, nn, N, cell);
+			scalar trA2 = (chi * chi).trace();
+			scalar tr2A = pow(chi.trace(), 2);
+			// Normalized to 1
+			scalar discriminant = (2. * trA2 - tr2A) * 0.25 / M_PI / M_PI;
+
+			// Behavior:
+			// Discriminant is q^2 = 1 for nonsingular field
+			// Discriminant is 0 for singular field
+			// 
+			// Invalid eigenvalue condition (default is 5% tolerance)
+			if (discriminant <= vortexTolerance) {
+				for (int d = 0; d < 3; d++)
+					twist[d] = 0.;
+			}
+			else {
+				eig.Compute(chi);
+				for (int d = 0; d < 3; d++)
+					twist[d] = eig.eigenvector[d];
+
+				float norm = sqrt(twist[0] * twist[0] +
+					twist[1] * twist[1] +
+					twist[2] * twist[2]);
+
+				for (int d = 0; d < 3; d++)
+					twist[d] /= norm;
+			}
+
+			for (int d = 0; d < 3; d++)
+				chi_field(d) = twist[d];
+		}
+
+		return chi_field;
+	}
 	
 }}
 

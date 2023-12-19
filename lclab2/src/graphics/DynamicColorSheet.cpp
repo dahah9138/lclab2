@@ -56,6 +56,53 @@ namespace LC {
                 Containers::arraySize(vertices), sizeof(Vertex)) };
     }
 
+    void DynamicColorSheet::InitManual(void * data, std::function<Magnum::Vector3(void *,std::size_t)> access, Float offset) {
+
+         UnsignedInt numVerts = NX * NY;
+        UnsignedInt numInds = 6 * (NX - 1) * (NY - 1);
+
+        vertices = Containers::Array<Vertex>{ NoInit, numVerts };
+        indices = Containers::Array<UnsignedInt>{ NoInit, numInds };
+
+        UnsignedInt indCount = 0;
+
+        // Generate vertices and indices
+        for (std::size_t i = 0; i < numVerts; ++i) {
+
+            // Matlab indexing
+            UnsignedInt jj = i / NX;
+            UnsignedInt ii = i - jj * NX;
+            Float x = (Float)ii / (NX - 1);
+            Float y = (Float)jj / (NY - 1);
+
+            vertices[i].position = access(data, i);
+            vertices[i].color = Color4{ 1.0f, 1.0f, 1.0f, 0.5f };
+
+            if (ii < NX - 1 && jj < NY - 1)
+            {
+                // i = ii * NY + jj
+                indices[indCount++] = i;
+                indices[indCount++] = i + 1;
+                indices[indCount++] = NX + i;
+
+                indices[indCount++] = i + 1;
+                indices[indCount++] = NX + i + 1;
+                indices[indCount++] = NX + i;
+            }
+        }
+
+
+        // Set Attributes
+        attributes = Containers::Array<Trade::MeshAttributeData>{ 2 };
+
+        attributes[0] = Trade::MeshAttributeData{ Trade::MeshAttribute::Position,
+            Containers::stridedArrayView(vertices, &vertices[0].position,
+                Containers::arraySize(vertices), sizeof(Vertex)) };
+        attributes[1] = Trade::MeshAttributeData{ Trade::MeshAttribute::Color,
+            Containers::stridedArrayView(vertices, &vertices[0].color,
+                Containers::arraySize(vertices), sizeof(Vertex)) };
+    }
+
     Trade::MeshData DynamicColorSheet::Data() {
         return Trade::MeshData{ MeshPrimitive::Triangles,
             {}, indices, Trade::MeshIndexData{indices},

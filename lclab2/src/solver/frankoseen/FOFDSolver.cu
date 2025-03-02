@@ -1194,7 +1194,7 @@ namespace Electric { namespace FD {
 		scalar v010 = (-c1 * vv[_020] + c2 * vv[_010] - c2 * vv[_0m10] + c1 * vv[_0m20]) / dr[1];
 		scalar v001 = (-c1 * vv[_002] + c2 * vv[_001] - c2 * vv[_00m1] + c1 * vv[_00m2]) / dr[2];
 
-		en[idx] = (pow(a100 + b010 + c100, 2) * k11 + (pow(a * (-a010 + b100) + c * (b001 - c010), 2) + pow(b * (b001 - c010) + a * (a001 - c100), 2) + pow(b * (a010 - b100) + c * (a001 - c100), 2)) * k33 +
+		en[idx] = (pow(a100 + b010 + c001, 2) * k11 + (pow(a * (-a010 + b100) + c * (b001 - c010), 2) + pow(b * (b001 - c010) + a * (a001 - c100), 2) + pow(b * (a010 - b100) + c * (a001 - c100), 2)) * k33 +
 			k22 * pow((-a010 + b100) * c + a * (-b001 + c010) + b * (a001 - c100) + q, 2)) / 2. - pow(c * v001 + b * v010 + a * v100, 2) * Xi - Xp * (v100 * v100 + v010 * v010 + v001 * v001) / 2.;
 	}
 

@@ -842,6 +842,96 @@ namespace Electric {
 				};
 			}
 
+			static Config LehmannClusterLine(const std::array<scalar, 3>& varcell, const std::array<int, 3>& vox) {
+
+				// Want the Lehman cluster to be in the xz plane
+				auto helical = LC::Math::Planar(2, 1);
+				LC::scalar dx = varcell[0] / (vox[0] - 1);
+				LC::scalar dz = varcell[2] / (vox[2] - 1);
+
+				// Input:
+				// r0: Position of the defect
+				// y0: Y plane where the defect is placed
+				// sgn: Which side the defect is placed (+ right, - left)
+				auto LehmanCluster = [=](int x, int z, Eigen::Vector3d r0, int y0, int sgn) {
+
+					std::array<LC::scalar, 3> n0 = helical(r0.x(), r0.y(), r0.z());
+
+					// Get current position
+					Eigen::Vector3d pos(
+						-varcell[0] * 0.5 + x * dx,
+						0.,
+						-varcell[2] * 0.5 + z * dz
+					);
+
+					std::array<LC::scalar, 3> n = helical(pos.x(), pos.y(), pos.z());
+
+					// Position relative to the point defect
+					Eigen::Vector3d rprime = pos - r0;
+					LC::scalar rprime_len = rprime.norm();
+
+
+					// If within half a pitch from the point defect and to the right,sgn=+1 (left,sgn=-1) of the defect
+					Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
+					// Angle of position relative to point defect in the defect plane
+					LC::scalar phi = atan2(rprime.z(), rprime.x());
+
+					// Radial rotation quaternion
+					LC::scalar theta = 2. * M_PI * rprime_len;
+					LC::scalar ct, st;
+					ct = cos(0.5 * theta);
+					st = sin(0.5 * theta);
+					Eigen::Quaterniond rot_quat;
+					rot_quat.w() = ct;
+					rot_quat.x() = st * rprime.x() / rprime_len;
+					rot_quat.y() = st * rprime.y() / rprime_len;
+					rot_quat.z() = st * rprime.z() / rprime_len;
+
+					// Apply the quaternion to phihat
+					Eigen::Quaterniond nq = rot_quat * yhat * rot_quat.conjugate();
+
+					if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
+						n[0] = nq.x();
+						n[1] = nq.y();
+						n[2] = nq.z();
+
+					}
+					else if (abs(rprime.z()) < 0.5 && sgn * rprime.x() <= 0.5 && sgn * rprime.x() >= 0.) {
+						n[0] = nq.x();
+						n[1] = nq.y();
+						n[2] = nq.z();
+					}
+
+					return n;
+				};
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+					int y1 = 0.25 * voxels[1];
+					int y2 = 0.75 * voxels[1];
+
+					
+					std::array<LC::scalar, 3> nn;
+					if (j > y1 && j < y2) {
+
+						if (i * dx <= 0.5 * varcell[0])
+							// Lehman cluster at x = -0.5
+							nn = LehmanCluster(i, k, { -0.5, 0., 0. }, j, 1);
+						else
+							// Lehman cluster at x = 0.5
+							nn = LehmanCluster(i, k, { 0.5, 0., 0. }, j, -1);
+
+					}
+					else {
+						// Use the helical background
+						nn = helical(0., 0., k * dz - 0.5 * varcell[0]);
+					}
+
+					n(i, j, k, 0) = nn[0];
+					n(i, j, k, 1) = nn[1];
+					n(i, j, k, 2) = nn[2];
+				};
+			}
+
 			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, scalar lambda = 1.0, scalar lim = 1., const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, scalar phase = 0, bool background = true) {
 			
 				Configuration::VectorField n_field = LC::Math::Heliknoton(Q, cdims, lambda, lim, translation, phase, background);

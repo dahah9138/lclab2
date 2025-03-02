@@ -1,7 +1,7 @@
 clear
 clc
 
-file = 'D:/lclab2 data/heliknoton_new_3const';
+file = 'D:/dev/lclab2/data/heliknoton_new_3const';
 R = 0.73; % Radius at which the harmonics are evaluated
 component = 'x';
 qn = 4; % The principle quantum number for which to compute harmonics

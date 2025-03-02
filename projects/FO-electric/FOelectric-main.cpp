@@ -13,6 +13,7 @@ using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
 
 #define MAX_GRAPH_POINTS 250
+// Use extended marching cubes
 #define EXTENDEDMC 1
 // Current use case for interpolating preimages is inefficient,
 // use to interpolate director field THEN copy before passing to isoGenerator
@@ -1193,9 +1194,14 @@ void Sandbox::drawEvent() {
 
                 ImGui::SameLine();
                 ImGui::Checkbox("Coupled", &_widget.couplePlaneAndNematic);
-                ImGui::SameLine();
-                ImGui::Checkbox("S2 colors", &_widget.S2colors);
 
+                ImGui::Text("Director color scheme");
+                ImGui::Separator();
+                ImGui::RadioButton("Gray", &_widget.S2colors, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("S2", &_widget.S2colors, 1);
+                ImGui::SameLine();
+                ImGui::RadioButton("S2/Z2", &_widget.S2colors, 2);
 
                 std::map<std::pair<std::string, Axis>, bool&> planes{ {{"yz", Axis::x }, _crossSections[0].draw },
                     {{"xz", Axis::y }, _crossSections[1].draw },
@@ -1870,11 +1876,15 @@ void Sandbox::updateColor() {
                     }
 
                 }
+                if (_widget.S2colors == 1) _crossSections[id].nematic->polyInstanceData[cidx_red].color = director_color;
+                else if (_widget.S2colors == 2) {
+                    director_color = LC::Imaging::Colors::RungeSphere(M_PI / 2.f - abs(theta - M_PI/2.f), fmod(2.f * phi, 2.f * M_PI));
+                    _crossSections[id].nematic->polyInstanceData[cidx_red].color = director_color;
+                }
+                else _crossSections[id].nematic->polyInstanceData[cidx_red].color = Color3{ 0.5f, 0.5f, 0.5f };
                 if (!_widget.POM || ax != Axis::z) {
                     _crossSections[id].section.second->vertices[cidx].color = { director_color, alpha };
                 }
-                if (_widget.S2colors) _crossSections[id].nematic->polyInstanceData[cidx_red].color = director_color;
-                else _crossSections[id].nematic->polyInstanceData[cidx_red].color = Color3{ 0.5f, 0.5f, 0.5f };
 
                 Vector3 translation{ 0.0f, 0.0f, 0.0f };
                 translation[id] = data->cell_dims[id] * ((float)hvox / float(data->voxels[id] - 1) - 0.5f);
@@ -2420,6 +2430,9 @@ void Sandbox::handleKnotInteractionWindow() {
 
         if (_widget.knot_interaction_handle.Dispatch()) {
 
+            // Check if file directory exists, if not make it!
+            LC_MKDIR(_widget.knot_interaction_handle.PathToFile());
+
             // Begin the interaction routine
             std::vector<uint32_t> full_region;
             Eigen::Vector3d disp(0., 0., 0.);
@@ -2540,6 +2553,31 @@ void Sandbox::handleKnotInteractionWindow() {
                     for (auto& pos : _widget.knot_interaction_handle.pos_gui.position_array) {
                         translations.emplace_back(Eigen::Vector3d(pos[0], pos[1], pos[2]));
                         embed_heliknoton(Eigen::Vector3d(pos[0], pos[1], pos[2]));
+                    }
+
+                }
+                else if (_widget.knot_interaction_handle.useInitialConditions == 3) {
+                    // Define the heliknoton displacement vector using GUI specifications
+                    LC::scalar r = 0.5 * _widget.knot_interaction_handle.seperation;
+                    LC::scalar theta0 = M_PI / 180.f * _widget.knot_interaction_handle.theta0;
+                    LC::scalar phi0 = M_PI / 180.f * _widget.knot_interaction_handle.phi0;
+
+                    disp[0] = r * sin(theta0) * cos(phi0);
+                    disp[1] = r * sin(theta0) * sin(phi0);
+                    disp[2] = r * cos(theta0);
+                    
+                    // Set the background field to uniform
+                    clear_heliknotons();
+
+                    // Embed dimer centered at each given position
+                    for (auto& pos : _widget.knot_interaction_handle.pos_gui.position_array) {
+                        Eigen::Vector3d p0(pos[0], pos[1], pos[2]);
+                        Eigen::Vector3d ph1 = p0 + disp;
+                        Eigen::Vector3d ph2 = p0 - disp;
+                        translations.emplace_back(ph1);
+                        translations.emplace_back(ph2);
+                        embed_heliknoton(ph1);
+                        embed_heliknoton(ph2);
                     }
 
                 }
@@ -2773,7 +2811,19 @@ void Sandbox::handleKnotInteractionWindow() {
                                 ofile.write((char*)&h_detected[0], com_sz * sizeof(Eigen::Vector3d));
                             }
                         }
+                        
                         ofile.close();
+                    }
+                }
+
+                // Check if backup frame and save
+                if (f == 0 || (f+1) % _widget.knot_interaction_handle.nBackup_rate == 0) {
+                    std::string res = _widget.knot_interaction_handle.FileName() + std::to_string(f_eff) + ".lmt";
+                    if (!res.empty()) {
+                        _header.writeFile = res;
+                        _solver->Export(_header);
+                        LC_CORE_INFO("Saved to file {0}", res.c_str());
+                        _header.readFile = res;
                     }
                 }
 
@@ -3081,6 +3131,12 @@ void Sandbox::handleZProfileWindow() {
     }
 }
 
+/*
+    Duplicate the volume along the specified direction
+    i = 0 : x
+    i = 1 : y
+    i = 2 : z
+*/
 void Sandbox::repeatVolume(int i_) {
 
     auto data = (Dataset*)_solver->GetDataPtr();
@@ -3483,6 +3539,7 @@ void Sandbox::handleModificationWindow() {
         ImGui::SameLine();
         ImGui::RadioButton("CF1 (L)", &_widget.hopfion_type, 7);
 
+        
         int Q = _widget.topological_charge;
         int npp = _widget.npp;
         float v0 = _widget.voltage;
@@ -3598,6 +3655,56 @@ void Sandbox::handleModificationWindow() {
             solver->Normalize();
             initVisuals();
             updateColor();
+        }
+
+        // Flip the chirality
+        if (ImGui::Button("Flip chirality")) {
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+            int X_2 = (data->voxels[0]) / 2;
+            int Y_2 = (data->voxels[1]) / 2;
+            int Z_2 = (data->voxels[2]) / 2;
+            LC_INFO("{0} {1} {2}", X_2, Y_2, Z_2);
+
+            // Flip X
+            for (int i = 0; i < X_2; i++) {
+                int i_f = data->voxels[0] - 1 - i;
+                for (int j = 0; j < data->voxels[1]; j++) {
+                    for (int k = 0; k < data->voxels[2]; k++) {
+                        for (int d = 0; d < 3; d++) {
+                            LC::scalar temp = nn(i, j, k, d);
+                            nn(i, j, k, d) = nn(i_f, j, k, d);
+                            nn(i_f, j, k, d) = temp;
+                        }
+                    }
+                }
+            }
+            // Flip Y
+            for (int j = 0; j < Y_2; j++) {
+                int j_f = data->voxels[1] - 1 - j;
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int k = 0; k < data->voxels[2]; k++) {
+                        for (int d = 0; d < 3; d++) {
+                            LC::scalar temp = nn(i, j, k, d);
+                            nn(i, j, k, d) = nn(i, j_f, k, d);
+                            nn(i, j_f, k, d) = temp;
+                        }
+                    }
+                }
+            }
+            // Flip Z
+            for (int k = 0; k < Z_2; k++) {
+                int k_f = data->voxels[2] - 1 - k;
+                for (int i = 0; i < data->voxels[0]; i++) {
+                    for (int j = 0; j < data->voxels[1]; j++) {
+                        for (int d = 0; d < 3; d++) {
+                            LC::scalar temp = nn(i, j, k, d);
+                            nn(i, j, k, d) = nn(i, j, k_f, d);
+                            nn(i, j, k_f, d) = temp;
+                        }
+                    }
+                }
+            }
+
         }
 
         if (ImGui::CollapsingHeader("Tilt and Lehman")) {
@@ -3996,7 +4103,7 @@ void Sandbox::handleModificationWindow() {
         static int radioInteractionType = 0;
         static float a_axis = 1.f;
         static float b_axis = 1.f;
-        static float c_axis = 1.1f;
+        static float c_axis = 1.f;
         ImGui::Separator();
         ImGui::RadioButton("Spherical", &radioInteractionType, 0);
         ImGui::SameLine();
@@ -4371,9 +4478,8 @@ void Sandbox::handleModificationWindow() {
                 LC::scalar phi;
                 LC::scalar separation;
                 LC::scalar energy;
-                // Standard deviation of the energy
-                LC::scalar x_1f; LC::scalar y_1f; LC::scalar z_1f;
-                LC::scalar x_2f; LC::scalar y_2f; LC::scalar z_2f;
+                //LC::scalar x_1f; LC::scalar y_1f; LC::scalar z_1f;
+                //LC::scalar x_2f; LC::scalar y_2f; LC::scalar z_2f;
             };
 
 
@@ -4601,14 +4707,18 @@ void Sandbox::handleModificationWindow() {
                     if (_widget.singleInteractionHeliknoton) {
                         // Compute and save the energy
                         interaction_data[count].energy = E_H - E_bg; // Single heliknoton confinement energy
-                        interaction_data[count].separation *= 0.5; // Need to multiply by half to get the distance from the center
-                        interaction_data[count].x_1f = 0.0; 
-                        interaction_data[count].y_1f = 0.0; 
-                        interaction_data[count].z_1f = 0.0; 
-                        interaction_data[count].x_2f = 0.0; 
-                        interaction_data[count].y_2f = 0.0; 
-                        interaction_data[count++].z_2f = 0.0; 
+                        interaction_data[count++].separation *= 0.5; // Need to multiply by half to get the distance from the center
+                        //interaction_data[count].x_1f = 0.0; 
+                        //interaction_data[count].y_1f = 0.0; 
+                        //interaction_data[count].z_1f = 0.0; 
+                        //interaction_data[count].x_2f = 0.0; 
+                        //interaction_data[count].y_2f = 0.0; 
+                        //interaction_data[count++].z_2f = 0.0; 
                     }
+                }
+                else if (_widget.singleInteractionHeliknoton) { // Same energy as before
+                    interaction_data[count].energy = E_H - E_bg; // Single heliknoton confinement energy
+                    interaction_data[count++].separation *= 0.5; // Need to multiply by half to get the distance from the center
                 }
 
 
@@ -4647,6 +4757,7 @@ void Sandbox::handleModificationWindow() {
             
          
             std::string saveName = "D:\\dev\\lclab2\\data\\interactions\\" + std::string(interaction_fname);
+            //std::string saveName = "../data/" + std::string(interaction_fname);
             std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
 
             if (!ofile) {
@@ -9123,7 +9234,9 @@ void Sandbox::generateIsosurface() {
 
 }
 
-
+/*
+    Window to allow the generation of cross sectional planes
+*/
 void Sandbox::handleMultiplaneWindow() {
     if (_widget.multiplane_window) {
         Dataset* data = (Dataset*)(_solver->GetDataPtr());
@@ -9135,6 +9248,10 @@ void Sandbox::handleMultiplaneWindow() {
     }
 }
 
+/*
+    Export the vortex knots produced as a set of vertices and links (only works on well-defined knots--no multiconnected vertices)
+    to be read in KnotPlot.
+*/
 std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices, const std::vector<MeshLib::Triangle>& triangles, LC::scalar min_point_dist, const std::string &fname) {
 
     std::vector<Eigen::Vector3d> points;
@@ -9197,6 +9314,7 @@ std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const
         distinct_component_points.push_back(pointset);
     }
 
+    // k nearest neighbors
     int knn = 5;
     LC::Math::Metric<LC::scalar> metric;
     metric.Bcs = { false, false, false };

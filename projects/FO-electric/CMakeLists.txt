@@ -5,7 +5,7 @@ include_directories(${CMAKE_SOURCE_DIR}/lclab2)
 # Use __declspec(dllimport)
 remove_definitions(-DLC_BUILD_DLL)
 
-add_executable(foel FOelectric-main.cpp
+add_executable(foel FOelectric-main-official.cpp
 	Widget.h
 	minimal_list.h
 	find_components.h
@@ -14,5 +14,6 @@ add_executable(foel FOelectric-main.cpp
 	CrossSection.h
 	QuaternionFromBasis.h
 	LehmanCluster.h
+	NematicMultiplaneManager.h
 	InteractionWidget.h)
 target_link_libraries(foel PRIVATE lclab2)

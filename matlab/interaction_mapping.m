@@ -5,19 +5,24 @@ clc
 %file = 'D:/lclab2 data/interactions/mat files/sph_s2_5_3const';
 half_sphere = 1;
 upsample = 1;
-fp = "field_final/";
-fname = "E0p6";
+%fp = "field_final/";
+%fname = "E0p6";
+fname = "KnotInteraction_2025";
 draw_arrows = 0;
 exp_traj = 0;
-parabola_cut = 1;
+use_contours = 0;
+parabola_cut = 0;
 %fname = "field/interaction_field0_1";
 %load([file,'.mat'],'data');
 % Interaction energy at zero applied voltage
 %[data,~,~] = load_interaction_data('D:\dev\lclab2\data\interactions\interaction_E0.bin');
-[data,~,~] = load_interaction_data2(strcat("D:/dev/lclab2/data/interactions/",fp,fname,".bin"));
+[data,~,~] = load_interaction_data2(strcat("D:/dev/lclab2/data/interactions/",fname,".bin"));
 
 % Throw out the first data point
+d_original = data;
+d0 = data(:,1);
 data = data(:,2:end);
+
 radius = 0.5*data(3,:);
 
 if draw_arrows == 1
@@ -52,20 +57,42 @@ end
 energy = round(data(4,:));
 
 % F(phi, theta) = energy
-F = scatteredInterpolant(data(2,:)', pi/2 - data(1,:)', energy');
+F = scatteredInterpolant([d0(2),data(2,:)]', pi/2 - [d0(1),data(1,:)]', [d0(4),energy]');
 pts = length(data(1,:));
+dim = round(0.5+0.5*sqrt(1+4*pts));
 
-[pq, tq] = meshgrid(linspace(0, 2*pi, pts*upsample),...
-linspace(pi/2, 0, pts*upsample));
-
-
+[pq, tq] = meshgrid(linspace(0, 2*pi, dim*upsample),...
+linspace(pi/2, 0, dim*upsample));
 vq = F(pq, tq);
 
-[X,Y,Z] = sph2cart(pq, tq, 1);
+%% Original data map
+% (phi1,theta1,E11), (phi2,theta1,E21), ... (phiN,theta1,EN1)
+% (phi1,theta2,E12),...
+% ...                                       (phiN,thetaN,ENN)
+pmap = linspace(0,2*pi,dim);
+tmap = linspace(0,pi/2,dim);
+elemap = pi/2 - tmap;
+
+Emap = zeros(dim,dim);
+for t = 1:dim
+    for p = 1:dim
+        id = p + (t - 2) * dim;
+        id
+        if t == 1 % Degenerate point
+            Emap(t,p) = d0(4);
+        else % Nondegenerate points
+            Emap(t,p) = data(4,id);
+        end
+    end
+end
+
+[pg,tg] = meshgrid(pmap,elemap);
+
+[X,Y,Z] = sph2cart(pg, tg, 1);
 
 f1 = figure(1);
 h = surf(X,Y,Z);
-h.CData = vq;
+h.CData = Emap;
 set(h,'linestyle','none')
 set(h, 'SpecularStrength', 0)
 set(h, 'AmbientStrength', .5)
@@ -74,7 +101,7 @@ hold on
 
 if half_sphere
     hbot = surf(-X,-Y,-Z);
-    hbot.CData = vq;
+    hbot.CData = Emap;
     set(hbot,'linestyle','none')
     set(hbot, 'SpecularStrength', 0)
     set(hbot, 'AmbientStrength', .5)
@@ -99,24 +126,33 @@ colorbar
 
 f2 = figure(2);
 % Polar sheet plot
-Vq = interp2(vq,2);
+Vq = interp2(Emap,3);
 [m,n] = size(Vq);
 
-th = 180 / pi * linspace(pi/2,0,n);
+ele = 180 / pi * linspace(pi/2,0,n);
 ph = 180 / pi * linspace(0,2*pi,m);
 
-imagesc(ph,th,Vq); colormap parula; axis xy;
+imagesc(ph,ele,Vq); colormap parula; axis xy;
 colorbar;
 xlabel('\phi (\circ)');
 ylabel('\theta_{el} (\circ)');
 
-hold on
-[mph,mth] = meshgrid(ph,th);
-[~,cntour] = contour(mph,mth,Vq,[800,400,0,-400,-800,-1200,-1600],'LineColor','k');
-%cntour.EdgeColor = [0 0 0];
-cntour.LineWidth = 3;
-xlabel('\phi (\circ)');
-ylabel('\theta_{el} (\circ)');
+if use_contours
+    hold on
+    [mph,mth] = meshgrid(ph,ele);
+    [~,cntour] = contour(mph,mth,Vq,[600,300,0,-300],'LineColor','k');
+    %cntour.EdgeColor = [0 0 0];
+    cntour.LineWidth = 3;
+end
+xlabel('\phi (\circ)','FontSize',20);
+ylabel('\theta_{el} (\circ)','FontSize',20);
+
+ax = gca;
+ax.FontSize = 20;
+ax.XAxis.FontSize = 20;
+ax.XLabel.FontSize = 25;
+ax.YAxis.FontSize = 20;
+ax.YLabel.FontSize = 25;
 
 if exp_traj == 1
     hold on
@@ -147,9 +183,9 @@ end
 
 param_field = F(param_path(:,2), param_path(:,1));
 
-f3 = figure(3);
-plot(tline, param_field,'k', 'LineWidth', 2);
-mkdir(strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/"));
-exportgraphics(f1,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_sphere.png"),'Resolution',300)
-exportgraphics(f2,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_sheet.png"),'Resolution',300)
-exportgraphics(f3,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_cut.png"),'Resolution',300)
+%f3 = figure(3);
+%plot(tline, param_field,'k', 'LineWidth', 2);
+%mkdir(strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/"));
+%exportgraphics(f1,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_sphere.png"),'Resolution',300)
+%exportgraphics(f2,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_sheet.png"),'Resolution',300)
+%exportgraphics(f3,strcat("D:/dev/lclab2/data/interactions/",fp,fname,"/",fname,"_cut.png"),'Resolution',300)

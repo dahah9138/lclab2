@@ -51,6 +51,13 @@
 	#else
 		#define LC_API __declspec(dllimport)
 	#endif
+	
+	#include <Windows.h>
+	
+	#define LC_MKDIR(X) { if (CreateDirectory(X.c_str(), NULL)) {  std::cout << "Folder created successfully." << std::endl; } else if (ERROR_ALREADY_EXISTS == GetLastError()) { std::cout << "Folder already exists." << std::endl; } else { std::cerr << "Failed to create folder. Error code: " << GetLastError() << std::endl; }}
+	
+	
+	
 #elif LC_PLATFORM_UNIX || LC_PLATFORM_MACOS
 
 	#ifdef LC_BUILD_DLL
@@ -58,6 +65,9 @@
 	#else
 		#define LC_API
 	#endif
+	
+	#define LC_MKDIR(folderPath) { std::cerr << "LC_MKDIR does not exist on UNIX!!!" << std::endl; } // empty fn. need to write
+	
 #else
 	#error This operating system is not supported!
 #endif

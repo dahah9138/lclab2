@@ -138,7 +138,7 @@ namespace LC
 			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
 					"All Files", "*" },
 			pfd::opt::none);
-
+		
 		while (!of.ready(1000))
 			LC_CORE_INFO("Waiting for user input...");
 

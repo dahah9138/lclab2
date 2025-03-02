@@ -6,11 +6,11 @@ clf
 hold all
 delete(findall(gcf,'Type','light'))
 
-file = '../data/mat/ring-heliknoton-interp';
+file = '../data/mat/loop_torus_cropped';
 %file = 'trefoil_smallest';
 
 % Cone error
-eps = 0.15;
+eps = 0.4;
 
 % Sampling rate for isosurfaces of preimages
 sample = 2;
@@ -129,6 +129,7 @@ for cone=1:length(theta)
         color(3) = 2 - theta(cone)/(pi/2);
         color(color > 1) = 1;
         color = hsv2rgb(color);
+        color = [0, 1, 0];
 %     patch(fv,...
 %         'FaceColor',color,...
 %         'FaceLighting','gouraud',...
@@ -322,13 +323,13 @@ linewidth = 1;
 
 arrow_length = 16;
 stemwidth = 0.5;
-mArrow3([1 1 1],[arrow_length 1 1],'facealpha', 1, 'stemWidth', stemwidth);
+%mArrow3([1 1 1],[arrow_length 1 1],'facealpha', 1, 'stemWidth', stemwidth);
 % text(24,2,2,'x','FontSize',12)
-mArrow3([1 1 1],[1 arrow_length 1],'facealpha', 1, 'stemWidth', stemwidth);
+%mArrow3([1 1 1],[1 arrow_length 1],'facealpha', 1, 'stemWidth', stemwidth);
 % text(2,24,2,'y','FontSize',12)
-mArrow3([1 1 1],[1 1 arrow_length],'facealpha', 1, 'stemWidth', stemwidth);
+%mArrow3([1 1 1],[1 1 arrow_length],'facealpha', 1, 'stemWidth', stemwidth);
 % text(2,2,24,'z','FontSize',12)
-set(gcf,'Color',[.8 .8 .8])
+set(gcf,'Color',[1 1 1])
 
 %% axis arrows and box
 

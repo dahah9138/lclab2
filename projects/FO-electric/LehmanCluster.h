@@ -60,30 +60,33 @@ struct lehman_cross_section {
                     Eigen::Vector3d rprime = pos - r0;
                     LC::scalar rprime_len = rprime.norm();
 
+                    Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
+                    // Angle of position relative to point defect in the defect plane
+                    LC::scalar phi = atan2(rprime.z(), rprime.x());
+
+                    // Radial rotation quaternion
+                    LC::scalar theta = 2. * M_PI * rprime_len;
+                    LC::scalar ct, st;
+                    ct = cos(0.5 * theta);
+                    st = sin(0.5 * theta);
+                    Eigen::Quaterniond rot_quat;
+                    rot_quat.w() = ct;
+                    rot_quat.x() = st * rprime.x() / rprime_len;
+                    rot_quat.y() = st * rprime.y() / rprime_len;
+                    rot_quat.z() = st * rprime.z() / rprime_len;
+
+                    // Apply the quaternion to yhat
+                    Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
+                    Eigen::Vector3d nn;
+                    nn(0) = n.x();
+                    nn(1) = n.y();
+                    nn(2) = n.z();
+
                     // If within half a pitch from the point defect and to the right of the defect
                     if (rprime_len > 0. && rprime_len <= 0.5 && sgn * rprime.x() > 0.) {
-                        Eigen::Quaterniond yhat(0., n0[0], n0[1], n0[2]); // Initial director orientation at center of defect
-                        // Angle of position relative to point defect in the defect plane
-                        LC::scalar phi = atan2(rprime.z(), rprime.x());
-
-                        // Radial rotation quaternion
-                        LC::scalar rprime_len = rprime.norm();
-                        LC::scalar theta = 2. * M_PI * rprime_len;
-                        LC::scalar ct, st;
-                        ct = cos(0.5 * theta);
-                        st = sin(0.5 * theta);
-                        Eigen::Quaterniond rot_quat;
-                        rot_quat.w() = ct;
-                        rot_quat.x() = st * rprime.x() / rprime_len;
-                        rot_quat.y() = st * rprime.y() / rprime_len;
-                        rot_quat.z() = st * rprime.z() / rprime_len;
-
-                        // Apply the quaternion to yhat
-                        Eigen::Quaterniond n = rot_quat * yhat * rot_quat.conjugate();
-                        Eigen::Vector3d nn;
-                        nn(0) = n.x();
-                        nn(1) = n.y();
-                        nn(2) = n.z();
+                        nodes.emplace_back(pos, nn);
+                    }
+                    else if (abs(rprime.z()) < 0.5 && sgn * rprime.x() <= 0.5 && sgn * rprime.x() >= 0.) {
                         nodes.emplace_back(pos, nn);
                     }
                 }

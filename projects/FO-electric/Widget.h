@@ -2,6 +2,7 @@
 #define FOELECTRIC_WIDGET_H
 
 #include <lclab2.h>
+#include <filesystem>
 #include <list>
 
 using namespace Magnum;
@@ -65,9 +66,9 @@ struct Widget {
 		float isoValue = 0.58f;
 		float gradSval = 0.15f;
 		float tolerance = 0.0f;
-		int node_density = 45;
+		int node_density = 35;
 		// Upsampling for background grid to compute vortex lines
-		float upsampling_multiplier = 1.25f;
+		float upsampling_multiplier = 2.0f;
 		// Upper (magnitude) band threshold
 		float sb_pos_iso_ratio_upper = 100.f;
 		float sb_neg_iso_ratio_upper = 100.f;
@@ -95,7 +96,7 @@ struct Widget {
 		float theta0 = 45.f; // pi/4
 		float phi0 = 180.f;
 		float seperation = 1.8f;
-		std::array<float, 3> CELL = { 5.f, 5.f, 5.f };
+		std::array<float, 3> CELL = { 6.f, 6.f, 5.f };
 
 		// File location
 		std::string file_loc = LCLAB2_ROOT_PATH + std::string("/data/knot/");
@@ -116,6 +117,8 @@ struct Widget {
 		int nPrerelax = 0;
 		// Relaxation iterations per frame
 		int nRelax_per_frame = 0;
+		// Backup rate (number of frames between backing up data)
+		int nBackup_rate = 25;
 		// Relaxation rate (negative is underrelaxation)
 		float relaxRate = -0.2f;
 		// Color convention
@@ -143,15 +146,16 @@ struct Widget {
 			ImGui::InputInt("Node density##Knot-interaction", &node_density);
 			ImGui::SameLine();
 			ImGui::InputFloat("Upsampling##Knot-interaction", &upsampling_multiplier);
+			ImGui::InputInt("Backup rate##Knot-interaction", &nBackup_rate);
 			ImGui::PopItemWidth();
 			ImGui::PushItemWidth(50.f);
-			ImGui::InputFloat("Knot isovalue##Knot-interaction", &isoValue);
-			ImGui::InputFloat("grad(S) isovalue##Knot-interaction", &gradSval);
-			ImGui::InputFloat("SB iso upper bd (p)##Knot-interaction", &sb_pos_iso_ratio_upper);
-			ImGui::InputFloat("SB iso lower bd (p)##Knot-interaction", &sb_pos_iso_ratio_lower);
-			ImGui::InputFloat("SB iso upper bd (n)##Knot-interaction", &sb_neg_iso_ratio_upper);
-			ImGui::InputFloat("SB iso lower bd (n)##Knot-interaction", &sb_neg_iso_ratio_lower);
-			ImGui::InputFloat("Chi field tolerance##Knot-interaction", &tolerance);
+			//ImGui::InputFloat("Knot isovalue##Knot-interaction", &isoValue);
+			//ImGui::InputFloat("grad(S) isovalue##Knot-interaction", &gradSval);
+			//ImGui::InputFloat("SB iso upper bd (p)##Knot-interaction", &sb_pos_iso_ratio_upper);
+			//ImGui::InputFloat("SB iso lower bd (p)##Knot-interaction", &sb_pos_iso_ratio_lower);
+			//ImGui::InputFloat("SB iso upper bd (n)##Knot-interaction", &sb_neg_iso_ratio_upper);
+			//ImGui::InputFloat("SB iso lower bd (n)##Knot-interaction", &sb_neg_iso_ratio_lower);
+			//ImGui::InputFloat("Chi field tolerance##Knot-interaction", &tolerance);
 			ImGui::PushItemWidth(70.f);
 			ImGui::InputFloat("Theta (deg)##Knot-interation", &theta0);
 			ImGui::SameLine();
@@ -231,8 +235,10 @@ struct Widget {
 			ImGui::RadioButton("Dimer##Knot-interaction", &useInitialConditions, 1);
 			ImGui::SameLine();
 			ImGui::RadioButton("Generalized##Knot-interaction", &useInitialConditions, 2);
+			ImGui::SameLine();
+			ImGui::RadioButton("Dimerizer##Knot-interaction", &useInitialConditions, 3);
 
-			if (useInitialConditions == 2) {
+			if (useInitialConditions == 2 || useInitialConditions == 3) {
 				ImGui::InputFloat3("Cell size##Knot-interaction", &CELL[0]);
 				pos_gui.SubGUI();
 			}
@@ -289,11 +295,12 @@ struct Widget {
 	bool showPOMSettings = false;
 	bool showPreimageSettings = false;
 	bool showModificationWindow = false;
+	bool showInteractionEnergyWindow = false;
 	bool showNonlinearSettings = false;
 	bool showVortexKnotSettings = false;
 	bool couplePlaneAndNematic = true;
 	int chiColorScheme = true;
-	bool S2colors = true;
+	int S2colors = 1;
 	std::array<float, 3> pionComponents = { 0.f, 0.f, 1.0f };
 
 	bool showZProfileWindow = false;
@@ -327,9 +334,7 @@ struct Widget {
 	int translationNumber = 1;
 	bool helicalTranslation = true;
 	float helicalLayerOffset = 0.0f;
-	float separationDistancex = 1.8f;
-	float separationDistancey = 1.0f;
-	float separationDistancez = 1.6f;
+	float separationDistance = 2.f;
 	int interactionThetaPoints = 1;
 	int interactionPhiPoints = 30;
 	int interactionIterations = 200;
@@ -382,6 +387,9 @@ struct Widget {
 	int voltage_iterations = 500;
 
 	bool savePOM = false;
+	bool showVisualProperties = false;
+	bool lehmann_tool_window = false;
+	bool lehmann_reset_helical_bg = true;
 	bool saveNonlinear = false;
 	bool sampleCharge = false;
 	int radio_save_nonlin_xsection = 0;
@@ -408,6 +416,8 @@ struct Widget {
 
 	int interpolate = 1;
 	std::array<int, 3> shrink_interval_begin = { 1, 1, 1 };
+	std::array<int, 3> heliknotonInsertLocation = { 1, 1, 1 };
+	bool hideHeliknotonInsertIndicator = true;
 	std::array<int, 3> shrink_interval_end = { 2, 2, 2 };
 
 	std::list<LC::precision_scalar> energy_series;
@@ -417,10 +427,10 @@ struct Widget {
 
 
 	bool POM = false;
-	float alpha = 0.75f;
+	float alpha = 1.0f;
 
 	// Default pitch in micrometers
-	LC::SIscalar pitch = { 5.0, "um" };
+	LC::SIscalar pitch = { 4.5, "um" };
 
 	KnotInteraction knot_interaction_handle;
 

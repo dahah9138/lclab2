@@ -122,7 +122,7 @@ namespace LC
 	}
 
 	std::string Application::saveDialog() {
-		auto sf = pfd::save_file("Select save file name", LCLAB2_ROOT_PATH,
+		auto sf = pfd::save_file("Select save file name", "",
 			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
 			  "All Files", "*" },
 			pfd::opt::none);
@@ -134,7 +134,7 @@ namespace LC
 	}
 
 	std::vector<std::string> Application::openDialog() {
-		auto of = pfd::open_file("Select save file name", LCLAB2_ROOT_PATH,
+		auto of = pfd::open_file("Select save file name", "",
 			{ "LMT Files (.lmt .lmat)", "*.lmt *.lmat",
 					"All Files", "*" },
 			pfd::opt::none);

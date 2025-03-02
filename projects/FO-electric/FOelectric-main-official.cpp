@@ -7301,7 +7301,7 @@ void Sandbox::handleLehmannWindow() {
         ImGui::Begin("Lehmann Cluster Manipulator", &_widget.lehmann_tool_window);
 
         // Resets/initializes lehman cluster
-        if (ImGui::Button("Initialize Lehman cluster")) {
+        if (ImGui::Button("Initialize Lehmann cluster")) {
             if (_widget.lehmann_reset_helical_bg) {
                 _widget.updateImage = true;
                 auto helical = LC::Math::Planar(2, 1);

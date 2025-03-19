@@ -13,8 +13,6 @@
 using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
 using Dataset = FOFDSolver::Dataset;
 
-#define MAX_GRAPH_POINTS 250
-
 // Export vortex knots for KnotPlot
 std::tuple<std::vector<Eigen::Vector3d>, std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices,
     const std::vector<MeshLib::Triangle>& triangles,
@@ -420,8 +418,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
 
 
-    _widget.series_x_axis_vec.resize(MAX_GRAPH_POINTS);
-    _widget.energy_series_vec.resize(MAX_GRAPH_POINTS);
+    _widget.series_x_axis_vec.resize(_widget.max_graph_points);
+    _widget.energy_series_vec.resize(_widget.max_graph_points);
 
     _image_series = LC::Imaging::ImageSeries((std::int32_t)data->voxels[0], (std::int32_t)data->voxels[1], "default-POM");
     
@@ -2877,13 +2875,21 @@ void Sandbox::handleLCINFOWindow() {
                 ImPlot::SetNextMarkerStyle(ImPlotMarker_None);
 
                 // Reset points
-                if (_widget.updateImageFromLoad) points = MAX_GRAPH_POINTS;
+                if (_widget.updateImageFromLoad) points = _widget.max_graph_points;
 
                 ImPlot::PlotLine("F", &_widget.series_x_axis_vec[0], &_widget.energy_series_vec[0], points, 0, sizeof(LC::precision_scalar));
                 ImPlot::EndPlot();
             }
         }
 
+        ImGui::PushItemWidth(100.f);
+        static int max_graph_points_LCINFO = _widget.max_graph_points;
+        ImGui::InputInt("Num Plot Points##LCINFO", &max_graph_points_LCINFO);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Update##LCINFO-PLOT"))
+            _widget.max_graph_points = max_graph_points_LCINFO;
+        
+        ImGui::PopItemWidth();
         std::map<LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
         auto relaxMethodMap = Dataset::RelaxMap();
 
@@ -7758,7 +7764,7 @@ void Sandbox::computeEnergy() {
 
     // Update time series for free energy
 
-    if (_widget.energy_series.size() == MAX_GRAPH_POINTS) {
+    while (_widget.energy_series.size() > _widget.max_graph_points) {
         _widget.energy_series.pop_front();
         _widget.series_x_axis.pop_front();
     }

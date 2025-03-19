@@ -410,6 +410,7 @@ struct Widget {
 	int chirality = 1;
 	std::array<float, 3> celldims = { 3.0f, 3.0f, 3.0f };
 	std::array<int, 3> boundaries = { 1, 1, 0 };
+	int max_graph_points = 10000;
 
 	// 0 = heliknoton, 1 = hopfion
 	int hopfion_type = 0;

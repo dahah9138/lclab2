@@ -470,12 +470,13 @@ namespace Electric { namespace FD {
 
 		__syncthreads();
 
-		vv[idx] = (1. + rate) * (-9. * ea * (-3. * (vm002 + vm020 + vm200) + nx100 * (ny000 * v010 + nz000 * v001 + 2. * nx000 * v100) +
-			(nx000 * nx000) * vm200 + (ny000 * ny000) * vm020 + (nz000 * nz000) * vm002 + nx000 * ny010 * v100 + nx000 * ny100 * v010 +
-			nx000 * nz001 * v100 + nx000 * nz100 * v001 + nx001 * nz000 * v100 + nx010 * ny000 * v100 + ny000 * nz001 * v010 + ny000 * nz010 * v001 +
-			ny001 * nz000 * v010 + ny010 * nz000 * v001 + 2. * nx000 * ny000 * v110 + 2. * nx000 * nz000 * v101 + 2. * ny000 * ny010 * v010 + 2. * ny000 * nz000 * v011 +
-			2. * nz000 * nz001 * v001) - 2. * (epar + 2. * eper) * (vm002 + vm020 + vm200)) / (2. * (epar + 2. * eper) * (w002 + w020 + w200) +
-				9. * ea * ((-3. + nx000 * nx000) * w200 + (-3. + ny000 * ny000) * w020 + (-3. + nz000 * nz000) * w002)) - rate * vv[idx];
+		// Minimizing F_E = eper E^2 + ea dot(n,E)^2
+		scalar vp = (-(ea * nx100 * nz000 * v001) - ea * ny010 * nz000 * v001 - 2. * ea * nz000 * nz001 * v001 - ea * ny000 * nz010 * v001 - ea * nx000 * nz100 * v001 -
+			ea * nx100 * ny000 * v010 - 2 * ea * ny000 * ny010 * v010 - ea * nx000 * ny100 * v010 - ea * ny001 * nz000 * v010 - ea * ny000 * nz001 * v010 -
+			2. * ea * ny000 * nz000 * v011 - 2 * ea * nx000 * nx100 * v100 - ea * nx010 * ny000 * v100 - ea * nx000 * ny010 * v100 - ea * nx001 * nz000 * v100 -
+			ea * nx000 * nz001 * v100 - 2 * ea * nx000 * nz000 * v101 - 2. * ea * nx000 * ny000 * v110 - eper * vm002 - ea * pow(nz000, 2) * vm002 - eper * vm020 -
+			ea * pow(ny000, 2) * vm020 - eper * vm200 - ea * pow(nx000, 2) * vm200) /
+			(eper * w002 + ea * pow(nz000, 2) * w002 + eper * w020 + ea * pow(ny000, 2) * w020 + eper * w200 + ea * pow(nx000, 2) * w200);
 		
 	}
 
@@ -987,12 +988,13 @@ namespace Electric { namespace FD {
 
 		__syncthreads();
 
-		scalar vp = (-9. * ea * (-3. * (vm002 + vm020 + vm200) + nx100 * (ny000 * v010 + nz000 * v001 + 2. * nx000 * v100) +
-			(nx000 * nx000) * vm200 + (ny000 * ny000) * vm020 + (nz000 * nz000) * vm002 + nx000 * ny010 * v100 + nx000 * ny100 * v010 +
-			nx000 * nz001 * v100 + nx000 * nz100 * v001 + nx001 * nz000 * v100 + nx010 * ny000 * v100 + ny000 * nz001 * v010 + ny000 * nz010 * v001 +
-			ny001 * nz000 * v010 + ny010 * nz000 * v001 + 2. * nx000 * ny000 * v110 + 2. * nx000 * nz000 * v101 + 2. * ny000 * ny010 * v010 + 2. * ny000 * nz000 * v011 +
-			2. * nz000 * nz001 * v001) - 2. * (epar + 2. * eper) * (vm002 + vm020 + vm200)) / (2. * (epar + 2. * eper) * (w002 + w020 + w200) +
-				9. * ea * ((-3. + nx000 * nx000) * w200 + (-3. + ny000 * ny000) * w020 + (-3. + nz000 * nz000) * w002));
+		// Minimizing F_E = eper E^2 + ea dot(n,E)^2
+		scalar vp = (-(ea * nx100 * nz000 * v001) - ea * ny010 * nz000 * v001 - 2. * ea * nz000 * nz001 * v001 - ea * ny000 * nz010 * v001 - ea * nx000 * nz100 * v001 -
+			ea * nx100 * ny000 * v010 - 2 * ea * ny000 * ny010 * v010 - ea * nx000 * ny100 * v010 - ea * ny001 * nz000 * v010 - ea * ny000 * nz001 * v010 -
+			2. * ea * ny000 * nz000 * v011 - 2 * ea * nx000 * nx100 * v100 - ea * nx010 * ny000 * v100 - ea * nx000 * ny010 * v100 - ea * nx001 * nz000 * v100 -
+			ea * nx000 * nz001 * v100 - 2 * ea * nx000 * nz000 * v101 - 2. * ea * nx000 * ny000 * v110 - eper * vm002 - ea * pow(nz000, 2) * vm002 - eper * vm020 -
+			ea * pow(ny000, 2) * vm020 - eper * vm200 - ea * pow(nx000, 2) * vm200) /
+			(eper * w002 + ea * pow(nz000, 2) * w002 + eper * w020 + ea * pow(ny000, 2) * w020 + eper * w200 + ea * pow(nx000, 2) * w200);
 
 		vv[idx] = (1. + rate) * vp - rate * vv[idx];
 	}
@@ -1061,12 +1063,14 @@ namespace Electric { namespace FD {
 
 		__syncthreads();
 
-		scalar vp = (-9. * ea * (-3. * (vm002 + vm020 + vm200) + nx100 * (ny000 * v010 + nz000 * v001 + 2. * nx000 * v100) +
-			(nx000 * nx000) * vm200 + (ny000 * ny000) * vm020 + (nz000 * nz000) * vm002 + nx000 * ny010 * v100 + nx000 * ny100 * v010 +
-			nx000 * nz001 * v100 + nx000 * nz100 * v001 + nx001 * nz000 * v100 + nx010 * ny000 * v100 + ny000 * nz001 * v010 + ny000 * nz010 * v001 +
-			ny001 * nz000 * v010 + ny010 * nz000 * v001 + 2. * nx000 * ny000 * v110 + 2. * nx000 * nz000 * v101 + 2. * ny000 * ny010 * v010 + 2. * ny000 * nz000 * v011 +
-			2. * nz000 * nz001 * v001) - 2. * (epar + 2. * eper) * (vm002 + vm020 + vm200)) / (2. * (epar + 2. * eper) * (w002 + w020 + w200) +
-				9. * ea * ((-3. + nx000 * nx000) * w200 + (-3. + ny000 * ny000) * w020 + (-3. + nz000 * nz000) * w002));
+		// Minimizing F_E = eper E^2 + ea dot(n,E)^2
+		scalar vp = (-(ea * nx100 * nz000 * v001) - ea * ny010 * nz000 * v001 - 2. * ea * nz000 * nz001 * v001 - ea * ny000 * nz010 * v001 - ea * nx000 * nz100 * v001 -
+			ea * nx100 * ny000 * v010 - 2 * ea * ny000 * ny010 * v010 - ea * nx000 * ny100 * v010 - ea * ny001 * nz000 * v010 - ea * ny000 * nz001 * v010 -
+			2. * ea * ny000 * nz000 * v011 - 2 * ea * nx000 * nx100 * v100 - ea * nx010 * ny000 * v100 - ea * nx000 * ny010 * v100 - ea * nx001 * nz000 * v100 -
+			ea * nx000 * nz001 * v100 - 2 * ea * nx000 * nz000 * v101 - 2. * ea * nx000 * ny000 * v110 - eper * vm002 - ea * pow(nz000, 2) * vm002 - eper * vm020 -
+			ea * pow(ny000, 2) * vm020 - eper * vm200 - ea * pow(nx000, 2) * vm200) /
+			(eper * w002 + ea * pow(nz000, 2) * w002 + eper * w020 + ea * pow(ny000, 2) * w020 + eper * w200 + ea * pow(nx000, 2) * w200);
+		
 
 		vv_out[idx] = (1. + rate) * vp - rate * vv_out[idx];
 	}
@@ -1286,7 +1290,7 @@ namespace Electric { namespace FD {
 			ny000 * (k33 * pow(nx010, 2.) + (2. * k22 - k33) * pow(ny001, 2.) - 2. * k33 * nx010 * ny100 + k33 * pow(ny100, 2.) + (k22 - k33) * ny010 * nz001 + (-3 * k22 + k33) * ny001 * nz010 + k33 * pow(nz010, 2.) + (2. * k22 - k33) * pow(nz100, 2.) + (k22 - k33) * nx000 * (nx002 - nz101) -
 				(k22 - k33) * nz000 * (nx101 - nz200) - pow(v010, 2.) * Xi));
 
-		// |fsz|
+		// |fsz|1
 		en_func_der[idx] += abs(k33 * nx101 + k22 * ny011 - k11 * (nx101 + ny011) + 2. * (-k22 + k33) * nx000 * ny001 * ny100 + (-k11 + k22) * nz002 + (k22 - k33) * nx000 * ny100 * nz010 - (k22 - k33) * pow(nz000, 2.) * (ny011 - nz020) + (k22 - k33) * nx000 * ny010 * nz100 + k22 * nz200 - k33 * nz200 -
 			(k22 - k33) * pow(ny000, 2.) * (-nx101 + ny011 - nz020 + nz200) - 2. * k22 * nx010 * q0 + 2. * k22 * ny100 * q0 - nx000 * v001 * v100 * Xi +
 			nz000 * (k33 * pow(nx001, 2.) + (2. * k22 - k33) * pow(nx010, 2.) + k33 * pow(ny001, 2.) + 2. * (-2. * k22 + k33) * nx010 * ny100 + (2. * k22 - k33) * pow(ny100, 2.) + (k22 - k33) * nx000 * (nx020 - ny110) - (k22 - k33) * ny000 * (nx110 - ny200) + (k22 - k33) * nx100 * nz001 +

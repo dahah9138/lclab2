@@ -76,7 +76,53 @@ namespace LC { namespace Math {
 			if (r < lambda) {
 
 				scalar theta = 2 * M_PI * r * Q / lambda;
+				Eigen::Matrix<scalar, 3, 1> nn;
 
+
+				scalar cost2 = cos(theta / 2.);
+				scalar sint2 = sin(theta / 2.);
+
+				Eigen::Quaternion<scalar> q(cost2, sint2 * p[0] / r, sint2 * p[1] / r, sint2 * p[2] / r);
+				Eigen::Quaternion<scalar> qinv(cost2, -sint2 * p[0] / r, -sint2 * p[1] / r, -sint2 * p[2] / r);
+				Eigen::Quaternion<scalar> v(0., -sin(omega), cos(omega), 0.);
+
+				auto result = qinv * v * q;
+
+				nn[0] = result.x();
+				nn[1] = result.y();
+				nn[2] = -result.z();
+
+				nn.normalize();
+
+				return std::array<scalar, 3> { nn[0], nn[1], nn[2] };
+			}
+			else if (background) {
+				return std::array<scalar, 3> { -sin(omega), cos(omega), 0.0 };
+			}
+			else {
+				return std::array<scalar, 3> { 0.0, 0.0, 0.0 };
+			}
+		};
+	}
+
+	VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda, std::array<scalar, 3> lim,
+		const Eigen::Matrix<scalar, 3, 1>& translation, scalar phi0, bool background) {
+
+		return [=](scalar x, scalar y, scalar z) {
+
+			Eigen::Matrix<scalar, 3, 1> coords{ lim[0] * x / scalar(Q), lim[1] * y / scalar(Q), lim[2] * z };
+			Eigen::Matrix<scalar, 3, 1> p = coords - translation;
+
+			scalar omega = 2 * M_PI * coords[2] / lambda + phi0;// -M_PI / 2.;
+
+			if (p.dot(p) == 0.0) p[2] = 1.0;
+
+			scalar rsq = p.dot(p);
+			scalar r = sqrt(rsq);
+
+			if (r < lambda) {
+
+				scalar theta = 2 * M_PI * r * Q / lambda;
 				Eigen::Matrix<scalar, 3, 1> nn;
 
 
@@ -143,6 +189,47 @@ namespace LC { namespace Math {
 			}
 			else if (background) {
 				return std::array<scalar, 3> { 0.0, 0.0, 1.0 };
+			}
+			else return std::array<scalar, 3> { 0.0, 0.0, 0.0 };
+		};
+	}
+
+	VectorField PQTorusKnot(int P, int Q, std::array<scalar, 3> cell, scalar lambda, bool background) {
+		return [=](scalar x, scalar y, scalar z) {
+
+			// Flipping x and y seems to help stabilize (still unstable) the ansatz with
+			// k33 >> k11 >> k22 and no applied field
+			// or 60 = k33 = k11 >> k22 = 0.1
+			Eigen::Matrix<scalar, 3, 1> coords{ y, x, z };
+			coords = 2.0 * coords;
+			Eigen::Matrix<scalar, 3, 1> p = lambda * coords;
+
+			scalar rsq = p.dot(p);
+			scalar r = sqrt(rsq);
+
+			if (r < P * Q) {
+				// Construct the rational map
+				std::complex<scalar> ii(0.0, 1.0);
+				std::complex<scalar> z1 = 2.0 * (x + ii * y) / (1.0 + rsq);
+				std::complex<scalar> z2 = 2.0 * (2.0 * z + ii * (rsq - 1.0)) / (1.0 + rsq);
+				std::complex<scalar> u = pow(z1, Q) / pow(z2, P);
+
+				Eigen::Matrix<scalar, 3, 1> nn;
+				scalar ux = u.real();
+				scalar uy = u.imag();
+				scalar usq = ux * ux + uy * uy;
+
+				nn[0] = 2.0 * uy;
+				nn[1] = 2.0 * ux;
+				nn[2] = (usq - 1.0);
+
+				// Normalization
+				nn.normalize();
+
+				return std::array<scalar, 3> { nn[0], nn[1], nn[2] };
+			}
+			else if (background) {
+				return std::array<scalar, 3> { 0.0, 0.0, -1.0 };
 			}
 			else return std::array<scalar, 3> { 0.0, 0.0, 0.0 };
 		};

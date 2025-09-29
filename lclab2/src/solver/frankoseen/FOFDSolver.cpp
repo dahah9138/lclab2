@@ -502,6 +502,11 @@ namespace Electric {
 			errors = static_cast<DataError>(static_cast<int>(DataError::Elastic) | static_cast<int>(errors));
 		}
 
+		// Failed electric constant check
+		if ((eper == 0.0 || epar == 0.0) && lc_type == LC_TYPE::CUSTOM) {
+			errors = static_cast<DataError>(static_cast<int>(DataError::Electric) | static_cast<int>(errors));
+		}
+
 		if (errors != DataError::None)
 			return 1;
 
@@ -708,8 +713,10 @@ namespace Electric {
 #if LCLAB2_CUDA_AVAIL
 		// Relax voltage to equilibrium state
 		int iterations = 50;
-		data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
-		data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		if (data.lc_type != LC_TYPE::CUSTOM) {
+			data.epar = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::epar).first;
+			data.eper = ElectricConstants::LC(data.lc_type, ElectricConstants::Constant::eper).first;
+		}
 
 		FD::UpdateVoltageGPU(data.directors.get(), data.voltage.get(), &data.voxels[0], data.epar, data.eper, &data.bc[0], &data.cell_dims[0], data.rate, iterations, static_cast<int>(data.relaxKind));
 #endif

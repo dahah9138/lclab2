@@ -39,7 +39,12 @@ namespace LC {	namespace Drawable {
     // Really a draw call for FlatTransparentDrawable
     void TransparentNormalDrawable::draw(const Matrix4& transformationMatrix, SceneGraph::Camera3D& camera) {
 
-        if (!_draw) return;
+        try {
+            if (!_draw) return;
+        }
+        catch (const std::string& e) {
+            LC_CORE_WARN(e.c_str());
+        }
 
         bool noCull = false;
 

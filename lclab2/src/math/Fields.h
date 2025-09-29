@@ -12,8 +12,9 @@ namespace LC { namespace Math {
 	VectorField Uniform(std::array<scalar, 3> n0 = { 0.0, 0.0, 1.0 });
 	VectorField Planar(int layers, scalar cellZ);
 	VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda = 1.0, scalar lim = 1.135, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, scalar phi0 = 0., bool background = true);
+	VectorField Heliknoton(int Q, std::array<scalar, 3> cell, scalar lambda = 1.0, std::array<scalar, 3> lim={1.,1.,1.}, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{0.0, 0.0, 0.0}, scalar phi0 = 0., bool background = true);
 	VectorField Hopfion(int Q, std::array<scalar, 3> cell, scalar lambda = 1.0, scalar lim = 2.0, bool background = true);
-
+	VectorField PQTorusKnot(int P, int Q, std::array<scalar, 3> cell, scalar lambda = 1.0, bool background = true);
 
 	// Exclusion radii
 	ScalarField UniformRadius(scalar r = 0.1);

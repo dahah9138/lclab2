@@ -16,7 +16,7 @@ using Dataset = FOFDSolver::Dataset;
 // Export vortex knots for KnotPlot
 std::tuple<std::vector<Eigen::Vector3d>, std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices,
     const std::vector<MeshLib::Triangle>& triangles,
-    LC::scalar min_point_dist, const std::string& fname);
+    LC::scalar min_point_dist, const std::string& fname, bool append = false);
 
 // Determine heliknoton COM by preimage
 std::vector<Eigen::Vector3d> detect_heliknoton_COM(std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>>&,const std::vector<Eigen::Vector3d>&);
@@ -375,10 +375,12 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
 
         Dataset::Config helis = Dataset::Heliknoton(1, data->voxels, data->cell_dims, translations, 0.50, 3);
 
-        (*data).Voxels(5 * npp, 5 * npp, (2 * Q + 1) * npp)
+        (*data).Voxels(5 * npp, 5 * npp, (2 * Q + 1)* npp)
             .Boundaries(1, 1, 0)
             .Cell(5, 5, 2 * Q + 1)
             .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
+            .ElectricConstants(LC::FrankOseen::ElectricConstants::_5CB())
+            .OpticalConstants(LC::FrankOseen::OpticalConstants::_5CB())
             .Configuration(helis);
     }
 
@@ -532,22 +534,37 @@ void Sandbox::drawEvent() {
                 std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
                 dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
 
-                // If custom add customization to gui
-                if (data->lc_type == LC::FrankOseen::LC_TYPE::CUSTOM) {
-                    ImGui::PushItemWidth(75.f);
-                    ImGui::InputDouble("k11", &data->k11.first);
-                    ImGui::SameLine();
-                    ImGui::InputDouble("k22", &data->k22.first);
-                    ImGui::SameLine();
-                    ImGui::InputDouble("k33", &data->k33.first);
-                    ImGui::InputDouble("epar", &data->epar);
-                    ImGui::SameLine();
-                    ImGui::InputDouble("eper", &data->eper);
-                    ImGui::InputDouble("n0", &data->n0);
-                    ImGui::SameLine();
-                    ImGui::InputDouble("ne", &data->ne);
-                    ImGui::PopItemWidth();
+                // Update coeffs
+                if (data->lc_type != LC::FrankOseen::LC_TYPE::CUSTOM) {
+                    (*data).ElasticConstants(data->lc_type)
+                        .ElectricConstants(data->lc_type)
+                        .OpticalConstants(data->lc_type);
                 }
+
+                bool modified = false;
+
+                ImGui::TextColored(ImVec4(0.f, 1.f, 0.f, 1.f), "LC Parameters");
+                ImGui::Separator();
+                ImGui::PushItemWidth(75.f);
+                modified = ImGui::InputDouble("k11", &data->k11.first) ? true : modified;
+                ImGui::SameLine();
+                modified = ImGui::InputDouble("k22", &data->k22.first) ? true : modified;
+                ImGui::SameLine();
+                modified = ImGui::InputDouble("k33", &data->k33.first) ? true : modified;
+                modified = ImGui::InputDouble("epar", &data->epar) ? true : modified;
+                ImGui::SameLine();
+                modified = ImGui::InputDouble("eper", &data->eper) ? true : modified;
+                modified = ImGui::InputDouble("n0", &data->n0) ? true : modified;
+                ImGui::SameLine();
+                modified = ImGui::InputDouble("ne", &data->ne) ? true : modified;
+                ImGui::PopItemWidth();
+                ImGui::Separator();
+
+                if (modified) {
+                    // Set LC type to custom
+                    data->lc_type = LC::FrankOseen::LC_TYPE::CUSTOM;
+                }
+
             }
 
             // Dropdown menu for relax method
@@ -564,7 +581,7 @@ void Sandbox::drawEvent() {
             //_widget.energyErrorThreshold = t1 * 1e-8f;
 
             ImGui::InputFloat("Voltage", &_widget.voltage);
-            ImGui::InputInt("Voltage iterations", &_widget.voltage_iterations);
+            ImGui::InputInt("Voltage prerelax iterations", &_widget.voltage_iterations);
 
             ImGui::PopItemWidth();
 
@@ -1853,20 +1870,20 @@ void Sandbox::handlePreimageWindow() {
         //}
 
 
-        if (_baryonIsosurface) {        
-            ImGui::SameLine();
-            ImGui::Checkbox("Draw", &_baryonIsosurface->draw);
-            ImGui::PushItemWidth(80.0f);
-            ImGui::InputFloat("Baryon isovalue", &_baryonIsosurface->isoLevel);
-            ImGui::InputFloat("Baryon value", &_baryonIsosurface->query);
-            ImGui::PopItemWidth();
-        }
+        //if (_baryonIsosurface) {        
+        //    ImGui::SameLine();
+        //    ImGui::Checkbox("Draw", &_baryonIsosurface->draw);
+        //    ImGui::PushItemWidth(80.0f);
+        //    ImGui::InputFloat("Baryon isovalue", &_baryonIsosurface->isoLevel);
+        //    ImGui::InputFloat("Baryon value", &_baryonIsosurface->query);
+        //    ImGui::PopItemWidth();
+        //}
 
-        // Quaternion preimages
-        ImGui::PushItemWidth(200.0f);
-        ImGui::TextColored({ 1.0f, 1.0f, 0.0f, 1.0f }, "Pion field preimages");
-        ImGui::SliderFloat3("pi", &_widget.pionComponents[0], 0, 1.0f);
-        ImGui::PopItemWidth();
+        //// Quaternion preimages
+        //ImGui::PushItemWidth(200.0f);
+        //ImGui::TextColored({ 1.0f, 1.0f, 0.0f, 1.0f }, "Pion field preimages");
+        //ImGui::SliderFloat3("pi", &_widget.pionComponents[0], 0, 1.0f);
+        //ImGui::PopItemWidth();
 
         /*if (ImGui::Button("Add pion preimage")) {
             _pionPreimage = PionPreimage{_widget.pionComponents, _widget.isoLevel};
@@ -1880,19 +1897,285 @@ void Sandbox::handlePreimageWindow() {
             _pionPreimage = {};
         }*/
 
-        if (_pionPreimage) {
+       /* if (_pionPreimage) {
             ImGui::SameLine();
             ImGui::PushItemWidth(50.0f);
             ImGui::SliderFloat("Alpha", &_pionPreimage->alpha, 0.f, 1.f);
             ImGui::PopItemWidth();
             ImGui::SameLine();
             ImGui::Checkbox("Draw", &_pionPreimage->draw);
-        }
+        }*/
        
+        static bool generated_preimages = false;
+        bool gen_surfaces = ImGui::Button("Generate surfaces");
         
-        if (ImGui::Button("Generate Isosurfaces") || _widget.generateKnots) {
+        if (gen_surfaces || _widget.generateKnots) {
+            if (gen_surfaces) {
+                generated_preimages = true;
+            }
             generateIsosurface();
         }
+
+        if (_nematicPreimages.size() && generated_preimages) {
+            // Show settings parametrizing conversion from surface to graph
+
+            const size_t mod_pimage_graph_file_loc_sz = 128;
+            static int graph_min_comp_size = 5;
+            static int graph_knn = 4;
+            static float exclusion_scale = 1.5f;
+            static char pimage_fdir[mod_pimage_graph_file_loc_sz] = "../data/";
+            static char fname_pimage_graph_export[mod_pimage_graph_file_loc_sz] = "pknot";
+
+
+            ImGui::Text("Preimage to graph parameters");
+            ImGui::Separator();
+            ImGui::InputText("Base file directory##pimage", &pimage_fdir[0], mod_pimage_graph_file_loc_sz);
+            ImGui::InputText("Base file name##pimage",&fname_pimage_graph_export[0], mod_pimage_graph_file_loc_sz);
+            ImGui::InputInt("Minimum component size##pimage", &graph_min_comp_size);
+            ImGui::InputFloat("Exclusion scale (s: 2*s*dr)##pimage", &exclusion_scale);
+            ImGui::InputInt("knn##pimage", &graph_knn);
+
+
+
+            if (ImGui::Button("Convert preimage(s) to graph(s)##pimage")) {
+                // CODE: Nematic preimages is a good vector: convert to knot form and export
+
+                // Define the rbf (for k nearest neighbors)
+                LC::Math::poly_spline<LC::scalar> rbf;
+                LC::Math::Metric<LC::scalar> metric;
+                metric.SetBCS(LC::Math::PBC({ false, false, false }));
+                metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[1]);
+                auto vox = data->voxels;
+                std::size_t slice = vox[0] * vox[1];
+                std::size_t vol = slice * vox[2];
+
+                // Translate each component into sets of points
+                LC::scalar dx = data->cell_dims[0] / (vox[0] - 1);
+                LC::scalar dy = data->cell_dims[1] / (vox[1] - 1);
+                LC::scalar dz = data->cell_dims[2] / (vox[2] - 1);
+                LC::scalar dr = sqrt(dx * dx + dy * dy + dz * dz);
+                // Separation distance of two points
+                LC::scalar min_point_dist = 2. * exclusion_scale * dr;
+
+
+                for (auto& pimage : _nematicPreimages) {
+
+                    std::vector<Eigen::Vector3d> distinct_points;
+                    std::vector<int> npoints_per_component;
+                    std::vector<Eigen::Vector3d> points;
+                    
+                    for (const auto& vertex : pimage.surface.vertices) {
+
+                        Eigen::Vector3d potential_pos(vertex.position[0], vertex.position[1], vertex.position[2]);
+
+                        // Check if position is too close to existing points
+                        bool valid_pt = true;
+                        for (const auto& pt : distinct_points) {
+                            LC::scalar dist = (potential_pos - pt).norm();
+                            if (dist < min_point_dist) {
+                                valid_pt = false;
+                                break;
+                            }
+                        }
+
+                        // Add to the distinct points
+                        if (valid_pt) {
+                            distinct_points.emplace_back(potential_pos);
+                        }
+                    }
+
+                    // See how many distinct points
+                    LC_INFO("{0} distinct points detected", distinct_points.size());
+
+                    LC::Math::Metric<LC::scalar> metric;
+                    metric.Bcs = { false, false, false };
+                    metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
+                    std::unique_ptr<LC::Math::rbf<LC::scalar>> RBF = std::unique_ptr<LC::Math::poly_spline<LC::scalar>>(new LC::Math::poly_spline<LC::scalar>);
+                    std::unique_ptr<std::size_t[]> neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[distinct_points.size() * graph_knn]);
+                    // Convert distinct points into proper data format for knn
+                    std::unique_ptr<LC::scalar[]> positions(new LC::scalar[distinct_points.size() * 3]);
+                    std::unique_ptr<std::size_t[]> query_domain(new std::size_t[distinct_points.size()]);
+
+
+                    for (int i = 0; i < distinct_points.size(); i++) {
+                        // Entire query domain for the knot
+                        query_domain[i] = i;
+                        for (int d = 0; d < 3; d++)
+                            positions[i + d * distinct_points.size()] = (distinct_points[i])(d);
+                    }
+
+                    // Find nearest neighbors
+                    LC::Algorithm::knn_c(positions.get(), distinct_points.size(),
+                        query_domain.get(), distinct_points.size(),
+                        metric, graph_knn, (LC::scalar*)0, neighbors.get());
+
+                    // If a point is isolated, that is d(p,q) > 2*separation for all q != p, throw the point out
+                    // Do this for all isolated points and recompute knn
+
+                    std::vector<uint> discard_list;
+
+                    for (auto i = 0; i < distinct_points.size(); i++) {
+                        int mapoffset = distinct_points.size();
+                        std::size_t n1 = neighbors[mapoffset + i];
+
+                        auto pt = distinct_points[i];
+                        auto ptn = distinct_points[n1];
+
+                        LC::scalar dist = (pt - ptn).norm();
+
+                        if (dist > 2. * min_point_dist) {
+                            discard_list.emplace_back(i);
+                        }
+                    }
+
+                    if (discard_list.size())
+                        LC_INFO("Discarding {0} points", discard_list.size());
+
+                    // Parse the list again
+                    std::vector<Eigen::Vector3d> parsed_points;
+
+                    for (int i = 0; i < distinct_points.size(); i++) {
+                        bool remove_pt = false;
+                        for (auto id : discard_list)
+                            if (id == i)
+                                remove_pt = true;
+
+                        if (!remove_pt)
+                            parsed_points.emplace_back(distinct_points[i]);
+                    }
+
+                    if (discard_list.size() > 0) {
+                        // Refill position data
+                        for (int i = 0; i < parsed_points.size(); i++) {
+                            for (int d = 0; d < 3; d++)
+                                positions[i + d * parsed_points.size()] = (parsed_points[i])(d);
+                        }
+
+                        // Recompute neighbors (No need to alter array sizes, there will just be surplus allocated space at the end)
+                        LC::Algorithm::knn_c(positions.get(), parsed_points.size(),
+                            query_domain.get(), parsed_points.size(),
+                            metric, graph_knn, (LC::scalar*)0, neighbors.get());
+                    }
+
+                    // Create a graph with the remaining vertices
+                    // Add edges
+                    Graph graph(parsed_points.size());
+                    int mapoffset = parsed_points.size();
+
+                    for (int i = 0; i < parsed_points.size(); i++) {
+                        // Compute the dist between each k nearest neighbors
+                        // if the distance is smaller than the minimum required distance, add those neighbors as edges in the graph
+                        for (int k = 1; k < graph_knn; k++) {
+                            std::size_t nb_k = neighbors[k * mapoffset + i];
+
+                            Eigen::Vector3d pt = parsed_points[i];
+                            Eigen::Vector3d pt_nb_k = parsed_points[nb_k];
+
+                            Eigen::Vector3d tk = pt - pt_nb_k;
+                            LC::scalar diff = tk.norm();
+
+                            if (diff < 2. * min_point_dist) {
+                                graph.addEdge(i, nb_k);
+                            }
+                        }
+                    }
+
+                    // Automatically sort indices
+                    /*auto components = graph.connectedComponents(graph_min_comp_size);
+
+                    for (int i = 0; i < components.size(); i++) {
+                        npoints_per_component.push_back(0);
+                        int end = npoints_per_component.size() - 1;
+                        npoints_per_component[end] = 0;
+                        for (const auto& ci : components[i]) {
+
+                            points.emplace_back(parsed_points[ci]);
+                            ++npoints_per_component[end];
+                        }
+                    }*/
+
+                    // Print the data
+                  /*  int offset = 0;
+                    for (const auto& ni : npoints_per_component) {
+                        for (int i = 0; i < ni; i++) {
+                            std::cout << (float)points[offset + i].x() * 20.f << " "
+                                << (float)points[offset + i].y() * 20.f << " "
+                                << (float)points[offset + i].z() * 20.f << std::endl;
+                        }
+                        offset += ni;
+                        std::cout << std::endl;
+                    }*/
+
+                    if (parsed_points.size()) {
+                        // Save the data
+                        std::string spimage_fdir = std::string(pimage_fdir);
+                        if (spimage_fdir.size()) {
+                            // Make sure directory is valid
+                            if (spimage_fdir[spimage_fdir.size() - 1] != '/' && spimage_fdir[spimage_fdir.size() - 1] != '\\') {
+                                spimage_fdir += '/';
+                            }
+                        }
+
+                        std::string pimage_classifier = "_theta_" + std::to_string((int)pimage.theta) + std::string("_phi_") + std::to_string((int)pimage.phi);
+                        std::string pimage_fname = spimage_fdir + std::string(fname_pimage_graph_export) + pimage_classifier;
+
+                        std::ofstream ofile_graph((pimage_fname + ".txt").c_str(), std::ios::out);
+
+                        if (ofile_graph.is_open()) {
+                            /*int offset = 0;
+                            for (const auto& ni : npoints_per_component) {
+                                for (int i = 0; i < ni; i++) {
+                                    ofile_graph << (float)points[offset + i].x() * 20.f << " "
+                                        << (float)points[offset + i].y() * 20.f << " "
+                                        << (float)points[offset + i].z() * 20.f << std::endl;
+                                }
+                                offset += ni;
+                                ofile_graph << std::endl;
+                            }*/
+                        
+                            // 1. Save the points
+                            // Save number of points
+                            ofile_graph << parsed_points.size() << std::endl;
+                            // Save the points
+                            for (int i = 0; i < parsed_points.size(); i++) {
+                                ofile_graph << (float)parsed_points[i].x() * 20.f << " "
+                                    << (float)parsed_points[i].y() * 20.f << " "
+                                    << (float)parsed_points[i].z() * 20.f << std::endl;
+                            }
+
+                            // 2. Save the adjacency list
+                            auto adjList = graph.adjacencyList();
+
+                            // Save the elements
+                            for (int i = 0; i < parsed_points.size(); i++) {
+                                std::list<uint>& aL_i = adjList[i];
+                                std::size_t sz_i = aL_i.size();
+                                std::size_t iter = 0;
+                                for (auto elem : aL_i) {
+                                    ofile_graph << elem;
+                                    if (iter++ != sz_i - 1)
+                                        ofile_graph << " "; // Add space if not the last element of list
+                                }
+                                if (i != parsed_points.size() - 1)
+                                    ofile_graph << std::endl;
+                            }
+                        
+
+                            // Close the file
+                            ofile_graph.close();
+                        }
+                    }
+
+
+                }
+            }
+        }
+        else if (_nematicPreimages.size() == 0) {
+            // Preimages got reset
+            generated_preimages = false;
+        }
+
+
 
         ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
 
@@ -2400,9 +2683,11 @@ void Sandbox::handleVortexKnotWindow() {
                 //ImGui::SameLine();
                 ImGui::Checkbox(tub.c_str(), &iter->draw);
                 ImGui::SameLine();
+
                 if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
                     iter->UpdateColor();
                 }
+
 
                 ImGui::SameLine();
 
@@ -2420,6 +2705,95 @@ void Sandbox::handleVortexKnotWindow() {
         }
 
         ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
+
+
+        const size_t mod_file_loc_sz = 128;
+        const size_t mod_file_load_sz = 128;
+        const size_t mod_file_save_sz = 128;
+
+        static char mod_file_loc_knot[mod_file_loc_sz] = "../data";
+        static char mod_file_save_knot[mod_file_save_sz] = "";
+
+        ImGui::InputText("File directory##Knot", mod_file_loc_knot, mod_file_loc_sz);
+        ImGui::InputText("Save name##Knot", mod_file_save_knot, mod_file_save_sz);
+
+        std::string knot_export_directory = mod_file_loc_knot;
+        std::string base_name = mod_file_save_knot;
+        static float knot_point_density = 1.f;
+
+        ImGui::PushItemWidth(50.f);
+        ImGui::InputFloat("Knot sample point density", &knot_point_density);
+        ImGui::PopItemWidth();
+
+        // Export string knots
+        if (ImGui::Button("Export knots")) {
+            int it = 0;
+            for (auto Ki = _vortexKnot.begin(); Ki != _vortexKnot.end(); Ki++) {
+                // Ignore any ribbon knots
+                if (Ki->ribbon)
+                    continue;
+
+                std::string obj_name = knot_export_directory + "\\" + base_name + "_K" + std::to_string(it);
+                std::string obj_name_cumulant = knot_export_directory + "\\" + base_name + "_K";
+
+                // Cast vertex data to vector
+                uint32_t Nv = Ki->surface.vertices.size();
+                int32_t Ni = Ki->surface.indices.size() / 3;
+                std::vector<MeshLib::PNCVertex<float>> Kiv(Nv);
+                std::vector<MeshLib::Triangle> Kitrigs(Ni);
+
+                for (auto i = 0; i < Nv; i++) {
+                    auto Kip = Ki->surface.vertices[i].position;
+                    auto Kin = Ki->surface.vertices[i].normal;
+                    auto Kic = Ki->surface.vertices[i].color;
+                    Kiv[i].position = { Kip[0], Kip[1], Kip[2] };
+                    Kiv[i].normal = { Kin[0], Kin[1], Kin[2] };
+                    Kiv[i].color = { Kic[0], Kic[1], Kic[2], Kic[3] };
+                }
+
+                for (auto i = 0; i < Ni; i++) {
+                    Kitrigs[i][0] = Ki->surface.indices[3 * i];
+                    Kitrigs[i][1] = Ki->surface.indices[3 * i + 1];
+                    Kitrigs[i][2] = Ki->surface.indices[3 * i + 2];
+                }
+
+                auto cellf = data->cell_dims;
+                uint32_t vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
+
+                float dr = data->cell_dims[0] / float(data->voxels[0] - 1);
+                LC::scalar min_point_dist = 2. * knot_point_density * sqrt(3) * dr;
+                auto exported_data = exportVortexKnot(Kiv, Kitrigs, min_point_dist, obj_name + std::string("_vortex.bin"));
+                auto exported_datac = exportVortexKnot(Kiv, Kitrigs, min_point_dist, obj_name_cumulant + std::string("_vortex.bin"), true);
+                // Transform positions to director data
+                auto pdata = std::get<0>(exported_data);
+                std::vector < Eigen::Vector2d > odata(pdata.size());
+
+                for (int p = 0; p < pdata.size(); p++) {
+                    // Transform position to index coords
+                    int i = (pdata[p].x() / cellf[0] + 0.5) * (data->voxels[0] - 1);
+                    int j = (pdata[p].y() / cellf[1] + 0.5) * (data->voxels[1] - 1);
+                    int k = (pdata[p].z() / cellf[2] + 0.5) * (data->voxels[2] - 1);
+                    uint id = i + j * data->voxels[0] + k * data->voxels[0] * data->voxels[1];
+
+                    odata[p][0] = acos(data->directors[id + 2 * vol]); // theta
+                    odata[p][1] = atan2(data->directors[id + vol], data->directors[id]); // phi
+                }
+
+                // Export director data at each point in the knot
+                std::string fname = obj_name + "_directors.bin";
+                std::ofstream ofile(fname.c_str(), std::ios::out | std::ios::binary);
+
+                if (ofile.is_open()) {
+                    int32_t osz = odata.size();
+                    ofile.write((char*)&osz, sizeof(int32_t));
+                    ofile.write((char*)&odata[0], osz * sizeof(Eigen::Vector2d));
+                    ofile.close();
+                }
+                ++it;
+            }
+        }
+
+
 
         ImGui::End();
 
@@ -2440,6 +2814,7 @@ void Sandbox::nematicPreimageManager() {
     // Now we can remove
     for (const auto& p : remove_list) {
         _nematicPreimages.remove(S2Fiber{ p[0], p[1] });
+
     }
 
     // Check if using global alpha
@@ -3064,12 +3439,16 @@ void Sandbox::handleModificationWindow() {
         ImGui::InputInt("Chirality", &_widget.chirality);
         ImGui::PopItemWidth();
         
+        static float phase_offset = 0.f;
+        ImGui::InputFloat("Phase offset", &phase_offset);
+
+        ImGui::Separator();
+
         ImGui::RadioButton("Heliknoton", &_widget.hopfion_type, 0);
         ImGui::SameLine();
         ImGui::RadioButton("Hopfion", &_widget.hopfion_type, 1);
 
-        static float phase_offset = 0.f;
-        ImGui::InputFloat("Phase offset", &phase_offset);
+        ImGui::Separator();
         
         ImGui::RadioButton("Toron", &_widget.hopfion_type, 2);
         ImGui::SameLine();
@@ -3084,6 +3463,29 @@ void Sandbox::handleModificationWindow() {
         ImGui::RadioButton("CF1 (L)", &_widget.hopfion_type, 7);
         ImGui::RadioButton("Lehmann Cluster Line", &_widget.hopfion_type, 8);
 
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.f,1.f,0.f,1.f), "Experimental");
+        ImGui::RadioButton("PQ knot", &_widget.hopfion_type, 9);
+        static int PQ_P = 2;
+        static int PQ_Q = 3;
+        ImGui::PushItemWidth(100.f);
+        ImGui::InputInt("P##ModifyPQKnot", &PQ_P);
+        ImGui::SameLine();
+        ImGui::InputInt("Q##ModifyPQKnot", &PQ_Q);
+        ImGui::PopItemWidth();
+        
+        ImGui::Separator();
+
+
+        static std::array<float, 3> heli_lim = { 1.f,1.f,1.f };
+        static std::array<LC::scalar, 3> sheli_lim = { 1.f,1.f,1.f };
+        if (_widget.hopfion_type == 0) { // Heliknoton
+            ImGui::InputFloat3("Heliknoton scaling##LCMOD", &heli_lim[0]);
+
+            for (int d = 0; d < 3; d++)
+                sheli_lim[d] = heli_lim[d];
+        }
+
         
         int Q = _widget.topological_charge;
         int npp = _widget.npp;
@@ -3097,7 +3499,7 @@ void Sandbox::handleModificationWindow() {
 
             Dataset::Config cfg;
 
-            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q, V, data->cell_dims, 1., 1., { 0.f,0.f,0.f }, phase_offset);
+            if (_widget.hopfion_type == 0)      cfg = Dataset::Heliknoton(Q, V, data->cell_dims, 1., sheli_lim, { 0.f,0.f,0.f }, phase_offset);
             else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
             else if (_widget.hopfion_type == 2) cfg = Dataset::Toron(data->cell_dims, Q);
             else if (_widget.hopfion_type == 3) cfg = Dataset::Twistion_T1B2(data->cell_dims);
@@ -3105,7 +3507,8 @@ void Sandbox::handleModificationWindow() {
             else if (_widget.hopfion_type == 5) cfg = Dataset::CF3(data->cell_dims[0]);
             else if (_widget.hopfion_type == 6) cfg = Dataset::CF1(data->cell_dims);
             else if (_widget.hopfion_type == 7) cfg = Dataset::CF1_Loop(data->cell_dims);
-            else if (_widget.hopfion_type == 8) cfg = Dataset::LehmannClusterLine(data->cell_dims, data->voxels);
+            else if (_widget.hopfion_type == 8) cfg = Dataset::LehmannClusterLine(data->cell_dims, V);
+            else if (_widget.hopfion_type == 9) cfg = Dataset::PQTorusKnot(PQ_P, PQ_Q, data->cell_dims, V, 0.5);
             else cfg = Dataset::Toron(data->cell_dims, Q);
 
             data->chirality = _widget.chirality;
@@ -3963,6 +4366,9 @@ void Sandbox::handleInteractionEnergyWindow() {
             LC::scalar phi;
             LC::scalar separation;
             LC::scalar energy;
+            LC::scalar en_HH;
+            LC::scalar en_H;
+            LC::scalar en_BG;
         };
 
 
@@ -4187,11 +4593,17 @@ void Sandbox::handleInteractionEnergyWindow() {
                 if (_widget.singleInteractionHeliknoton) {
                     // Compute and save the energy
                     interaction_data[count].energy = E_H - E_bg; // Single heliknoton confinement energy
+                    interaction_data[count].en_HH = 0.;
+                    interaction_data[count].en_H = E_H;
+                    interaction_data[count].en_BG = E_bg;
                     interaction_data[count++].separation *= 0.5; // Need to multiply by half to get the distance from the center
                 }
             }
             else if (_widget.singleInteractionHeliknoton) { // Same energy as before
                 interaction_data[count].energy = E_H - E_bg; // Single heliknoton confinement energy
+                interaction_data[count].en_HH = 0.;
+                interaction_data[count].en_H = E_H;
+                interaction_data[count].en_BG = E_bg;
                 interaction_data[count++].separation *= 0.5; // Need to multiply by half to get the distance from the center
             }
 
@@ -4213,6 +4625,9 @@ void Sandbox::handleInteractionEnergyWindow() {
 
                 // Compute and save the energy
                 interaction_data[count].energy = E_HH - 2. * E_H + E_bg;// -zero_point_en;
+                interaction_data[count].en_HH = E_HH;
+                interaction_data[count].en_H = E_H;
+                interaction_data[count].en_BG = E_bg;
 
                 std::vector<Eigen::Vector3d> translation_pair;
                 translation_pair.push_back(translation);
@@ -4713,7 +5128,6 @@ void Sandbox::findVortexKnotComponents(bool saveObj, const std::string& obj_name
 
     }
 
-    // yeet
     int Nx = data->voxels[0];
     std::set<uint> fat_vortex_list;
     auto sub2ind = [slice, Nx, vol](int i, int j, int k, int d) {
@@ -7425,7 +7839,7 @@ void Sandbox::handleLehmannWindow() {
     Export the vortex knots produced as a set of vertices and links (only works on well-defined knots--no multiconnected vertices)
     to be read in KnotPlot.
 */
-std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices, const std::vector<MeshLib::Triangle>& triangles, LC::scalar min_point_dist, const std::string &fname) {
+std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices, const std::vector<MeshLib::Triangle>& triangles, LC::scalar min_point_dist, const std::string &fname, bool append) {
 
     std::vector<Eigen::Vector3d> points;
     std::vector<int> npoints_per_component;
@@ -7686,7 +8100,7 @@ std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const
         // Initialize list of visited vertices to zero
         std::map<uint, bool> visited;
         for (int i = 0; i < parsed_points.size(); i++)
-            visited.insert({ i,false });
+            visited.insert({ i, false });
 
         // Automatically sort indices
         auto components = graph.connectedComponents(3);
@@ -7720,10 +8134,18 @@ std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const
             ofile.close();
         }
 
-            // Save secondary format for knotplot as txt format
+        // Save secondary format for knotplot as txt format
         std::string base_fname = fname.substr(0, fname.size() - 4);
 
-        std::ofstream ofile_knotplot((base_fname+".txt").c_str(), std::ios::out);
+        int status = std::ios::out;
+
+        // Append to file
+        if (append)
+            status |= std::ios::app;
+
+        std::ofstream ofile_knotplot;
+        ofile_knotplot.open((base_fname + ".txt").c_str(), status);
+
         if (ofile_knotplot.is_open()) {
             int offset = 0;
             for (const auto& ni : npoints_per_component) {

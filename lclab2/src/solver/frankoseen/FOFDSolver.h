@@ -308,7 +308,8 @@ namespace Electric {
 				Voxels = BIT(1),
 				CellDims = BIT(2),
 				Elastic = BIT(3),
-				Scalar = BIT(4)
+				Scalar = BIT(4),
+				Electric = BIT(5)
 			};
 			enum class RelaxKind { Full = 0, OneConst = BIT(0), Algebraic = BIT(1), Order4 = BIT(2) };
 
@@ -958,6 +959,55 @@ namespace Electric {
 				};
 			}
 
+			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, scalar lambda = 1.0, const std::array<scalar, 3> lim = { 1.,1.,1. }, const Eigen::Matrix<scalar, 3, 1>& translation = Eigen::Matrix<scalar, 3, 1>{ 0.0, 0.0, 0.0 }, scalar phase = 0, bool background = true) {
+
+				Configuration::VectorField n_field = LC::Math::Heliknoton(Q, cdims, lambda, lim, translation, phase, background);
+
+				scalar dx = cdims[0] / scalar(vox[0] - 1);
+				scalar dy = cdims[1] / scalar(vox[1] - 1);
+				scalar dz = cdims[2] / scalar(vox[2] - 1);
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					// Convert indices to (x,y,z)
+					scalar x = -0.5 * cdims[0] + i * dx;
+					scalar y = -0.5 * cdims[1] + j * dy;
+					scalar z = -0.5 * cdims[2] + k * dz;
+
+					auto nn = n_field(x, y, z);
+
+					scalar nsq = nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2];
+
+					if (abs(nsq - 1.) < 1e-8)
+						for (int d = 0; d < 3; d++)
+							n(i, j, k, d) = nn[d];
+
+				};
+			}
+
+			static Config PQTorusKnot(int P, int Q, const std::array<scalar, 3>& cdims, const std::array<int, 3>& vox, scalar lambda = 1.0, bool background = true) {
+				Configuration::VectorField n_field = LC::Math::PQTorusKnot(P, Q, cdims, lambda, background);
+
+				// Apply the configuration
+				scalar dx = cdims[0] / scalar(vox[0] - 1);
+				scalar dy = cdims[1] / scalar(vox[1] - 1);
+				scalar dz = cdims[2] / scalar(vox[2] - 1);
+
+				return [=](Tensor4& n, int i, int j, int k, int* voxels) {
+
+					// Convert indices to (x,y,z)
+					scalar x = -0.5 * cdims[0] + i * dx;
+					scalar y = -0.5 * cdims[1] + j * dy;
+					scalar z = -0.5 * cdims[2] + k * dz;
+
+					auto nn = n_field(x, y, z);
+
+					for (int d = 0; d < 3; d++)
+						n(i, j, k, d) = nn[d];
+				};
+
+			}
+
 			static Config Heliknoton(int Q, const std::array<int, 3>& vox, const std::array<scalar, 3>& cdims, const std::vector<Eigen::Matrix<scalar, 3, 1>>& translations, scalar factor, int layers = -1, scalar lim = 1.135) {
 
 				if (layers == -1) layers = ceil(2 * Q * lim);
@@ -1009,6 +1059,37 @@ namespace Electric {
 				k11 = elastics[0];
 				k22 = elastics[1];
 				k33 = elastics[2];
+				return *this;
+			}
+
+			Dataset& ElectricConstants(const std::array<SIscalar, 2>& ecoeffs) {
+				eper = ecoeffs[0].first;
+				epar = ecoeffs[1].first;
+				return *this;
+			}
+
+			Dataset& OpticalConstants(const std::array<SIscalar, 2>& ocoeffs) {
+				ne = ocoeffs[0].first;
+				n0 = ocoeffs[1].first;
+				return *this;
+			}
+
+			Dataset& ElasticConstants(const LC_TYPE &lct) {
+				k11 = ElasticConstants::LC(lct, ElasticConstants::Constant::k11);
+				k22 = ElasticConstants::LC(lct, ElasticConstants::Constant::k22);
+				k33 = ElasticConstants::LC(lct, ElasticConstants::Constant::k33);
+				return *this;
+			}
+
+			Dataset& ElectricConstants(const LC_TYPE& lct) {
+				eper = ElectricConstants::LC(lct, ElectricConstants::Constant::eper).first;
+				epar = ElectricConstants::LC(lct, ElectricConstants::Constant::epar).first;
+				return *this;
+			}
+
+			Dataset& OpticalConstants(const LC_TYPE& lct) {
+				ne = OpticalConstants::LC(lct, OpticalConstants::Constant::n_e).first;
+				n0 = OpticalConstants::LC(lct, OpticalConstants::Constant::n_o).first;
 				return *this;
 			}
 

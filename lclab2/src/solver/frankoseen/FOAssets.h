@@ -21,6 +21,8 @@ namespace LC { namespace FrankOseen {
 	enum class LC_TYPE {
 		_5CB = 0,
 		ZLI2806 = 1,
+		ZLI3412_000 = 4,
+		ZLI3412_100 = 5,
 		BEND_RELAXED = 2,
 		CUSTOM = 3
 	};
@@ -30,6 +32,8 @@ namespace LC { namespace FrankOseen {
 		static std::map<LC_TYPE, std::string> Map() {
 			std::map<LC_TYPE, std::string> m{{ LC_TYPE::_5CB, "5CB" },
 				{ LC_TYPE::ZLI2806, "ZLI-2806" },
+				{ LC_TYPE::ZLI3412_000, "ZLI-3412-000" },
+				{ LC_TYPE::ZLI3412_100, "ZLI-3412-100" },
 				{ LC_TYPE::BEND_RELAXED, "Bend relaxed" },
 				{ LC_TYPE::CUSTOM, "Custom" }
 			};
@@ -51,6 +55,10 @@ namespace LC { namespace FrankOseen {
 				return _5CB(K);
 			else if (lc == LC_TYPE::ZLI2806)
 				return ZLI2806(K);
+			else if (lc == LC_TYPE::ZLI3412_000)
+				return ZLI3412_000(K);
+			else if (lc == LC_TYPE::ZLI3412_100)
+				return ZLI3412_100(K);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(K);
 			else if (lc == LC_TYPE::CUSTOM)
@@ -62,6 +70,10 @@ namespace LC { namespace FrankOseen {
 				return _5CB();
 			else if (lc == LC_TYPE::ZLI2806)
 				return ZLI2806();
+			else if (lc == LC_TYPE::ZLI3412_000)
+				return ZLI3412_000();
+			else if (lc == LC_TYPE::ZLI3412_100)
+				return ZLI3412_100();
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED();
 			else if (lc == LC_TYPE::CUSTOM)
@@ -125,16 +137,51 @@ namespace LC { namespace FrankOseen {
 			return k;
 		}
 
-		static std::array<SIscalar, 3> _5CB() {
-			return { _5CB(Constant::k11), _5CB(Constant::k22), _5CB(Constant::k33) };
-		}
-		
-		static std::array<SIscalar, 3> BEND_RELAXED() {
-			return { BEND_RELAXED(Constant::k11), BEND_RELAXED(Constant::k22), BEND_RELAXED(Constant::k33) };
+
+		static SIscalar ZLI3412_000(const Constant& K) {
+
+			SIscalar k;
+			k.second = "pN";
+
+			if (K == Constant::k11) {
+				k.first = 14.1;
+			}
+			else if (K == Constant::k22) {
+				k.first = 6.7;
+			}
+			else if (K == Constant::k33) {
+				k.first = 15.5;
+			}
+			else {
+				k.first = 0.0;
+				k.second = "ERROR";
+			}
+
+			return k;
+
 		}
 
-		static std::array<SIscalar, 3> CUSTOM() {
-			return { CUSTOM(Constant::k11), CUSTOM(Constant::k22), CUSTOM(Constant::k33) };
+		static SIscalar ZLI3412_100(const Constant& K) {
+
+			SIscalar k;
+			k.second = "pN";
+
+			if (K == Constant::k11) {
+				k.first = 14.1;
+			}
+			else if (K == Constant::k22) {
+				k.first = 6.7;
+			}
+			else if (K == Constant::k33) {
+				k.first = 15.5;
+			}
+			else {
+				k.first = 0.0;
+				k.second = "ERROR";
+			}
+
+			return k;
+
 		}
 
 		static SIscalar ZLI2806(const Constant &K) {
@@ -160,9 +207,31 @@ namespace LC { namespace FrankOseen {
 
 		}
 
+
+		static std::array<SIscalar, 3> _5CB() {
+			return { _5CB(Constant::k11), _5CB(Constant::k22), _5CB(Constant::k33) };
+		}
+		
+		static std::array<SIscalar, 3> BEND_RELAXED() {
+			return { BEND_RELAXED(Constant::k11), BEND_RELAXED(Constant::k22), BEND_RELAXED(Constant::k33) };
+		}
+
+		static std::array<SIscalar, 3> CUSTOM() {
+			return { CUSTOM(Constant::k11), CUSTOM(Constant::k22), CUSTOM(Constant::k33) };
+		}
+
 		static std::array<SIscalar, 3> ZLI2806() {
 			return { ZLI2806(Constant::k11), ZLI2806(Constant::k22), ZLI2806(Constant::k33) };
 		}
+
+		static std::array<SIscalar, 3> ZLI3412_000() {
+			return { ZLI3412_000(Constant::k11), ZLI3412_000(Constant::k22), ZLI3412_000(Constant::k33) };
+		}
+
+		static std::array<SIscalar, 3> ZLI3412_100() {
+			return { ZLI3412_100(Constant::k11), ZLI3412_100(Constant::k22), ZLI3412_100(Constant::k33) };
+		}
+
 
 	};
 
@@ -177,6 +246,10 @@ namespace LC { namespace FrankOseen {
 				return _5CB(ep);
 			else if (lc == LC_TYPE::ZLI2806)
 				return ZLI2806(ep);
+			else if (lc == LC_TYPE::ZLI3412_000)
+				return ZLI3412_000(ep);
+			else if (lc == LC_TYPE::ZLI3412_100)
+				return ZLI3412_100(ep);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(ep);
 			else if (lc == LC_TYPE::CUSTOM)
@@ -245,6 +318,40 @@ namespace LC { namespace FrankOseen {
 			return ep;
 		}
 
+		static SIscalar ZLI3412_000(const Constant& electricProperty) {
+			SIscalar ep;
+			ep.second = "DIMENSIONLESS";
+
+			if (electricProperty == Constant::eper) {
+				ep.first = 4.2;
+			}
+			else if (electricProperty == Constant::epar) {
+				ep.first = 9.5;
+			}
+			else {
+				ep.second = "ERROR";
+			}
+
+			return ep;
+		}
+
+		static SIscalar ZLI3412_100(const Constant& electricProperty) {
+			SIscalar ep;
+			ep.second = "DIMENSIONLESS";
+
+			if (electricProperty == Constant::eper) {
+				ep.first = 3.9;
+			}
+			else if (electricProperty == Constant::epar) {
+				ep.first = 7.3;
+			}
+			else {
+				ep.second = "ERROR";
+			}
+
+			return ep;
+		}
+
 		static SIscalar AMLC0010(const Constant& electricProperty) {
 			SIscalar ep;
 			ep.second = "DIMENSIONLESS";
@@ -260,6 +367,30 @@ namespace LC { namespace FrankOseen {
 			}
 
 			return ep;
+		}
+
+		static std::array<SIscalar, 2> _5CB() {
+			return { _5CB(Constant::eper), _5CB(Constant::epar) };
+		}
+
+		static std::array<SIscalar, 2> BEND_RELAXED() {
+			return { BEND_RELAXED(Constant::eper),  BEND_RELAXED(Constant::epar) };
+		}
+
+		static std::array<SIscalar, 2> CUSTOM() {
+			return { CUSTOM(Constant::eper),  CUSTOM(Constant::epar) };
+		}
+
+		static std::array<SIscalar, 2> ZLI2806() {
+			return { ZLI2806(Constant::eper), ZLI2806(Constant::epar) };
+		}
+
+		static std::array<SIscalar, 2> ZLI3412_000() {
+			return { ZLI3412_000(Constant::eper), ZLI3412_000(Constant::epar) };
+		}
+
+		static std::array<SIscalar, 2> ZLI3412_100() {
+			return { ZLI3412_100(Constant::eper), ZLI3412_100(Constant::epar) };
 		}
 
 	};
@@ -282,6 +413,10 @@ namespace LC { namespace FrankOseen {
 				return _5CB(opticalProperty);
 			else if (lc == LC_TYPE::ZLI2806)
 				return ZLI2806(opticalProperty);
+			else if (lc == LC_TYPE::ZLI3412_000)
+				return ZLI3412_000(opticalProperty);
+			else if (lc == LC_TYPE::ZLI3412_100)
+				return ZLI3412_100(opticalProperty);
 			else if (lc == LC_TYPE::BEND_RELAXED)
 				return BEND_RELAXED(opticalProperty);
 			else if (lc == LC_TYPE::CUSTOM)
@@ -352,6 +487,66 @@ namespace LC { namespace FrankOseen {
 			}
 			
 			return ni;
+		}
+
+		static SIscalar ZLI3412_000(const Constant& opticalProperty) {
+
+			SIscalar ni;
+			ni.second = "DIMENSIONLESS";
+
+			if (opticalProperty == Constant::n_e) {
+				ni.first = 1.558;
+			}
+			else if (opticalProperty == Constant::n_o) {
+				ni.first = 1.4788;
+			}
+			else {
+				ni.second = "ERROR";
+			}
+
+			return ni;
+		}
+
+		static SIscalar ZLI3412_100(const Constant& opticalProperty) {
+
+			SIscalar ni;
+			ni.second = "DIMENSIONLESS";
+
+			if (opticalProperty == Constant::n_e) {
+				ni.first = 1.3578;
+			}
+			else if (opticalProperty == Constant::n_o) {
+				ni.first = 1.2798;
+			}
+			else {
+				ni.second = "ERROR";
+			}
+
+			return ni;
+		}
+
+		static std::array<SIscalar, 2> _5CB() {
+			return { _5CB(Constant::n_e), _5CB(Constant::n_o) };
+		}
+
+		static std::array<SIscalar, 2> BEND_RELAXED() {
+			return { BEND_RELAXED(Constant::n_e),  BEND_RELAXED(Constant::n_o) };
+		}
+
+		static std::array<SIscalar, 2> CUSTOM() {
+			return { CUSTOM(Constant::n_e),  CUSTOM(Constant::n_o) };
+		}
+
+		static std::array<SIscalar, 2> ZLI2806() {
+			return { ZLI2806(Constant::n_e), ZLI2806(Constant::n_o) };
+		}
+
+		static std::array<SIscalar, 2> ZLI3412_000() {
+			return { ZLI3412_000(Constant::n_e), ZLI3412_000(Constant::n_o) };
+		}
+
+		static std::array<SIscalar, 2> ZLI3412_100() {
+			return { ZLI3412_100(Constant::n_e), ZLI3412_100(Constant::n_o) };
 		}
 
 	};

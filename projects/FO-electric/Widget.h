@@ -103,6 +103,9 @@ struct Widget {
 		// File name
 		std::string file, subdirectory;
 
+		// Use global path
+		bool global_path = true;
+
 		const static size_t fname_buffer_size = 128;
 		char fname_buffer[fname_buffer_size];
 
@@ -133,12 +136,20 @@ struct Widget {
 
 			ImGui::Begin("Knot interaction##Knot-interaction", &showWindow);
 
+			ImGui::PushItemWidth(200.f);
 			ImGui::InputText("Subdirectory##Knot-interaction", fsubdir_buffer, fsubdir_buffer_size);
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::Checkbox("Global path", &global_path);
+
 			// Copy buffer to string
 			subdirectory = std::string(fsubdir_buffer);
+			ImGui::PushItemWidth(200.f);
 			ImGui::InputText("File name##Knot-interaction", fname_buffer, fname_buffer_size);
+			ImGui::PopItemWidth();
 			ImGui::SameLine();
 			ImGui::Checkbox("Save string knots", &saveStringKnots);
+
 			// Copy buffer to string
 			file = std::string(fname_buffer);
 
@@ -177,6 +188,7 @@ struct Widget {
 			std::vector<int> remove_switch;
 
 			// Display current data
+			int total_frames = 0;
 			for (int i = 0; i < switching_data.size(); i++) {
 
 				if (switching_data[i].dframes <= 0)
@@ -198,6 +210,9 @@ struct Widget {
 				if (ImGui::Button(str_delete.c_str())) {
 					remove_switch.push_back(i);
 				}
+				else { // Add to the total frames
+					total_frames += switching_data[i].dframes;
+				}
 			}
 
 			// parse through switches to remove one at a time
@@ -205,6 +220,12 @@ struct Widget {
 				switching_data.erase(switching_data.begin() + remove_switch.back());
 				remove_switch.pop_back();
 			}
+
+			if (ImGui::Button("Update frame count##Knot-interaction")) {
+				nFrames = total_frames;
+			}
+
+			// Calculate frames
 			ImGui::Separator();
 
 			ImGui::InputFloat("Relax rate##Knot-interaction", &relaxRate);
@@ -265,15 +286,36 @@ struct Widget {
 		}
 
 		std::string FileName() {
-			return file_loc + subdirectory + "/" + file;
+			std::string result;
+			if (global_path) { // Use subdirectory as the global path
+				result = subdirectory + "/" + file;
+			}
+			else { // Use local path from build
+				result = file_loc + subdirectory + "/" + file;
+			}
+			return result;
 		}
 
 		std::string PathToFile() {
-			return file_loc + subdirectory;
+			std::string result;
+			if (global_path) { // Use subdirectory as the global path
+				result = subdirectory;
+			}
+			else { // Use local path from build
+				result = file_loc + subdirectory;
+			}
+			return result;
 		}
 
 		std::string InfoFile(std::string inf = "info.txt") {
-			return file_loc + subdirectory + "/" + inf;
+			std::string result;
+			if (global_path) { // Use subdirectory as the global path
+				result = subdirectory + "/" + inf;
+			}
+			else { // Use local path from build
+				result = file_loc + subdirectory + "/" + inf;
+			}
+			return result;
 		}
 
 	};

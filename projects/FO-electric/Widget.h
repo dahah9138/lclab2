@@ -137,6 +137,7 @@ struct Widget {
 			ImGui::Begin("Knot interaction##Knot-interaction", &showWindow);
 
 			ImGui::PushItemWidth(200.f);
+			ImGui::TextColored(ImVec4(0.0f,1.0f,0.0f,1.0f), "Path: %s", PathToFile().c_str());
 			ImGui::InputText("Subdirectory##Knot-interaction", fsubdir_buffer, fsubdir_buffer_size);
 			ImGui::PopItemWidth();
 			ImGui::SameLine();

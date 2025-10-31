@@ -3,7 +3,8 @@
 #include <iostream>
 
 
-namespace LC { namespace FrankOseen { namespace ElasticOnly { namespace FD {
+namespace LC { namespace FrankOseen {
+namespace ElasticOnly { namespace FD {
 
 	typedef void(*vFunction_t)(void* data, unsigned int);
 

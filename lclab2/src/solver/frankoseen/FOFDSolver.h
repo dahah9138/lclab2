@@ -276,26 +276,6 @@ namespace LC { namespace FrankOseen { namespace ElasticOnly {
 }
 
 namespace Electric {
-
-	// Helper template for trivially initialized variables (no arrays!!)
-	template <typename T> void CheckInitializedTrivialVariable(std::unique_ptr<T>& variable, const T& value, const std::string& var_name) {
-		if (variable == 0) {
-			variable = std::unique_ptr<T>(new T(value));
-			LC_CORE_INFO("{0} initialized", var_name.c_str());
-		}
-	}
-
-	// Helper template for initialized array variables (no singlet pointers!!)
-	template <typename T> void CheckInitializedArrayVariable(std::unique_ptr<T[]>& variable, const T& value, const uint32_t& sz, const std::string& var_name) {
-		if (variable == 0) {
-			variable = std::unique_ptr<T[]>(new T[sz]);
-			for (auto i = 0; i < sz; i++)
-				variable[i] = value;
-			LC_CORE_INFO("{0} initialized", var_name.c_str());
-		}
-	}
-
-
 	struct FOFDSolver : public Solver {
 
 		typedef Eigen::TensorMap<Eigen::Tensor<scalar, 4>> Tensor4;

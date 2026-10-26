@@ -35,17 +35,17 @@ namespace LC { namespace Math {
 		std::function<unsigned int(int, int, int, int)> idx_nn;
 
 		auto idx_x = [slice, Nx](int i, int j, int k, int increment) {
-			unsigned int id = i + increment;
+			int id = i + increment;
 			id = id >= Nx ? id - Nx : id < 0 ? Nx + id : id;
 			return (unsigned int)(id + Nx * j + slice * k);
 		};
 		auto idx_y = [slice, Nx, Ny](int i, int j, int k, int increment) {
-			unsigned int id = j + increment;
+			int id = j + increment;
 			id = id >= Ny ? id - Ny : id < 0 ? Ny + id : id;
 			return (unsigned int)(i + Nx * id + slice * k);
 		};
 		auto idx_z = [slice, Nx, Nz](int i, int j, int k, int increment) {
-			unsigned int id = k + increment;
+			int id = k + increment;
 			id = id >= Nz ? id - Nz : id < 0 ? Nz + id : id;
 			return (unsigned int)(i + Nx * j + slice * id);
 		};
@@ -112,7 +112,7 @@ namespace LC { namespace Math {
 		std::function<unsigned int(int, int, int, int)> idx_nn;
 		
 		auto idx = [slice, Nx](int i, int j, int k, int increment) {
-			unsigned int id = i + increment;
+			int id = i + increment;
 			id = id >= Nx ? id - Nx : id < 0 ? Nx + id : id;
 			return (unsigned int)(id + Nx * j + slice * k);
 		};
@@ -219,7 +219,7 @@ namespace LC { namespace Math {
 		std::function<unsigned int(int, int, int, int)> idx_nn;
 
 		auto idx = [slice, Nx](int i, int j, int k, int increment) {
-			unsigned int id = i + increment;
+			int id = i + increment;
 			id = id >= Nx ? id - Nx : id < 0 ? Nx + id : id;
 			return (unsigned int)(id + Nx * j + slice * k);
 		};
@@ -227,7 +227,7 @@ namespace LC { namespace Math {
 		// Order 4 derivatives
 		unsigned int cur_idx = idx(i, j, k, 0);
 
-		if (k > N[2] - 3 || k < 2) { // Not well defined PBCs (because I usually cut the z-dim)
+		if (k > N[2] - 5 || k < 4) { // Not well defined PBCs (because I usually cut the z-dim)
 			chi_field(0) = 0.0f;
 			chi_field(1) = 0.0f;
 			chi_field(2) = 1.0f;
@@ -253,7 +253,7 @@ namespace LC { namespace Math {
 				for (int d = 0; d < 3; d++)
 					twist[d] = eig.eigenvector[d];
 
-				float norm = sqrt(twist[0] * twist[0] +
+				scalar norm = sqrt(twist[0] * twist[0] +
 					twist[1] * twist[1] +
 					twist[2] * twist[2]);
 

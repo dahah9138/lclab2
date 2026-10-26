@@ -43,7 +43,7 @@ void SphereArray::ZProfileColor(const float& hue1, const float& hue2) {
 
         float hue = (1.0f - zbar) * hue1 + zbar * hue2;
 
-        polyInstanceData[i].color = Magnum::Color3::fromHsv(Deg{ hue }, 1.0f, 1.0f);
+        polyInstanceData[i].color = Magnum::Color3::fromHsv({ Deg{ hue }, 1.0f, 1.0f });
         // Normalize color
         for (int d = 0; d < 3; d++)
             polyInstanceData[i].color[d] = polyInstanceData[i].color[d] > 1. ? 1. : polyInstanceData[i].color[d];

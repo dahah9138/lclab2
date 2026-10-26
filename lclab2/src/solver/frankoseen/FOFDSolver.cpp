@@ -25,7 +25,6 @@ namespace ElasticOnly {
 
 		// Failed cell dim check
 		if (vol == 0.0) {
-
 			errors = static_cast<DataError>(static_cast<int>(DataError::Voxels) | static_cast<int>(errors));
 		}
 
@@ -41,7 +40,6 @@ namespace ElasticOnly {
 
 		// No errors
 		return 0;
-
 	}
 
 	void FOFDSolver::Dataset::configureHeader(Header &header) {
@@ -63,7 +61,6 @@ namespace ElasticOnly {
 			<< HeaderPair{ { "Chirality", sizeof(LC::scalar) }, &chirality }
 			<< HeaderPair{ { "Relax rate", sizeof(LC::scalar) }, &rate }
 			<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors.get() };
-
 	}
 
 
@@ -111,9 +108,6 @@ namespace ElasticOnly {
 			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
 			errors = static_cast<DataError>(static_cast<int>(errors) | static_cast<int>(DataError::Scalar));
 		}
-
-		
-
 	}
 
 
@@ -253,8 +247,6 @@ namespace ElasticOnly {
 
 
 	void FOFDSolver::OneConstAlgebraicOrder4(Tensor4& nn, int i, int j, int k) {
-
-
 		// Make sure within bounds for fourth order
 		{
 			// Don't use module for gpu operations!
@@ -315,7 +307,6 @@ namespace ElasticOnly {
 			for (int d = 0; d < 3; d++)
 				if (ri[d] % (data.voxels[d] - 1) == 0) return;
 		}
-
 
 		// currently assumes dr = dx = dy = dz
 
@@ -475,9 +466,6 @@ namespace Electric {
 	}
 #endif
 
-	
-
-
 	bool FOFDSolver::Dataset::chkErrors() {
 
 		std::size_t numDirectors = voxels[0] * voxels[1] * voxels[2];
@@ -512,135 +500,101 @@ namespace Electric {
 
 		// No errors
 		return 0;
-
 	}
 
 	void FOFDSolver::Dataset::configureHeader(Header& header) {
-		// Specify format to save data
-		{
-			Header tmp{};
-			header.headerObjects.swap(tmp.headerObjects);
-		}
-		header.headerObjects.reserve(10);
+		header.clean();
+		header.headerObjects.reserve(20);
 
-		// Add objects
-		header << HeaderPair{ { "Scalar size", sizeof(std::size_t) }, &size_of_scalar }
-			<< HeaderPair{ { "LC type", sizeof(LC_TYPE) }, &lc_type }
-			<< HeaderPair{ { "Relax kind", sizeof(Dataset::RelaxKind) }, &relaxKind }
-			<< HeaderPair{ { "Iterations", sizeof(std::size_t) }, &numIterations }
-			<< HeaderPair{ { "Voxels", 3 * sizeof(int) }, &voxels[0] }
-			<< HeaderPair{ { "Boundaries", 3 * sizeof(bool) }, &bc[0] }
-			<< HeaderPair{ { "Cell dims", 3 * sizeof(LC::scalar) }, &cell_dims[0] }
-			<< HeaderPair{ { "Chirality", sizeof(LC::scalar) }, &chirality }
-			<< HeaderPair{ { "Relax rate", sizeof(LC::scalar) }, &rate }
-		<< HeaderPair{ { "Directors", 3 * sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, directors.get() }
-		<< HeaderPair{ { "Voltage", sizeof(LC::scalar) * voxels[0] * voxels[1] * voxels[2] }, voltage.get() };
+		const std::size_t total_voxels = static_cast<std::size_t>(voxels[0]) * voxels[1] * voxels[2];
+
+		header.addObject("Scalar size", size_of_scalar)
+			.addObject("LC type", lc_type)
+			.addObject("Relax kind", relaxKind)
+			.addObject("Iterations", numIterations)
+			.addObject("Voxels", &voxels[0], 3)
+			.addObject("Boundaries", &bc[0], 3)
+			.addObject("Cell dims", &cell_dims[0], 3)
+			.addObject("Chirality", chirality)
+			.addObject("Relax rate", rate)
+			.addObject("Directors", directors.get(), 3 * total_voxels)
+			.addObject("Voltage", voltage.get(), total_voxels);
+
 		if (lc_type == LC_TYPE::CUSTOM) {
-			header << HeaderPair{ { "k11", sizeof(LC::scalar) }, &k11.first }
-				<< HeaderPair{ { "k22", sizeof(LC::scalar) }, &k22.first }
-				<< HeaderPair{ { "k33", sizeof(LC::scalar) }, &k33.first }
-				<< HeaderPair{ { "epar", sizeof(LC::scalar) }, &epar }
-				<< HeaderPair{ { "eper", sizeof(LC::scalar) }, &eper }
-				<< HeaderPair{ { "n0", sizeof(LC::scalar) }, &n0 }
-				<< HeaderPair{ { "ne", sizeof(LC::scalar) }, &ne };
+			header.addObject("k11", k11.first)
+				.addObject("k22", k22.first)
+				.addObject("k33", k33.first)
+				.addObject("epar", epar)
+				.addObject("eper", eper)
+				.addObject("n0", n0)
+				.addObject("ne", ne);
 		}
-
 	}
 
 	void FOFDSolver::Dataset::readDataFromHeader(Header& header) {
-
-		// Clear header objects. It is assumed that any raw dynamic data has been
-		// freed at this point
 		header.clean();
 		header.read();
 		header.readBody();
 
-
-		// Import data
-
-		std::unique_ptr<LC::scalar> p_chir, p_rate;
-		std::unique_ptr<LC::scalar[]> p_cell;
-		std::unique_ptr<std::size_t> p_size_of_scalar(reinterpret_cast<std::size_t*>(header.passData("Scalar size")));
-		std::unique_ptr<LC_TYPE> p_type(reinterpret_cast<LC_TYPE*>(header.passData("LC type")));
-		std::unique_ptr<Dataset::RelaxKind> p_relaxKind(reinterpret_cast<Dataset::RelaxKind*>(header.passData("Relax kind")));
-		std::unique_ptr<std::size_t> p_iter(reinterpret_cast<std::size_t*>(header.passData("Iterations")));
-		std::unique_ptr<int[]> p_vox(reinterpret_cast<int*>(header.passData("Voxels")));
-		std::unique_ptr<bool[]> p_bc(reinterpret_cast<bool*>(header.passData("Boundaries")));
-
-		if (*p_size_of_scalar == SIZE_OF_SCALAR) {
-			p_cell = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Cell dims")));
-			p_chir = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("Chirality")));
-			p_rate = std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("Relax rate")));
-
-			directors = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Directors")));
-			voltage = std::unique_ptr<LC::scalar[]>(reinterpret_cast<LC::scalar*>(header.passData("Voltage")));
-
-			// Determine if objects exist and initialize them to trivial values if not critical
-
-			if (voltage == 0) {
-				LC_CORE_WARN("Voltage was not found");
-				// Initialize voltage
-				voltage = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
-				LC_CORE_INFO("Voltage initialized");
-			}
-
-			CheckInitializedTrivialVariable(p_type, LC_TYPE::_5CB, "LC Type");
-			CheckInitializedTrivialVariable(p_chir, (LC::scalar)1., "Chirality");
-			CheckInitializedTrivialVariable(p_rate, (LC::scalar)-0.1, "Relax rate");
-			CheckInitializedTrivialVariable(p_relaxKind, Dataset::RelaxKind::Algebraic, "Relax kind");
-			CheckInitializedTrivialVariable(p_iter, (size_t)0, "Iterations");
-			CheckInitializedArrayVariable(p_cell, (LC::scalar)1., 3, "Cell");
-			CheckInitializedArrayVariable(p_bc, true, 3, "Boundaries");
-
-			size_of_scalar = *p_size_of_scalar;
-
-			lc_type = *p_type;
-			relaxKind = *p_relaxKind;
-			numIterations = *p_iter;
-			voxels = { p_vox[0], p_vox[1], p_vox[2] };
-			cell_dims = { p_cell[0], p_cell[1], p_cell[2] };
-			bc = { p_bc[0], p_bc[1], p_bc[2] };
-			chirality = *p_chir;
-			rate = *p_rate;
-
-			if (lc_type == LC_TYPE::CUSTOM) {
-				k11.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k11")));
-				k22.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k22")));
-				k33.first = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("k33")));
-				k11.second = "pN";
-				k22.second = "pN";
-				k33.second = "pN";
-				epar = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("epar")));
-				eper = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("eper")));
-				n0 = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("n0")));
-				ne = *std::unique_ptr<LC::scalar>(reinterpret_cast<LC::scalar*>(header.passData("ne")));
-			}
-			else {
-				k11 = ElasticConstants::LC(lc_type, Constant::k11);
-				k22 = ElasticConstants::LC(lc_type, Constant::k22);
-				k33 = ElasticConstants::LC(lc_type, Constant::k33);
-				epar = ElectricConstants::LC(lc_type, ElectricConstants::Constant::epar).first;
-				eper = ElectricConstants::LC(lc_type, ElectricConstants::Constant::eper).first;
-				n0 = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_o).first;
-				ne = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_e).first;
-			}
-
-			// Initialize energy density
-			en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[p_vox[0] * p_vox[1] * p_vox[2]]);
-			
-		}
-		else if (p_size_of_scalar == 0) {
+		if (!header.getObject("Scalar size", size_of_scalar, std::size_t{ 0 })) {
 			LC_CORE_CRITICAL("Scalar size unspecified");
+			header.clean();
+			return;
+		}
+
+		if (size_of_scalar != SIZE_OF_SCALAR) {
+			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", size_of_scalar);
+			errors = static_cast<DataError>(static_cast<int>(errors) | static_cast<int>(DataError::Scalar));
+			header.clean();
+			return;
+		}
+
+		if (!header.getArray("Voxels", voxels, 0)) {
+			LC_CORE_CRITICAL("Voxels unspecified");
+			header.clean();
+			return;
+		}
+
+		const std::size_t total_voxels = static_cast<std::size_t>(voxels[0]) * voxels[1] * voxels[2];
+
+		header.getObject("LC type", lc_type, LC_TYPE::_5CB);
+		header.getObject("Relax kind", relaxKind, Dataset::RelaxKind::Algebraic);
+		header.getObject("Iterations", numIterations, std::size_t{ 0 });
+		header.getArray("Cell dims", cell_dims, static_cast<LC::scalar>(1.0));
+		header.getArray("Boundaries", bc, true);
+		header.getObject("Chirality", chirality, static_cast<LC::scalar>(1.0));
+		header.getObject("Relax rate", rate, static_cast<LC::scalar>(-0.1));
+
+		directors = header.getBuffer<LC::scalar>("Directors", 3 * total_voxels, false);
+		voltage = header.getBuffer<LC::scalar>("Voltage", total_voxels, true);
+
+		if (lc_type == LC_TYPE::CUSTOM) {
+			header.getObject("k11", k11.first, static_cast<LC::scalar>(0.0));
+			header.getObject("k22", k22.first, static_cast<LC::scalar>(0.0));
+			header.getObject("k33", k33.first, static_cast<LC::scalar>(0.0));
+			k11.second = "pN";
+			k22.second = "pN";
+			k33.second = "pN";
+
+			header.getObject("epar", epar, static_cast<LC::scalar>(0.0));
+			header.getObject("eper", eper, static_cast<LC::scalar>(0.0));
+			header.getObject("n0", n0, static_cast<LC::scalar>(0.0));
+			header.getObject("ne", ne, static_cast<LC::scalar>(0.0));
 		}
 		else {
-			LC_CORE_CRITICAL("Incompatible scalar size: Loaded scalar is {0} bytes", *p_size_of_scalar);
-			errors = static_cast<DataError>(static_cast<int>(errors) | static_cast<int>(DataError::Scalar));
+			k11 = ElasticConstants::LC(lc_type, Constant::k11);
+			k22 = ElasticConstants::LC(lc_type, Constant::k22);
+			k33 = ElasticConstants::LC(lc_type, Constant::k33);
+			epar = ElectricConstants::LC(lc_type, ElectricConstants::Constant::epar).first;
+			eper = ElectricConstants::LC(lc_type, ElectricConstants::Constant::eper).first;
+			n0 = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_o).first;
+			ne = OpticalConstants::LC(lc_type, OpticalConstants::Constant::n_e).first;
 		}
 
+		en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[total_voxels]());
 
-
+		header.clean();
 	}
-
 
 	FOFDSolver::FOFDSolver() {
 		version = Version::FOFDSolver;
@@ -649,7 +603,6 @@ namespace Electric {
 	FOFDSolver::~FOFDSolver() {
 
 	}
-
 
 	void FOFDSolver::Init() {
 
@@ -931,8 +884,6 @@ namespace Electric {
 	}
 
 	void FOFDSolver::Relax(const std::size_t& iterations, bool GPU) {
-
-
 
 		if (errors != Solver::Error::None) {
 			LC_CORE_WARN("Abort: Attempting to relax with errors!");

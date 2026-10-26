@@ -98,7 +98,7 @@ namespace LC { namespace Math {
 			scalar zprev = 0.0;
 			
 			for (int y = 1; y < dims_reduced[1]; y++) {
-				zprev = density2D[x - 1 + y * dims_reduced[0]];
+				zprev = density2D[x + (y - 1) * dims_reduced[0]];
 				znew = density2D[x + y * dims_reduced[0]];
 				density1D[x] += 0.5 * (zprev + znew);
 			}

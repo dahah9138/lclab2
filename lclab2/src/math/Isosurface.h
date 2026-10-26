@@ -9,7 +9,7 @@
 
 namespace LC { namespace Math {
 
-	unsigned int X = 255;
+	inline constexpr unsigned int X = 255;
 
 	/*
 		Isosurface class that functions like smart pointer to create and release an isosurface.

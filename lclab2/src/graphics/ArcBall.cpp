@@ -57,7 +57,7 @@ namespace Magnum {
     }
 
     void ArcBall::setLagging(const Float lagging) {
-        CORRADE_INTERNAL_ASSERT(lagging >= 0.0f && lagging < 1.0f);
+        //CORRADE_INTERNAL_ASSERT(lagging >= 0.0f && lagging < 1.0f);
         _lagging = lagging;
     }
 

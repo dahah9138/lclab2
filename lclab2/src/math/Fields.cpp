@@ -110,10 +110,10 @@ namespace LC { namespace Math {
 
 		return [=](scalar x, scalar y, scalar z) {
 
-			Eigen::Matrix<scalar, 3, 1> coords{ lim[0] * x / scalar(Q), lim[1] * y / scalar(Q), lim[2] * z };
+			Eigen::Matrix<scalar, 3, 1> coords{ lim[0] * x, lim[1] * y, lim[2] * z };
 			Eigen::Matrix<scalar, 3, 1> p = coords - translation;
 
-			scalar omega = 2 * M_PI * coords[2] / lambda + phi0;// -M_PI / 2.;
+			scalar omega = 2 * M_PI * coords[2] + phi0;
 
 			if (p.dot(p) == 0.0) p[2] = 1.0;
 

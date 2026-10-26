@@ -1,5 +1,5 @@
-if (WITH_CUDA AND CUDA_FOUND)
-	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} --expt-extended-lambda)
+if (WITH_CUDA)
+	set_directory_properties(PROPERTIES CORRADE_USE_PEDANTIC_FLAGS OFF)
 	set (lclab2_cuda_src_list CudaContext.cu CudaContext.cuh)
 	
 	if (NOT MSVC)
@@ -18,7 +18,9 @@ if (WITH_CUDA AND CUDA_FOUND)
 	set (lclab2_cuda_src_list ${lclab2_cuda_src_list}
 							  ${lclab2_cuda_global_list})
 							 
-	cuda_add_library(lclab2_cuda ${lclab2_cuda_src_list})
+	#cuda_add_library(lclab2_cuda ${lclab2_cuda_src_list})
+	add_library(lclab2_cuda ${lclab2_cuda_src_list})
+	target_compile_options(lclab2_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>)
 	target_include_directories(lclab2_cuda PRIVATE ${CMAKE_SOURCE_DIR}/external/hemi ${CMAKE_SOURCE_DIR}/external/hemi/hemi ${CMAKE_CURRENT_SOURCE_DIR}/../base ${CMAKE_CURRENT_SOURCE_DIR})
 	
 	if (MSVC)
@@ -26,4 +28,14 @@ if (WITH_CUDA AND CUDA_FOUND)
 	endif()
 else()
 	set(lclab2_cuda_src_list "")
+endif()
+
+# --- CUDA FIREWALL ---
+# Strip inherited MSVC warning flags leaking from Corrade/Magnum
+get_directory_property(inherited_opts COMPILE_OPTIONS)
+if(inherited_opts)
+    # Filter out any flag starting with /w or /W
+    list(FILTER inherited_opts EXCLUDE REGEX "^/w.*|^/W.*")
+    # Apply the cleaned list back to this directory
+    set_property(DIRECTORY PROPERTY COMPILE_OPTIONS "${inherited_opts}")
 endif()

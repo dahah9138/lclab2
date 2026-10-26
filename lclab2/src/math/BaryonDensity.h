@@ -271,10 +271,13 @@ namespace LC { namespace Math {
 						 continue;
 					 }
 
+					 Uinv = quaternion_to_matrix(index(x, y, z));
+
 					 if (abs(Uinv.determinant()) > 1e-4)
-						 Uinv = quaternion_to_matrix(index(x, y, z)).inverse();
+						 Uinv = Uinv.inverse();
 					 else
 						 Uinv = I3;
+
 					 // Compute x derivative
 					 int count = 0;
 					 for (int d : { -2, -1, 1, 2 }) {
@@ -328,19 +331,15 @@ namespace LC { namespace Math {
 			 }
 		 }
 
-		 density1D[0] = 0.0;
+		 for (int x = 0; x < dims[0]; ++x) {
+			density1D[x] = 0.0;
 
-		 for (int x = 1; x < dims[0]; x++) {
-			 density1D[x] = 0.0;
-			 scalar znew = 0.0;
-			 scalar zprev = 0.0;
-
-			 for (int y = 1; y < dims[1]; y++) {
-				 zprev = density2D[x - 1 + y * dims[0]];
-				 znew = density2D[x + y * dims[0]];
-				 density1D[x] += 0.5 * (zprev + znew);
-			 }
-		 }
+			for (int y = 1; y < dims[1]; ++y) {
+				const scalar prev = density2D[x + (y - 1) * dims[0]];
+				const scalar next = density2D[x + y * dims[0]];
+				density1D[x] += scalar(0.5) * (prev + next);
+			}
+		}
 		 for (int x = 1; x < dims[0]; x++) {
 			 scalar zprev = density1D[x - 1];
 			 scalar znew = density1D[x];

@@ -63,7 +63,14 @@ struct POM {
 
     // in nanometers
     // Spectrum for incandenscent in nanometers
-    std::vector<Light> lights = { Light{650.0f, 1.0f}, Light{550.0f, 0.6f}, Light{450.0f, 0.2f} };
+    //std::vector<Light> lights = { Light{650.0f, 1.0f}, Light{550.0f, 0.6f}, Light{450.0f, 0.2f} };
+
+    // Broadband spectrum
+    std::vector<Light> lights = {
+        { 420.0f, 0.25f },{ 450.0f, 0.60f },{ 480.0f, 0.80f },
+        { 510.0f, 0.90f },{ 540.0f, 1.00f },{ 570.0f, 0.95f },
+        { 600.0f, 0.85f },{ 630.0f, 0.70f },{ 660.0f, 0.45f }
+    };
 
     // Dimension order
     std::array<int, 3> indexOrder = { 0, 1, 2 };

@@ -1,11 +1,20 @@
-cmake_minimum_required(VERSION 3.5)
-project(lclab2)
+cmake_minimum_required(VERSION 3.14)
+project(lclab2 LANGUAGES CXX CUDA)
+set(CMAKE_CUDA_ARCHITECTURES "native")
 
+# Enforce C++17 globally
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CONSOLE_ONLY OFF CACHE BOOL "" FORCE) 
 
 
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules/" ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH 
+    "${PROJECT_SOURCE_DIR}/modules/" 
+    "${PROJECT_SOURCE_DIR}/external/magnum/modules" 
+    ${CMAKE_MODULE_PATH}
+)
 
 # Add Corrade as a subproject
 # EXCLUDE_FROM_ALL ensures only parts of magnum needed are build
@@ -16,7 +25,11 @@ if (WIN32)
 
 	# Necessary for if projects get too big
 	if (MSVC)
-		add_compile_options(/bigobj)
+		add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/bigobj>")
+		add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
+		
+		add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/bigobj>")
+		add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>")
 	else ()
 		add_compile_options(-Wa,-mbig-obj)
 	endif ()
@@ -27,7 +40,10 @@ if (WIN32)
 	# 	sudo apt install libsdl2-dev    # on Ubuntu / Debian
 	# 	brew install sdl2               # on macOS (via Homebrew)
 	if (NOT CONSOLE_ONLY)
-		set(CMAKE_PREFIX_PATH ${PROJECT_SOURCE_DIR}/external/SDL2-2.0.10 ${CMAKE_PREFIX_PATH})
+		#set(CMAKE_PREFIX_PATH ${PROJECT_SOURCE_DIR}/external/SDL2-2.0.10 ${CMAKE_PREFIX_PATH})
+		set(SDL_SHARED ON CACHE BOOL "" FORCE)
+		set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+		add_subdirectory(external/SDL2 EXCLUDE_FROM_ALL)
 	endif()
 elseif(UNIX)
 	add_definitions(-DLC_PLATFORM_UNIX)
@@ -36,7 +52,6 @@ elseif(APPLE)
 endif()
 
 if (NOT CONSOLE_ONLY)
-
 	# Add Magnum as a subproject, enable Sdl2Application
 	set(WITH_SDL2APPLICATION ON CACHE BOOL "" FORCE)
 
@@ -65,7 +80,7 @@ find_package(Threads REQUIRED)
 set(WITH_CUDA ON CACHE BOOL "" FORCE)
 
 if (WITH_CUDA)
-	find_package(CUDA REQUIRED)
+	# find_package(CUDA REQUIRED)
 	add_definitions(-DLCLAB2_CUDA)
 	# Copy custom cuda_occupancy.h file to hemi folder
 	file(READ custom/cuda/cuda_occupancy_impl.h.in FILE_CONTENTS)
@@ -79,6 +94,15 @@ if (WITH_CUDA)
 endif()
 
 add_definitions(-DLCLAB2_ROOT_PATH="${CMAKE_SOURCE_DIR}")
+
+# Find VTK
+find_package(VTK REQUIRED COMPONENTS
+  CommonCore
+  CommonDataModel
+  FiltersCore
+  FiltersGeneral
+  FiltersSources
+)
 
 add_subdirectory(lclab2/src)
 

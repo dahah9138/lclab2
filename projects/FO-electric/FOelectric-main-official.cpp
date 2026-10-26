@@ -1,5 +1,6 @@
 #include "Widget.h"
 #include "find_components.h"
+#include "VKHelpers.h"
 #include "ZProfile.h"
 #include "LehmanCluster.h"
 #include "CrossSection.h"
@@ -8,6 +9,7 @@
 #include "NematicMultiplaneManager.h"
 #include <tuple>
 #include <filesystem>
+#include <algorithm>
 #include <set>
 
 using FOFDSolver = LC::FrankOseen::Electric::FOFDSolver;
@@ -189,7 +191,6 @@ private:
     void handleModificationWindow();
     void handleInteractionEnergyWindow();
     void handleZProfileWindow();
-    void generatePionTriplet();
     void handleMultiplaneWindow();
     void handleLehmannWindow();
     std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangle>>
@@ -337,9 +338,8 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     _widget.boundaries[1] = 1;
     _widget.boundaries[2] = 0;
 
-
     /*
-            Settings for nested heliknotons
+        Settings for nested heliknotons
     */
     (*data).Voxels((2 * Q + 1)* npp, (2 * Q + 1)* npp, (2 * Q + 1)* npp)
         .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
@@ -356,36 +356,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     (*data).vconfig = [v0](FOFDSolver::Tensor3& vv, int i, int j, int k, int* voxels) {
         vv(i, j, k) = v0 * (k / (voxels[2] - 1));
     };
-
-    if (0)
-    {
-        // Test with Q = 2 for now
-        Q = 2;
-
-        LC::scalar dz = 0.5 * (2. * Q + 1.) / (2. * Q);
-
-        /*
-            Settings for merged structure
-        */
-
-        // Create heliknotons
-        std::vector <Eigen::Matrix<LC::scalar, 3, 1>> translations;
-        translations.push_back({ 0.0, 0.0, dz });
-        translations.push_back({ 0.0, 0.0, -dz });
-
-        Dataset::Config helis = Dataset::Heliknoton(1, data->voxels, data->cell_dims, translations, 0.50, 3);
-
-        (*data).Voxels(5 * npp, 5 * npp, (2 * Q + 1)* npp)
-            .Boundaries(1, 1, 0)
-            .Cell(5, 5, 2 * Q + 1)
-            .ElasticConstants(LC::FrankOseen::ElasticConstants::_5CB())
-            .ElectricConstants(LC::FrankOseen::ElectricConstants::_5CB())
-            .OpticalConstants(LC::FrankOseen::OpticalConstants::_5CB())
-            .Configuration(helis);
-    }
-
-
-    //.Configuration(custom_cfg);
 
     _solver->Init();
 
@@ -418,8 +388,6 @@ Sandbox::Sandbox(const Arguments& arguments) : LC::Application{ arguments,
     
     updateSpheres(true);
 
-
-
     _widget.series_x_axis_vec.resize(_widget.max_graph_points);
     _widget.energy_series_vec.resize(_widget.max_graph_points);
 
@@ -439,443 +407,398 @@ void Sandbox::drawEvent() {
     GL::Renderer::setClearColor(_widget.clearColor);
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color | GL::FramebufferClear::Depth);
 
-
     _imgui.newFrame();
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    FOFDSolver* solver = (FOFDSolver*)(_solver.get());
-    {
-        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar;
+    Dataset* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    FOFDSolver* solver = static_cast<FOFDSolver*>(_solver.get());
 
-        if (_widget.showSettings) {
+    auto normalizeLoadedDirectors = [this]() {
+        initVisuals();
+        Dataset* dataloc = static_cast<Dataset*>(_solver->GetDataPtr());
 
-            ImGui::SetNextWindowPos(ImVec2(0, 0));
-            ImGui::Begin("lclab2", 0, window_flags);
+        size_t grid_vol = static_cast<size_t>(dataloc->voxels[0]) * dataloc->voxels[1] * dataloc->voxels[2];
+        size_t invalid_dirs = 0;
 
-            {
-                std::function<void()> loadAction = [this]() {
+        for (size_t i = 0; i < grid_vol; ++i) {
+            LC::scalar nx = dataloc->directors[i];
+            LC::scalar ny = dataloc->directors[i + grid_vol];
+            LC::scalar nz = dataloc->directors[i + 2 * grid_vol];
+            LC::scalar mag = std::sqrt(nx * nx + ny * ny + nz * nz);
 
+            if (mag != 0.) {
+                dataloc->directors[i] /= mag;
+                dataloc->directors[i + grid_vol] /= mag;
+                dataloc->directors[i + 2 * grid_vol] /= mag;
+            }
+            else {
+                ++invalid_dirs;
+            }
+        }
 
-                    initVisuals();
-                    // Reset energy chart
-                    Dataset* dataloc = (Dataset*)(_solver->GetDataPtr());
+        if (invalid_dirs > 0) {
+            LC_WARN("Loaded degenerate director field");
+        }
 
-                    // Normalize directors
-                    size_t grid_vol = dataloc->voxels[0] * dataloc->voxels[1] * dataloc->voxels[2];
-                    size_t invalid_dirs = 0;
-                    for (size_t i = 0; i < grid_vol; i++) {
+        _widget.energy_series.clear();
+        _widget.series_x_axis.clear();
+        for (size_t i = 0; i < _widget.energy_series_vec.size(); ++i) {
+            _widget.energy_series_vec[i] = 0.0;
+            _widget.series_x_axis_vec[i] = dataloc->numIterations + static_cast<int>(i);
+        }
 
-                        LC::scalar mag = sqrt(dataloc->directors[i] * dataloc->directors[i] + dataloc->directors[i + grid_vol] * dataloc->directors[i + grid_vol]
-                            + dataloc->directors[i + 2 * grid_vol] * dataloc->directors[i + 2 * grid_vol]);
+        _image_series = LC::Imaging::ImageSeries(
+            static_cast<std::int32_t>(dataloc->voxels[0]),
+            static_cast<std::int32_t>(dataloc->voxels[1]),
+            _header.readFile + "-POM"
+        );
+        for (int d = 0; d < 3; ++d) {
+            _widget.celldims[d] = dataloc->cell_dims[d];
+        }
+        };
 
-                        if (mag != 0.)
-                            for (int d = 0; d < 3; d++)
-                                dataloc->directors[i + d * grid_vol] /= mag;
-                        else
-                            invalid_dirs++;
-                    }
+    if (_widget.showSettings) {
+        ImGui::SetNextWindowPos(ImVec2(0.f, 0.f), ImGuiCond_Always);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(370.f, 400.f), ImVec2(520.f, ImGui::GetIO().DisplaySize.y));
 
-                    if (invalid_dirs)
-                        LC_WARN("Loaded degenerate director field");
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 4.0f));
 
-                    _widget.energy_series = std::list<LC::precision_scalar>{};
-                    _widget.series_x_axis = std::list<LC::precision_scalar>{};
-                    for (int i = 0; i < _widget.energy_series_vec.size(); i++) {
-                        _widget.energy_series_vec[i] = 0.0;
-                        _widget.series_x_axis_vec[i] = dataloc->numIterations + i;
-                    }
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_AlwaysAutoResize;
+        ImGui::Begin("lclab2", nullptr, window_flags);
 
-                    // ** Only intended to be used for POM recording
-                    _image_series = LC::Imaging::ImageSeries((std::int32_t)dataloc->voxels[0], (std::int32_t)dataloc->voxels[1], _header.readFile + "-POM");
-                    for (int d = 0; d < 3; d++) _widget.celldims[d] = dataloc->cell_dims[d];
+        saveMenu(_widget.updateImageFromLoad, normalizeLoadedDirectors);
+        handleVisualPropertiesWindow();
+        imageMenu();
 
-                };
-                saveMenu(_widget.updateImageFromLoad, loadAction);
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        float half_btn_w = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+        if (ImGui::Button("LC Info", ImVec2(half_btn_w, 0.f))) {
+            _widget.showLCINFO ^= true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Modify LC", ImVec2(half_btn_w, 0.f))) {
+            _widget.showModificationWindow ^= true;
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("Material & Field Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto lcMap = LC::FrankOseen::LiquidCrystal::Map();
+            dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
+
+            if (data->lc_type != LC::FrankOseen::LC_TYPE::CUSTOM) {
+                (*data).ElasticConstants(data->lc_type)
+                    .ElectricConstants(data->lc_type)
+                    .OpticalConstants(data->lc_type);
             }
 
-            handleVisualPropertiesWindow();
+            bool modified = false;
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Elastic, Dielectric & Optical Constants");
 
-            imageMenu();
+            if (ImGui::BeginTable("LCParamsTable", 3, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##k11", &data->k11.first, 0.0, 0.0, "k11: %.3f");
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##k22", &data->k22.first, 0.0, 0.0, "k22: %.3f");
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##k33", &data->k33.first, 0.0, 0.0, "k33: %.3f");
 
-            // Demo widgets for fast prototyping
-            //if (ImGui::Button("Demo ImGui"))
-            //    _widget.showDemoWindow ^= true;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##epar", &data->epar, 0.0, 0.0, "epar: %.2f");
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##eper", &data->eper, 0.0, 0.0, "eper: %.2f");
+                ImGui::TableNextColumn();
+                ImGui::Dummy(ImVec2(0.f, 0.f));
 
-            //ImGui::SameLine();
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##n0", &data->n0, 0.0, 0.0, "n0: %.3f");
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                modified |= ImGui::InputDouble("##ne", &data->ne, 0.0, 0.0, "ne: %.3f");
+                ImGui::TableNextColumn();
+                ImGui::Dummy(ImVec2(0.f, 0.f));
 
-            static bool p_open = false;
-            
-            //if (ImGui::Button("Demo ImPlot"))
-            //    p_open ^= true;
-            if (p_open)
-                ImPlot::ShowDemoWindow(&p_open);
-
-            if (ImGui::Button("LC Info"))
-                _widget.showLCINFO ^= true;
-
-            ImGui::SameLine();
-
-            if (ImGui::Button("Modify LC"))
-                _widget.showModificationWindow ^= true;
-
-            //if (ImGui::Button("Quaternion field")) {
-            //    generatePionTriplet();
-            //}
-
-            if (_quaternion_plane) {
-                ImGui::Checkbox("lambda", &_quaternion_plane->drawlambda);
-                ImGui::SameLine();
-                ImGui::Checkbox("chi", &_quaternion_plane->drawchi);
-                ImGui::SameLine();
-                ImGui::Checkbox("tau", &_quaternion_plane->drawtau);
+                ImGui::EndTable();
             }
 
-            // Dropdown menu for lc types
-            {
-                std::map<LC::FrankOseen::LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
-                dropDownMenu<LC::FrankOseen::LC_TYPE>("LC Type", data->lc_type, lcMap);
-
-                // Update coeffs
-                if (data->lc_type != LC::FrankOseen::LC_TYPE::CUSTOM) {
-                    (*data).ElasticConstants(data->lc_type)
-                        .ElectricConstants(data->lc_type)
-                        .OpticalConstants(data->lc_type);
-                }
-
-                bool modified = false;
-
-                ImGui::TextColored(ImVec4(0.f, 1.f, 0.f, 1.f), "LC Parameters");
-                ImGui::Separator();
-                ImGui::PushItemWidth(75.f);
-                modified = ImGui::InputDouble("k11", &data->k11.first) ? true : modified;
-                ImGui::SameLine();
-                modified = ImGui::InputDouble("k22", &data->k22.first) ? true : modified;
-                ImGui::SameLine();
-                modified = ImGui::InputDouble("k33", &data->k33.first) ? true : modified;
-                modified = ImGui::InputDouble("epar", &data->epar) ? true : modified;
-                ImGui::SameLine();
-                modified = ImGui::InputDouble("eper", &data->eper) ? true : modified;
-                modified = ImGui::InputDouble("n0", &data->n0) ? true : modified;
-                ImGui::SameLine();
-                modified = ImGui::InputDouble("ne", &data->ne) ? true : modified;
-                ImGui::PopItemWidth();
-                ImGui::Separator();
-
-                if (modified) {
-                    // Set LC type to custom
-                    data->lc_type = LC::FrankOseen::LC_TYPE::CUSTOM;
-                }
-
+            if (modified) {
+                data->lc_type = LC::FrankOseen::LC_TYPE::CUSTOM;
             }
 
-            // Dropdown menu for relax method
-            {
-                using namespace LC::FrankOseen::ElasticOnly;
-                auto map = Dataset::RelaxMap();
-                dropDownMenu<Dataset::RelaxKind>("Relax method", data->relaxKind, map);
-            }
-
-            float t1 = _widget.energyErrorThreshold * 1e8f;
-
-            ImGui::PushItemWidth(100.0f);
-            //ImGui::InputFloat("(10^-8) Energy Threshold", &t1);
-            //_widget.energyErrorThreshold = t1 * 1e-8f;
-
-            ImGui::InputFloat("Voltage", &_widget.voltage);
-            ImGui::InputInt("Voltage prerelax iterations", &_widget.voltage_iterations);
-
+            ImGui::Separator();
+            ImGui::PushItemWidth(120.0f);
+            ImGui::InputFloat("Voltage (V)", &_widget.voltage, 0.1f, 1.0f, "%.2f");
+            ImGui::InputInt("Prerelax Iters", &_widget.voltage_iterations);
             ImGui::PopItemWidth();
 
-            if (ImGui::Button("Update voltage")) {
+            if (ImGui::Button("Apply Voltage", ImVec2(-FLT_MIN, 0.f))) {
                 solver->SetVoltage(_widget.voltage, _widget.voltage_iterations);
                 LC_INFO("Updated voltage");
             }
-           
-            handleModificationWindow();
-            handleInteractionEnergyWindow();
-            handleNonlinearImagingWindow();
+            ImGui::Spacing();
+        }
 
-            handleZProfileWindow();
-
-            {
-                ImGui::Checkbox("Enable POM", &_widget.POM);
-                handlePOMWindow();
-                handlePreimageWindow();
-                handleVortexKnotWindow();
-                handleKnotInteractionWindow();
-                handleMultiplaneWindow();
-                handleLehmannWindow();
-
-                {
-                    bool prior = _widget.midplane;
-                    ImGui::Checkbox("Midplane", &_widget.midplane);
-                    if (!_widget.midplane)
-                    {
-                        // Initialize iplane
-                        if (prior)
-                            for (int d = 0; d < 3; d++)
-                                _widget.iPlane[d] = data->voxels[d] / 2;
-
-                        ImGui::SliderInt3("Image plane", &_widget.iPlane[0], 0,
-                            *std::max_element(data->voxels.begin(), data->voxels.end()));
-
-                        // Clamp within bounds
-                        for (int d = 0; d < 3; d++) {
-                            _widget.iPlane[d] = (_widget.iPlane[d] > data->voxels[d] - 1) ? data->voxels[d] - 1 : _widget.iPlane[d];
-                            _widget.iPlane[d] = (_widget.iPlane[d] < 0) ? 0 : _widget.iPlane[d];
-                        }
+        if (ImGui::CollapsingHeader("Cross-Sections & Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool prior_midplane = _widget.midplane;
+            ImGui::Checkbox("Lock to Midplane", &_widget.midplane);
+            if (!_widget.midplane) {
+                if (prior_midplane) {
+                    for (int d = 0; d < 3; ++d) {
+                        _widget.iPlane[d] = data->voxels[d] / 2;
                     }
                 }
-
-                if (ImGui::Button("Plane Selector"))
-                    ImGui::OpenPopup("plane_selector");
-
-                ImGui::SameLine();
-
-                if (ImGui::Button("Nematic"))
-                    ImGui::OpenPopup("nematic_plane_selector");
-
-                ImGui::SameLine();
-                ImGui::Checkbox("Coupled", &_widget.couplePlaneAndNematic);
-
-                std::map<std::pair<std::string, Axis>, bool&> planes{ {{"yz", Axis::x }, _crossSections[0].draw },
-                    {{"xz", Axis::y }, _crossSections[1].draw },
-                    {{"xy", Axis::z }, _crossSections[2].draw } };
-
-                std::map<std::pair<std::string, Axis>, bool&> nematic_planes{ {{"yz", Axis::x }, _crossSections[0].draw_nematic },
-                    {{"xz", Axis::y }, _crossSections[1].draw_nematic },
-                    {{"xy", Axis::z }, _crossSections[2].draw_nematic } };
-
-                if (ImGui::BeginPopup("plane_selector")) {
-                    ImGui::Text("Draw planes");
-                    ImGui::Separator();
-                    for (auto& p : planes) {
-                        ImGui::MenuItem(p.first.first.c_str(), "", &p.second);
-                    }
-                    ImGui::EndPopup();
-                }
-
-                if (ImGui::BeginPopup("nematic_plane_selector")) {
-                    ImGui::Text("Draw nematic planes");
-                    ImGui::Separator();
-                    auto map = planes;
-                    if (!_widget.couplePlaneAndNematic) {
-                        map = nematic_planes;
-                    }
-                    for (auto& p : map) {
-                        ImGui::MenuItem(p.first.first.c_str(), "", &p.second);
-                    }
-                    ImGui::EndPopup();
-                }
-
-                if (_widget.couplePlaneAndNematic) {
-                    for (int i = 0; i < 3; i++)
-                        _crossSections[i].draw_nematic = _crossSections[i].draw;
+                int max_vox = *std::max_element(data->voxels.begin(), data->voxels.end());
+                ImGui::SliderInt3("Slice Index", &_widget.iPlane[0], 0, max_vox);
+                for (int d = 0; d < 3; ++d) {
+                    _widget.iPlane[d] = std::clamp(_widget.iPlane[d], 0, data->voxels[d] - 1);
                 }
             }
+
+            if (ImGui::Button("Planes...")) ImGui::OpenPopup("plane_selector");
+            ImGui::SameLine();
+            if (ImGui::Button("Nematic...")) ImGui::OpenPopup("nematic_plane_selector");
+            ImGui::SameLine();
+            ImGui::Checkbox("Coupled", &_widget.couplePlaneAndNematic);
+
+            constexpr std::array<const char*, 3> plane_names = { "yz (x-axis)", "xz (y-axis)", "xy (z-axis)" };
+
+            if (ImGui::BeginPopup("plane_selector")) {
+                ImGui::TextDisabled("Active Cross-Sections");
+                ImGui::Separator();
+                for (int i = 2; i >= 0; --i) {
+                    ImGui::MenuItem(plane_names[i], nullptr, &_crossSections[i].draw);
+                }
+                ImGui::EndPopup();
+            }
+
+            if (ImGui::BeginPopup("nematic_plane_selector")) {
+                ImGui::TextDisabled("Active Nematic Overlays");
+                ImGui::Separator();
+                for (int i = 2; i >= 0; --i) {
+                    bool& target = _widget.couplePlaneAndNematic ? _crossSections[i].draw : _crossSections[i].draw_nematic;
+                    ImGui::MenuItem(plane_names[i], nullptr, &target);
+                }
+                ImGui::EndPopup();
+            }
+
+            if (_widget.couplePlaneAndNematic) {
+                for (int i = 0; i < 3; ++i) {
+                    _crossSections[i].draw_nematic = _crossSections[i].draw;
+                }
+            }
+
+            ImGui::Separator();
             static bool s_flip_manipulator_rot = false;
             Matrix4 inversion_mat = Matrix4::rotationX(Rad(s_flip_manipulator_rot * M_PI));
 
-            ImGui::Text("Go to");
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Camera View:");
             ImGui::SameLine();
-            if (ImGui::Button("xy")) {
+            if (ImGui::Button("XY")) {
                 _manipulator->setTransformation(inversion_mat);
             }
             ImGui::SameLine();
-            if (ImGui::Button("xz")) {
-                _manipulator->setTransformation(inversion_mat * Matrix4::rotationZ(Rad(M_PI)) * Matrix4::rotationY(Rad(M_PI)) * Matrix4::rotationX(Rad(M_PI / 2.0f)));
+            if (ImGui::Button("XZ")) {
+                _manipulator->setTransformation(
+                    inversion_mat * Matrix4::rotationZ(Rad(M_PI)) * Matrix4::rotationY(Rad(M_PI)) * Matrix4::rotationX(Rad(M_PI / 2.0f))
+                );
             }
             ImGui::SameLine();
-            if (ImGui::Button("yz")) {
-                _manipulator->setTransformation(inversion_mat * Matrix4::rotationZ(Rad(-M_PI / 2.0f)) * Matrix4::rotationY(Rad(-M_PI / 2.0f)));
+            if (ImGui::Button("YZ")) {
+                _manipulator->setTransformation(
+                    inversion_mat * Matrix4::rotationZ(Rad(-M_PI / 2.0f)) * Matrix4::rotationY(Rad(-M_PI / 2.0f))
+                );
             }
             ImGui::SameLine();
             ImGui::Checkbox("Flip##Manipulator", &s_flip_manipulator_rot);
-            
+            ImGui::Spacing();
+        }
 
-            if (ImGui::Button("Update Image")  || _widget.updateImageFromLoad )
+        if (ImGui::CollapsingHeader("Analysis & Optical Toolboxes", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Enable POM", &_widget.POM);
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh Visuals", ImVec2(-FLT_MIN, 0.f)) || _widget.updateImageFromLoad) {
                 _widget.updateImage = true;
-
+            }
             _widget.updateImageFromLoad = false;
 
-            // Set Cycle
-            ImGui::PushItemWidth(100.0f);
-            ImGui::InputInt("Cycle", &_widget.cycle);
+            handleModificationWindow();
+            handleInteractionEnergyWindow();
+            handleNonlinearImagingWindow();
+            handleZProfileWindow();
+            handlePOMWindow();
+            handlePreimageWindow();
+            handleVortexKnotWindow();
+            handleKnotInteractionWindow();
+            handleMultiplaneWindow();
+            handleLehmannWindow();
+            ImGui::Spacing();
+        }
 
-            // Relaxation rate
-            {
-                Dataset* data = (Dataset*)(_solver->GetDataPtr());
+        if (ImGui::CollapsingHeader("Solver & Relaxation", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto relaxMap = Dataset::RelaxMap();
+            dropDownMenu<Dataset::RelaxKind>("Method", data->relaxKind, relaxMap);
+
+            if (ImGui::BeginTable("SolverParamsTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputInt("Cycle", &_widget.cycle);
+
+                ImGui::TableNextColumn();
                 Float relaxRate = data->rate;
-                ImGui::InputFloat("Relax rate", &relaxRate);
-                ImGui::PopItemWidth();
-                data->rate = relaxRate;
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputFloat("Rate", &relaxRate, 0.0f, 0.0f, "%.4f")) {
+                    data->rate = relaxRate;
+                }
+                ImGui::EndTable();
             }
-
-            //ImGui::Checkbox("GPU", &_widget.GPU);
-            //ImGui::SameLine();
-            ImGui::Checkbox("Auto", &_widget.autoRelax);
 
             ImGui::RadioButton("Total Energy", &_widget.radioEn, 0);
             ImGui::SameLine();
-            ImGui::RadioButton("Total Energy Derivative", &_widget.radioEn, 1);
+            ImGui::RadioButton("Energy Derivative", &_widget.radioEn, 1);
 
-            // Pressed the relax button
-            _widget.relax = ImGui::Button("Relax");
+            _widget.relax = ImGui::Button("Relax Step", ImVec2(110.f, 0.f));
             ImGui::SameLine();
-            ImGui::Checkbox("Compute Charge", &_widget.sampleCharge);
+            ImGui::Checkbox("Auto-Relax", &_widget.autoRelax);
+            ImGui::SameLine();
+            ImGui::Checkbox("Hopf Charge", &_widget.sampleCharge);
 
-            // Compute change in free en:
-            LC::scalar difference = 2.0 * _widget.energyErrorThreshold;
-            if (_widget.energy_series.size() > 1) {
-                std::list<LC::precision_scalar>::iterator it_end_m1 = _widget.energy_series.begin();
-                std::advance(it_end_m1, _widget.energy_series.size() - 2);
-                std::list<LC::precision_scalar>::iterator it_end = it_end_m1;
-                std::advance(it_end, 1);
-                
-                difference = *it_end - *it_end_m1;
-            }
-
-            // Triggered continuous relax
-            if (_widget.relax && _widget.autoRelax)
+            if (_widget.relax && _widget.autoRelax) {
                 _widget.continuousRelax = true;
-            // Disabled continuous relax
-            else if (!_widget.autoRelax)
+            }
+            else if (!_widget.autoRelax) {
                 _widget.continuousRelax = false;
-
-            
+            }
 
             if (_relaxFuture.second) {
-                ImGui::SameLine();
-                ImGui::Text("Relaxing...");
+                LC::scalar difference = 2.0 * _widget.energyErrorThreshold;
                 if (_widget.energy_series.size() > 1) {
+                    auto it_end = std::prev(_widget.energy_series.end());
+                    auto it_prev = std::prev(it_end);
+                    difference = *it_end - *it_prev;
+                }
+
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "Status: Relaxing...");
+                if (_widget.energy_series.size() > 1 && _widget.cycle > 0) {
                     ImGui::SameLine();
-                    ImGui::Text("[dE (per cycle) = %.5e]", (float)difference / (float)_widget.cycle);
+                    ImGui::TextDisabled("[dE/cycle = %.4e]", static_cast<float>(difference) / static_cast<float>(_widget.cycle));
                 }
             }
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
-
-            ImGui::End();
         }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Frame: %.2f ms (%.1f FPS)",
+            1000.0 / Double(ImGui::GetIO().Framerate), Double(ImGui::GetIO().Framerate));
+
+        ImGui::End();
+        ImGui::PopStyleVar(4);
     }
 
     handleLCINFOWindow();
 
-    /* 3. Show the ImGui demo window. Most of the sample code is in
-       ImGui::ShowDemoWindow() */
     if (_widget.showDemoWindow) {
-        ImGui::SetNextWindowPos(ImVec2(100, 20), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(100.f, 20.f), ImGuiCond_FirstUseEver);
         ImGui::ShowDemoWindow();
     }
 
-
-   
-    /* Update application cursor */
     _imgui.updateApplicationCursor(*this);
 
-
-    /* Update camera */
     bool moving = true;
-
-    if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall))
+    if (static_cast<int>(_cameraType) & static_cast<int>(CameraType::ArcBall)) {
         moving = _arcballCamera->updateTransformation();
-
+    }
 
     updateBoxes();
     drawBoxes();
-  
-    
+
     updateSpheres();
-    if (!_widget.hideHeliknotonInsertIndicator)
+    if (!_widget.hideHeliknotonInsertIndicator) {
         drawSpheres();
+    }
 
     polyRenderer();
 
-    
     sortObjects(_transparentNormalDrawables);
-    if (_widget.drawSurfaces)
+    if (_widget.drawSurfaces) {
         _camera->draw(_transparentNormalDrawables);
+    }
 
-    // Sort objects to draw in correct order
     sortObjects(_transparentDrawables);
     _camera->draw(_transparentDrawables);
 
-    // Draw nematic overlay
-    for (int id = 0; id < 3; id++) {
+    const Matrix4 viewProj = _camera->cameraMatrix() * _manipulator->transformationMatrix();
+    const Matrix4 projMat = _camera->projectionMatrix();
+
+    for (int id = 0; id < 3; ++id) {
         if (_crossSections[id].draw_nematic && _crossSections[id].nematic) {
-            _crossSections[id].nematic->specular = _widget.specular;
-            _crossSections[id].nematic->diffuse = _widget.diffuse;
-            _crossSections[id].nematic->ambient = _widget.ambient;
-            _crossSections[id].nematic->selected_drawType = _widget.nematicDrawType;
-            _crossSections[id].nematic->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
+            auto& nem = _crossSections[id].nematic;
+            nem->specular = _widget.specular;
+            nem->diffuse = _widget.diffuse;
+            nem->ambient = _widget.ambient;
+            nem->selected_drawType = _widget.nematicDrawType;
+            nem->Draw(viewProj, projMat);
         }
     }
 
-    // Draw planes from plane selector
-    _multiplane_manager.Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix(), _widget);
+    _multiplane_manager.Draw(viewProj, projMat, _widget);
 
-    // Draw vortex points
-    for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); iter++) {
-        if (iter->draw)
-            iter->points.Draw(_camera->cameraMatrix()* _manipulator->transformationMatrix(), _camera->projectionMatrix());
+    for (auto& knot : _processedVortexKnot) {
+        if (knot.draw) {
+            knot.points.Draw(viewProj, projMat);
+        }
     }
 
-
-    // Draw z profile
     if (_widget.drawProfile && _zprofile) {
-        _zprofile->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
+        _zprofile->Draw(viewProj, projMat);
     }
 
-    if (_quaternion_plane)
-        _quaternion_plane->Draw(_camera->cameraMatrix() * _manipulator->transformationMatrix(), _camera->projectionMatrix());
-
-    //_sarray->Draw(_arcballCamera, _projectionMatrix);
-    {
-        guiRenderer();
-        _imgui.drawFrame();
-
-    }
+    guiRenderer();
+    _imgui.drawFrame();
 
     swapBuffers();
 
+    auto launchAsyncRelax = [&]() {
+        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, true);
+        _relaxFuture.second = true;
+        _widget.updateImage = true;
+        };
+
     if (_widget.relax && !_widget.continuousRelax) {
-
-        // Try to relax asynchronously...
-        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, true);
-        _relaxFuture.second = true;
-        _widget.updateImage = true;
+        launchAsyncRelax();
     }
 
-    if (_widget.updateImage || _relaxFuture.second) {
-
-        bool ready = checkRelax();
-
-        if (ready) {
-            if (_widget.updateImage) {
-                updateColor();
-                computeEnergy();
-                // Compute topological charge
-                if (_widget.sampleCharge) {
-                    _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
-                }
-                _widget.updateImage = false;
+    if ((_widget.updateImage || _relaxFuture.second) && checkRelax()) {
+        if (_widget.updateImage) {
+            updateColor();
+            computeEnergy();
+            if (_widget.sampleCharge) {
+                _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
             }
-            
+            _widget.updateImage = false;
         }
-
     }
 
-    // If continuous, update at the end when relax finishes
     if (_widget.continuousRelax && checkRelax()) {
-
-        // Try to relax asynchronously...
-        _relaxFuture.first = LC::Solver::RelaxAsync(_solver.get(), _widget.cycle, std::launch::async, true);
-        _relaxFuture.second = true;
-        _widget.updateImage = true;
+        launchAsyncRelax();
     }
 
-    if (moving || _ioUpdate) redraw();
-
+    if (moving || _ioUpdate) {
+        redraw();
+    }
 }
 
 void Sandbox::updateBoxes(bool first) {
@@ -945,200 +868,6 @@ void Sandbox::updateSpheres(bool first) {
                 (-0.5f + zb) * (float)data->cell_dims[2] }) *
             Matrix4::scaling(0.1f * Vector3{ 1.f, 1.f, 1.f}), 0x00b800_rgbf);
     }
-
-
-}
-
-void Sandbox::generatePionTriplet() {
-    // Obtain chirality field
-    Dataset* data = (Dataset*)_solver->GetDataPtr();
-
-    unsigned int slice = data->voxels[0] * data->voxels[1];
-    unsigned int vol = slice * data->voxels[2];
-
-    std::unique_ptr<float[]> nn(new float[3 * vol]);
-    for (int i = 0; i < 3 * vol; i++)
-        nn[i] = data->directors[i];
-
-    auto vNew = data->voxels;
-
-    unsigned int reduced_slice = vNew[0] * vNew[1];
-    unsigned int reduced_vol = reduced_slice * vNew[2];
-
-    // Initialize quaternion field
-    using Quatd = Eigen::Quaternion<LC::scalar>;
-    _quaternion_field = std::unique_ptr<Quatd[]>(new Quatd[vol]);
-
-    std::unique_ptr<float[]> chi_field;
-    std::unique_ptr<short[]> valid_field;
-
-    LC::Math::ChiralityField(nn.get(), chi_field, data->voxels, { (float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2] }, valid_field, true, _widget.isoLevel);
-    
-    // Extract pion triplet from n and chi
-    /*
-        Reference triplet: lambda = (1, 0, 0)
-                           tau    = (-1, 0, 0)
-                           chi    = (0, 0, 1)
-    */
-
-    for (int i = 0; i < vNew[0]; i++) {
-        for (int j = 0; j < vNew[1]; j++) {
-            for (int k = 0; k < vNew[2]; k++) {
-                
-                unsigned int full_idx = i + j * vNew[0] + k * slice;
-
-                Eigen::Vector3f chi, tau;
-
-                Eigen::Vector3f lambda{ nn[full_idx], nn[full_idx + vol], nn[full_idx + 2 * vol] };
-                if (!valid_field[full_idx]) {
-                    // Make chi perpendicular to n
-                    auto zhat = Eigen::Vector3f{ 0.f, 0.f, 1.0f };
-                    auto yhat = Eigen::Vector3f{ 0.f, 1.f, 0.f };
-                    chi = zhat;
-                    
-                    auto temp = lambda.cross(chi);
-                    if (temp.norm() > 0.)
-                        chi = lambda - lambda.dot(zhat) * lambda / lambda.squaredNorm();
-                    else {
-                        // Guaranteed to be nonzero
-                        chi = lambda - lambda.dot(yhat) * lambda / lambda.squaredNorm();
-                    }
-
-                    chi.normalize();
-                }
-                else {
-                    // Use the convention that chi_z must always be positive
-                    if (chi_field[full_idx + 2 * vol] < 0.)
-                        chi = Eigen::Vector3f{ -chi_field[full_idx], -chi_field[full_idx + vol], -chi_field[full_idx + 2 * vol] };
-                    else
-                        chi = Eigen::Vector3f{ chi_field[full_idx], chi_field[full_idx + vol], chi_field[full_idx + 2 * vol] };
-
-                }
-
-                tau = -lambda.cross(chi);
-                tau.normalize();
-
-                auto q = fromBasis(lambda,tau,chi);
-
-                _quaternion_field[full_idx].x() = q.x();
-                _quaternion_field[full_idx].y() = q.y();
-                _quaternion_field[full_idx].z() = q.z();
-                _quaternion_field[full_idx].w() = q.w();
-
-                // normalize
-                _quaternion_field[full_idx].normalize();
-
-                if (q.w() != q.w() || q.x() != q.x() || q.y() != q.y() || q.z() != q.z())
-                    LC_WARN("Quaternion NAN");
-                
-            }
-        }
-    }
-
-    // Initialize quaternion xy mid-plane
-    _quaternion_plane = NematicVisual{};
-
-    // Create plane positions
-
-    float dx = data->cell_dims[0] / (data->voxels[0] - 1);
-    float dy = data->cell_dims[1] / (data->voxels[1] - 1);
-
-    // This visualization is not very useful...
-    // Need to take the isosurface now
-    std::unique_ptr<Magnum::Vector3[]> grid(new Magnum::Vector3[slice]);
-    std::unique_ptr<Eigen::Quaternion<float>[]> quaternions(new Eigen::Quaternion<float>[slice]);
-    for (int x = 0; x < data->voxels[0]; x++) {
-        for (int y = 0; y < data->voxels[1]; y++) {
-            grid[x + vNew[0] *y] = Magnum::Vector3(-data->cell_dims[0] / 2. + x * dx, -data->cell_dims[1] / 2. + y * dy, 0.0f);
-
-            auto q = _quaternion_field[x + y * vNew[0] + int(vNew[2] / 2) * slice];
-
-            quaternions[x + vNew[0] * y].x() = q.x();
-            quaternions[x + vNew[0] * y].y() = q.y();
-            quaternions[x + vNew[0] * y].z() = q.z();
-            quaternions[x + vNew[0] * y].w() = q.w();
-            
-        }
-    }
-
-    /*
-        Compute the baryon density using the pion triplet
-    */
-
-    LC::scalar B = LC::Math::ComputeBaryonDensity(_quaternion_field, _baryon_density, data->voxels);
-
-    LC_INFO("Baryon number = {0}", B);
-
-    /*
-        Initialize the midplane of the pion triplet
-    */
-
-    _quaternion_plane->dim1 = vNew[0];
-    _quaternion_plane->dim2 = vNew[1];
-
-    std::function<Magnum::Vector3(void*, std::size_t)> access = [](void *data, std::size_t i) {
-        Magnum::Vector3* mdata = (Magnum::Vector3*)data;
-        return mdata[i];
-    };
-
-    _quaternion_plane->lambda.Init(grid.get(), access, slice);
-    _quaternion_plane->chi.Init(grid.get(), access, slice);
-    _quaternion_plane->tau.Init(grid.get(), access, slice);
-
-    // Change colors
-    // Use largest magnitude in space components of quaternion field to color according to (r,g,b)
-    for (int i = 0; i < slice; i++) {
-
-        
-        auto qmat = quaternions[i].toRotationMatrix();
-
-        if (abs(1.0f - quaternions[i].norm()) > 1e-3)
-            LC_WARN("Invalid quaternion: norm = {0}", quaternions[i].norm());
-
-        Matrix4 mat;
-
-        for (int ii = 0; ii < 4; ii++) {
-            for (int jj = 0; jj < 4; jj++) {
-                if (ii == 3 || jj == 3)
-                    mat[ii][jj] = 0.f;
-                else
-                    mat[ii][jj] = qmat(ii, jj);
-            }
-        }
-        mat[3][3] = 1;
-                
-        float sz = 0.2f * dx;
-        Matrix4 transformation;
-        {
-            transformation = Matrix4::translation(grid[i])
-                * mat
-                * Matrix4::rotationZ(Rad{ float(M_PI / 2.f) })
-                * Matrix4::scaling({ sz,sz,sz });
-            _quaternion_plane->lambda.polyInstanceData[i].transformationMatrix = transformation;
-            _quaternion_plane->lambda.polyInstanceData[i].normalMatrix = transformation.normalMatrix();
-        }
-
-        {
-            transformation = Matrix4::translation(grid[i])
-                * mat
-                * Matrix4::scaling({ sz,sz,sz });
-            _quaternion_plane->tau.polyInstanceData[i].transformationMatrix = transformation;
-            _quaternion_plane->tau.polyInstanceData[i].normalMatrix = transformation.normalMatrix();
-            _quaternion_plane->tau.polyInstanceData[i].color = Color3::red();
-        }
-
-        {
-            transformation = Matrix4::translation(grid[i])
-                * mat
-                * Matrix4::rotationX(Rad{ float(M_PI / 2.f) })
-                * Matrix4::scaling({ sz,sz,sz });
-            _quaternion_plane->chi.polyInstanceData[i].transformationMatrix = transformation;
-            _quaternion_plane->chi.polyInstanceData[i].normalMatrix = transformation.normalMatrix();
-            _quaternion_plane->chi.polyInstanceData[i].color = Color3::green();
-        }
-    }
-
-
 }
 
 void Sandbox::drawBoxes() {
@@ -1202,7 +931,6 @@ void Sandbox::keyReleaseEvent(KeyEvent& event) {
 }
 
 void Sandbox::updateColor() {
-
     using T4 = LC::FrankOseen::ElasticOnly::FOFDSolver::Tensor4;
     Dataset* data = (Dataset*)(_solver->GetDataPtr());
     // Colors
@@ -1357,37 +1085,52 @@ void Sandbox::updateColor() {
 
                 // Map cidx to reduced space
                 _crossSections[id].nematic->polyInstanceData[cidx_red].transformationMatrix = transformation;
-                //_crossSections[id].nematic->polyInstanceData[cidx_red].normalMatrix = transformation.normalMatrix();
             }
         }
 
         // Update sheet
         Trade::MeshData meshData = _crossSections[id].section.second->Data();
         _crossSections[id].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
-
-
-
     }
-
 }
 
 void Sandbox::POM(std::string override_name) {
-    int i;
-    for (int id = 0; id < 3; id++)
-        if (_crossSections[id].axis == Axis::z)
-            i = id;
+    if (!_solver) return;
 
-    Float alpha = _widget.alpha;
+    auto* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    if (!data || !data->directors) return;
 
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    if (data->voxels[0] == 0 || data->voxels[1] == 0 || data->voxels[2] <= 1) {
+        return;
+    }
 
-    LC::SIscalar pitch = _widget.pitch;
-    LC::scalar dop = data->cell_dims[2];
+    int zSectionIdx = -1;
+    for (int id = 0; id < 3; ++id) {
+        if (_crossSections[id].axis == Axis::z) {
+            zSectionIdx = id;
+            break;
+        }
+    }
 
+    if (zSectionIdx == -1 || !_crossSections[zSectionIdx].section.second) {
+        return;
+    }
+
+    auto& targetSheet = *_crossSections[zSectionIdx].section.second;
+    const std::size_t planeSize = static_cast<std::size_t>(data->voxels[0]) * data->voxels[1];
+
+    if (targetSheet.vertices.size() < planeSize) {
+        return;
+    }
+
+    const Float alpha = std::clamp(_widget.alpha, Float(0), Float(1));
+    const LC::SIscalar pitch = _widget.pitch;
+    const LC::scalar dop = data->cell_dims[2];
 
     if (data->lc_type != LC::FrankOseen::LC_TYPE::CUSTOM) {
-        _pomImager.n0 = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_o).first;
-        _pomImager.ne = LC::FrankOseen::OpticalConstants::LC(data->lc_type, LC::FrankOseen::OpticalConstants::Constant::n_e).first;
+        using OptConst = LC::FrankOseen::OpticalConstants;
+        _pomImager.n0 = OptConst::LC(data->lc_type, OptConst::Constant::n_o).first;
+        _pomImager.ne = OptConst::LC(data->lc_type, OptConst::Constant::n_e).first;
     }
     else {
         _pomImager.n0 = data->n0;
@@ -1396,311 +1139,348 @@ void Sandbox::POM(std::string override_name) {
 
     _pomImager.dop = dop;
     _pomImager.thickness = pitch.first * (dop + _pomImager.additional_layers);
-    _pomImager.dz = pitch.first * dop * 1e-6 / (data->voxels[2] - 1); // meters
+    _pomImager.dz = (pitch.first * dop * 1e-6) / static_cast<double>(data->voxels[2] - 1);
 
-    _pomImager.Compute(data->directors.get(), data->voxels, (void*)(&_crossSections[i].section.second->vertices), [](void* data, const std::array<float, 4>& color, std::size_t idx) {
-        Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>* dataPtr = (Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*)data;
-        for (int id = 0; id < 4; id++)
-            (*dataPtr)[idx].color[id] = color[id];
-        }, alpha);
+    auto assignVertexColor = [](void* rawVertices, const std::array<float, 4>& color, std::size_t idx) {
+        auto* vertices = static_cast<Magnum::Containers::Array<LC::DynamicColorSheet::Vertex>*>(rawVertices);
+        for (int channel = 0; channel < 4; ++channel) {
+            (*vertices)[idx].color[channel] = color[channel];
+        }
+        };
+
+    _pomImager.Compute(
+        data->directors.get(),
+        data->voxels,
+        static_cast<void*>(&targetSheet.vertices),
+        assignVertexColor,
+        alpha
+    );
 
     if (_widget.savePOM) {
         using namespace LC::Imaging;
-        std::size_t sz = data->voxels[0] * data->voxels[1];
-        std::unique_ptr<ImageSeries::COLOR[]> plane(new ImageSeries::COLOR[sz]);
+        auto plane = std::make_unique<ImageSeries::COLOR[]>(planeSize);
 
-        for (auto idx = 0; idx < sz; idx++) {
-            plane[idx].R = _crossSections[i].section.second->vertices[idx].color[0] * 255;
-            plane[idx].G = _crossSections[i].section.second->vertices[idx].color[1] * 255;
-            plane[idx].B = _crossSections[i].section.second->vertices[idx].color[2] * 255;
-            plane[idx].A = alpha * 255;
+        auto toByte = [](float val) -> unsigned char {
+            return static_cast<unsigned char>(std::round(std::clamp(val, 0.0f, 1.0f) * 255.0f));
+            };
+
+        const unsigned char alphaByte = toByte(static_cast<float>(alpha));
+
+        for (std::size_t idx = 0; idx < planeSize; ++idx) {
+            const auto& vertexColor = targetSheet.vertices[idx].color;
+            plane[idx].R = toByte(vertexColor[0]);
+            plane[idx].G = toByte(vertexColor[1]);
+            plane[idx].B = toByte(vertexColor[2]);
+            plane[idx].A = alphaByte;
         }
 
-        // Generate and save POM
-        std::string name;
-        if (override_name.empty())
-            name = getLoadFile();
-        else
-            name = override_name;
+        const std::string rawSource = override_name.empty() ? getLoadFile() : override_name;
+        std::string baseName = std::filesystem::path(rawSource).stem().string();
 
-        // Get just the file name
-        while (1) {
-            auto index1 = name.find("/");
-            auto index2 = name.find("\\");
-
-            if (index1 != std::string::npos) {
-                name = name.substr(index1 + 1);
-            }
-            else if (index2 != std::string::npos) {
-                name = name.substr(index2 + 1);
-            }
-            else break;
-
+        if (baseName.empty()) {
+            baseName = "default";
         }
 
-        // Remove the .type if it exists
-        {
-            auto index = name.find(".");
-            if (index != std::string::npos) {
-                name = name.substr(0, index);
-            }
-        }
+        std::filesystem::path outputPath = std::filesystem::path(_widget.savePOM_loc) / baseName;
+        _image_series.write_file = outputPath.generic_string();
 
-        if (name.empty()) name = "default";
-        _image_series.write_file = _widget.savePOM_loc + "/" + name;
         LC_INFO("Saving POM as <{0}>", _image_series.write_file.c_str());
         _image_series.GenerateAndWriteFrame(plane.get(), data->voxels[0], data->voxels[1]);
-
     }
 
-    // Update sheet
-    Trade::MeshData meshData = _crossSections[i].section.second->Data();
-    _crossSections[i].section.second->vertexBuffer.setData(MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()), GL::BufferUsage::DynamicDraw);
+    Trade::MeshData meshData = targetSheet.Data();
+    targetSheet.vertexBuffer.setData(
+        MeshTools::interleave(meshData.positions3DAsArray(), meshData.colorsAsArray()),
+        GL::BufferUsage::DynamicDraw
+    );
 }
 
-
 void Sandbox::initVisuals() {
+    if (!_solver) return;
 
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    auto* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    if (!data) return;
 
-    std::array<int, 3> voxels = data->voxels;
-    std::array<LC::scalar, 3> cdims = data->cell_dims;
+    const std::array<int, 3> voxels = data->voxels;
+    const std::array<LC::scalar, 3> cdims = data->cell_dims;
+
+    if (voxels[0] <= 1 || voxels[1] <= 1 || voxels[2] <= 1) {
+        return;
+    }
+
     _widget.shrink_interval_end = voxels;
     _widget.shrink_interval_begin = { 1, 1, 1 };
     _widget.radioZProfileIndex = -1;
-    _widget.heliknotonInsertLocation = { data->voxels[0] / 2, data->voxels[1] / 2, data->voxels[2] / 2 };
+    _widget.heliknotonInsertLocation = { voxels[0] / 2, voxels[1] / 2, voxels[2] / 2 };
 
     _zprofile = {};
     _quaternion_plane = {};
-    if (_pionPreimage)
+    if (_pionPreimage) {
         _pionPreimage->draw = false;
+    }
     _pionPreimage = {};
     _baryon_density.reset();
     _quaternion_field.reset();
 
-    // Clear components
     _vortex_line.components.clear();
-
-    // Update widget
-    for (int d = 0; d < 3; d++) {
-        _widget.celldims[d] = data->cell_dims[d];
-        _widget.boundaries[d] = data->bc[d];
-    }
-
-
-    // Create a new manipulator and set its parent
-    // Reset preimageManipulator as well
-
-    _preimageManipulator = std::make_unique<LC::Drawable::Object3D>();
-    _vortexManipulator = std::make_unique<LC::Drawable::Object3D>();
-    _processedVortexManipulator = std::make_unique<LC::Drawable::Object3D>();
-
-    _manipulator = std::make_unique<LC::Drawable::Object3D>();
-    _manipulator->setParent(&_scene);
-
-
-    _preimageManipulator->setParent(_manipulator.get());
-    _vortexManipulator->setParent(_manipulator.get());
-    _processedVortexManipulator->setParent(_manipulator.get());
-
-    // Clear vortexKnot components and processed vortexKnot components
-    // Note that since hte manipulators have been reset this does not cause an error
-    // to remove components without turning draw off
     _vortexKnot.clear();
     _processedVortexKnot.clear();
 
-    // Set the distance from the plane
-    _cameraObject.setTransformation(Matrix4::translation(Vector3::zAxis(2.2 * (std::max)(cdims[0], cdims[1]))));
+    for (int d = 0; d < 3; ++d) {
+        _widget.celldims[d] = cdims[d];
+        _widget.boundaries[d] = data->bc[d];
+    }
+
+    _preimageManipulator.reset();
+    _vortexManipulator.reset();
+    _processedVortexManipulator.reset();
+
+    _manipulator = std::make_unique<LC::Drawable::Object3D>(&_scene);
+    _preimageManipulator = std::make_unique<LC::Drawable::Object3D>(_manipulator.get());
+    _vortexManipulator = std::make_unique<LC::Drawable::Object3D>(_manipulator.get());
+    _processedVortexManipulator = std::make_unique<LC::Drawable::Object3D>(_manipulator.get());
+
+    _cameraObject.setTransformation(
+        Matrix4::translation(Vector3::zAxis(2.2f * (std::max)(cdims[0], cdims[1])))
+    );
     _manipulator->setTransformation(Matrix4{});
-    // Manipulator rotation can be set here as well
 
     _crossSections = Containers::Array<CrossX>{ 3 };
     _multiplane_manager.CleanAll();
 
-    for (int id = 0; id < 3; id++) {
+    const std::function<Magnum::Vector3(void*, std::size_t)> access = [](void* rawPos, std::size_t idx) {
+        return static_cast<Magnum::Vector3*>(rawPos)[idx];
+        };
 
-        Axis ax = static_cast<Axis>(id);
+    for (int id = 0; id < 3; ++id) {
+        const Axis ax = static_cast<Axis>(id);
+        const int i = (ax == Axis::x) ? 1 : 0;
+        const int j = (ax == Axis::y) ? 2 : i + 1;
 
-        int i = (ax == Axis::x) ? 1 : 0;
-        int j = (ax == Axis::y) ? 2 : i + 1;
-
-        // Start by only drawing the xy plane
         if (ax != Axis::z) {
             _crossSections[id].draw = false;
             _crossSections[id].draw_nematic = false;
         }
 
-        int next = _crossSections[id].nematic_reduction_factor;
+        const int next = (std::max)(1, _crossSections[id].nematic_reduction_factor);
         _crossSections[id].nematic = LC::NematicArray{};
-        unsigned int size = data->voxels[i] * data->voxels[j];
-        int vox_red_x = (data->voxels[i] + next - 1) / next;
-        int vox_red_y = (data->voxels[j] + next - 1) / next;
-        unsigned int size_reduced = vox_red_x * vox_red_y;
-        std::unique_ptr<Vector3[]> positions(new Vector3[size_reduced]);
-        float dx = data->cell_dims[i] / (data->voxels[i] - 1);
-        float dy = data->cell_dims[j] / (data->voxels[j] - 1);
 
-        for (int x = 0; x < data->voxels[i]; x+=next) {
-            for (int y = 0; y < data->voxels[j]; y+=next) {
+        const int vox_red_x = (voxels[i] + next - 1) / next;
+        const int vox_red_y = (voxels[j] + next - 1) / next;
+        const std::size_t size_reduced = static_cast<std::size_t>(vox_red_x) * vox_red_y;
 
-                LC::scalar x_red_coord = x / (LC::scalar)(data->voxels[i]-1); // [0,1]
-                LC::scalar y_red_coord = y / (LC::scalar)(data->voxels[j]-1); // [0,1]
-                
-                int x_red = ceil(x_red_coord * (vox_red_x - 1.1));
-                int y_red = ceil(y_red_coord * (vox_red_y - 1.1));
+        auto positions = std::make_unique<Vector3[]>(size_reduced);
+        const float dx = static_cast<float>(cdims[i]) / static_cast<float>(voxels[i] - 1);
+        const float dy = static_cast<float>(cdims[j]) / static_cast<float>(voxels[j] - 1);
+        const float half_x = 0.5f * static_cast<float>(cdims[i]);
+        const float half_y = 0.5f * static_cast<float>(cdims[j]);
 
-                positions[x_red + y_red * vox_red_x] = { 0.f, 0.f, 0.f };
-                positions[x_red + y_red * vox_red_x][i] = -data->cell_dims[i] * 0.5 + x * dx;
-                positions[x_red + y_red * vox_red_x][j] = -data->cell_dims[j] * 0.5 + y * dy;
+        for (int x = 0, x_red = 0; x < voxels[i]; x += next, ++x_red) {
+            for (int y = 0, y_red = 0; y < voxels[j]; y += next, ++y_red) {
+                const std::size_t flat_idx = static_cast<std::size_t>(x_red) + static_cast<std::size_t>(y_red) * vox_red_x;
+                Vector3 pos{ 0.0f, 0.0f, 0.0f };
+                pos[i] = -half_x + x * dx;
+                pos[j] = -half_y + y * dy;
+                positions[flat_idx] = pos;
             }
         }
-        // Now we can initialize the sphere array
-        std::function<Magnum::Vector3(void*, std::size_t)> access = [](void* data, std::size_t i) {
-            Magnum::Vector3* pos = (Magnum::Vector3*)data;
-            return pos[i];
-        };
+
         _crossSections[id].nematic->scale *= next;
         _crossSections[id].nematic->Init(positions.get(), access, size_reduced);
         _crossSections[id].axis = ax;
+
         _crossSections[id].section.second = std::make_unique<LC::DynamicColorSheet>();
         _crossSections[id].section.second->Set(voxels[i], voxels[j], cdims[i], cdims[j]);
         _crossSections[id].section.second->Init(CrossX::Position[id], 0.0f);
         _crossSections[id].section.first = _crossSections[id].section.second->Mesh();
-        new LC::Drawable::TransparentFlatDrawable{ *_manipulator, _transparentShader, *_crossSections[id].section.first, _crossSections[id].draw, Vector3{0.0f, 0.0f, 0.0f}, _transparentDrawables };
-    }
 
+        new LC::Drawable::TransparentFlatDrawable{
+            *_manipulator,
+            _transparentShader,
+            *_crossSections[id].section.first,
+            _crossSections[id].draw,
+            Vector3{ 0.0f, 0.0f, 0.0f },
+            _transparentDrawables
+        };
+    }
 }
 
 void Sandbox::imageMenu() {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("Tools")) {
-
-            if (ImGui::MenuItem("Isosurfaces")) {
-                _widget.showPreimageSettings = true;
-            }
-
-            if (ImGui::MenuItem("Vortex Knot")) {
-                _widget.showVortexKnotSettings = true;
-            }
-
-            if (ImGui::MenuItem("Nonlinear Imaging")) {
-                _widget.showNonlinearSettings = true;
-            }
-
-            if (ImGui::MenuItem("Z-Profile")) {
-                _widget.showZProfileWindow = true;
-            }
-
-            if (ImGui::MenuItem("Knot Interaction")) {
-                _widget.knot_interaction_handle.showWindow = true;
-            }
-
-            if (ImGui::MenuItem("Interaction Energy")) {
-                _widget.showInteractionEnergyWindow = true;
-            }
-
-            if (ImGui::MenuItem("Multi-plane")) {
-                _widget.multiplane_window = true;
-            }
-
-            if (ImGui::MenuItem("Draw Lehmann Clusters")) {
-                _widget.lehmann_tool_window = true;
-            }
+            if (ImGui::MenuItem("Isosurfaces")) { _widget.showPreimageSettings = true; }
+            if (ImGui::MenuItem("Vortex Knot")) { _widget.showVortexKnotSettings = true; }
+            if (ImGui::MenuItem("Nonlinear Imaging")) { _widget.showNonlinearSettings = true; }
+            if (ImGui::MenuItem("Z-Profile")) { _widget.showZProfileWindow = true; }
+            if (ImGui::MenuItem("Knot Interaction")) { _widget.knot_interaction_handle.showWindow = true; }
+            if (ImGui::MenuItem("Interaction Energy")) { _widget.showInteractionEnergyWindow = true; }
+            if (ImGui::MenuItem("Multi-plane")) { _widget.multiplane_window = true; }
+            if (ImGui::MenuItem("Draw Lehmann Clusters")) { _widget.lehmann_tool_window = true; }
 
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Settings")) {
-
-            if (ImGui::MenuItem("Visual properties")) {
-                _widget.showVisualProperties = true;;
-            }
-
-            if (ImGui::MenuItem("POM")) {
-                // Toggle POM window
-                _widget.showPOMSettings = true;
-            }
+            if (ImGui::MenuItem("Visual properties")) { _widget.showVisualProperties = true; }
+            if (ImGui::MenuItem("POM")) { _widget.showPOMSettings = true; }
 
             ImGui::EndMenu();
         }
-
         ImGui::EndMenuBar();
     }
 }
 
+// Helper to preview a wavelength (nm) as an approximate display RGB color in ImGui
+static ImVec4 wavelengthToDisplayRGB(float lambda_nm) {
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    if (lambda_nm >= 380.0f && lambda_nm < 440.0f) {
+        r = -(lambda_nm - 440.0f) / (440.0f - 380.0f);
+        b = 1.0f;
+    }
+    else if (lambda_nm >= 440.0f && lambda_nm < 490.0f) {
+        g = (lambda_nm - 440.0f) / (490.0f - 440.0f);
+        b = 1.0f;
+    }
+    else if (lambda_nm >= 490.0f && lambda_nm < 510.0f) {
+        g = 1.0f;
+        b = -(lambda_nm - 510.0f) / (510.0f - 490.0f);
+    }
+    else if (lambda_nm >= 510.0f && lambda_nm < 580.0f) {
+        r = (lambda_nm - 510.0f) / (580.0f - 510.0f);
+        g = 1.0f;
+    }
+    else if (lambda_nm >= 580.0f && lambda_nm < 645.0f) {
+        r = 1.0f;
+        g = -(lambda_nm - 645.0f) / (645.0f - 580.0f);
+    }
+    else if (lambda_nm >= 645.0f && lambda_nm <= 780.0f) {
+        r = 1.0f;
+    }
+    return ImVec4(r, g, b, 1.0f);
+}
+
 void Sandbox::handlePOMWindow() {
+    if (!_widget.showPOMSettings) return;
 
-    if (_widget.showPOMSettings) {
+    ImGui::SetNextWindowSize(ImVec2(420, 540), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Configure POM", &_widget.showPOMSettings)) {
+        ImGui::End();
+        return;
+    }
 
-        ImGui::Begin("Configure POM", &_widget.showPOMSettings);
-        
-        ImGui::Checkbox("Save POM", &_widget.savePOM);
+    if (ImGui::CollapsingHeader("Sample & Geometry", ImGuiTreeNodeFlags_DefaultOpen)) {
+        float pitch = static_cast<float>(_widget.pitch.first);
+        if (ImGui::DragFloat("Pitch (um)", &pitch, 0.05f, 0.01f, 1000.0f, "%.3f")) {
+            _widget.pitch.first = (std::max)(0.001f, pitch);
+        }
+
+        ImGui::SliderFloat("z-depth ratio", &_pomImager.z_scan_ratio, 0.0f, 1.0f, "%.3f");
+
+        if (ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers)) {
+            _pomImager.additional_layers = (std::max)(0, _pomImager.additional_layers);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Optical Train", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Polarizer", &_pomImager.polarizer);
+        ImGui::SameLine(140.0f);
+        ImGui::Checkbox("Analyzer", &_pomImager.analyzer);
+
+        ImGui::SliderFloat("Polarizer Angle", &_pomImager.polarizerAngle, -180.0f, 180.0f, "%.1f deg");
+        ImGui::DragFloat("Gamma", &_pomImager.gamma, 0.02f, 0.1f, 5.0f, "%.2f");
+
+        using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
+        std::map<Waveplate, std::string> waveplateMap{
+            { Waveplate::None, "None" },
+            { Waveplate::Full530nm, "530 nm Full-Wave" }
+        };
+        dropDownMenu<Waveplate>("Waveplate", _pomImager.waveplate, waveplateMap);
+    }
+
+    if (ImGui::CollapsingHeader("Light Spectrum", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Button("+ Add Wavelength")) {
+            _pomImager.lights.push_back({ 550.0f, 1.0f });
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset RGB (3)")) {
+            _pomImager.lights = { { 650.0f, 1.0f },{ 550.0f, 0.6f },{ 450.0f, 0.2f } };
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Broadband (9)")) {
+            _pomImager.lights = {
+                { 420.0f, 0.25f },{ 450.0f, 0.60f },{ 480.0f, 0.80f },
+                { 510.0f, 0.90f },{ 540.0f, 1.00f },{ 570.0f, 0.95f },
+                { 600.0f, 0.85f },{ 630.0f, 0.70f },{ 660.0f, 0.45f }
+            };
+        }
+
+        const ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV |
+            ImGuiTableFlags_RowBg |
+            ImGuiTableFlags_SizingStretchProp;
+
+        if (ImGui::BeginTable("LightsTable", 4, tableFlags)) {
+            ImGui::TableSetupColumn("##Swatch", ImGuiTableColumnFlags_WidthFixed, 22.0f);
+            ImGui::TableSetupColumn("Wavelength (nm)", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Rel. Intensity", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("##Delete", ImGuiTableColumnFlags_WidthFixed, 28.0f);
+            ImGui::TableHeadersRow();
+
+            int removeIdx = -1;
+            for (int i = 0; i < static_cast<int>(_pomImager.lights.size()); ++i) {
+                ImGui::PushID(i);
+                ImGui::TableNextRow();
+
+                ImGui::TableSetColumnIndex(0);
+                ImVec4 swatch = wavelengthToDisplayRGB(_pomImager.lights[i].wavelength);
+                ImGui::ColorButton("##wl_color", swatch, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18, 18));
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::DragFloat("##wl", &_pomImager.lights[i].wavelength, 1.0f, 380.0f, 780.0f, "%.1f nm");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::DragFloat("##int", &_pomImager.lights[i].intensity, 0.01f, 0.0f, 10.0f, "%.2f");
+
+                ImGui::TableSetColumnIndex(3);
+                if (_pomImager.lights.size() > 1) {
+                    if (ImGui::SmallButton("X")) {
+                        removeIdx = i;
+                    }
+                }
+
+                ImGui::PopID();
+            }
+
+            if (removeIdx >= 0) {
+                _pomImager.lights.erase(_pomImager.lights.begin() + removeIdx);
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Export", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Save POM on Compute", &_widget.savePOM);
         if (_widget.savePOM) {
-            if (ImGui::Button("Choose POM location")) {
+            if (ImGui::Button("Choose Directory...")) {
                 auto res = pfd::select_folder("POM Location", LCLAB2_ROOT_PATH, pfd::opt::force_path);
-
-                while (!res.ready(1000))
+                while (!res.ready(1000)) {
                     LC_INFO("Waiting for user...");
-
+                }
                 if (res.ready() && !res.result().empty()) {
                     _widget.savePOM_loc = res.result();
                 }
             }
-            ImGui::Text("POM Location = %s", _widget.savePOM_loc.c_str());
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", _widget.savePOM_loc.c_str());
         }
-
-        {
-            Float pitch = _widget.pitch.first;
-            ImGui::InputFloat("Pitch (um)", &pitch);
-            _widget.pitch.first = pitch;
-        }
-
-        // Dropdown menu for waveplates
-        {
-            using Waveplate = LC::Imaging::UniformGrid::POM::Waveplate;
-            std::map<Waveplate, std::string> waveplateMap{ { Waveplate::None, "None" }, { Waveplate::Full530nm, "530 nm Full" } };
-            dropDownMenu<Waveplate>("Waveplate", _pomImager.waveplate, waveplateMap);
-        }
-
-        {
-            std::array<float, 3> wvlens;
-            for (int i = 0; i < 3; i++)
-                wvlens[i] = _pomImager.lights[i].wavelength;
-
-            ImGui::InputFloat3("Wavelengths (nm)", &wvlens[0]);
-
-            for (int i = 0; i < 3; i++)
-                _pomImager.lights[i].wavelength = wvlens[i];
-        }
-
-
-        {
-            std::array<float, 3> intensities;
-            for (int i = 0; i < 3; i++)
-                intensities[i] = _pomImager.lights[i].intensity;
-
-            ImGui::InputFloat3("Rel. intensity", &intensities[0]);
-
-            for (int i = 0; i < 3; i++)
-                _pomImager.lights[i].intensity = intensities[i];
-        }
-
-        ImGui::InputFloat("Gamma", &_pomImager.gamma);
-        ImGui::InputFloat("z-depth", &_pomImager.z_scan_ratio);
-        ImGui::InputInt("+ layers (p/2)", &_pomImager.additional_layers);
-
-        ImGui::Checkbox("Polarizer", &_pomImager.polarizer);
-        ImGui::Checkbox("Analyzer", &_pomImager.analyzer);
-
-        ImGui::InputFloat("Polarizer angle", &_pomImager.polarizerAngle);
-        ImGui::End();
     }
-
+    ImGui::End();
 }
 
 void Sandbox::handleVisualPropertiesWindow() {
     if (!_widget.showVisualProperties)
         return;
-
 
     ImGui::Begin("Visual properties", &_widget.showVisualProperties);
 
@@ -1725,7 +1505,6 @@ void Sandbox::handleVisualPropertiesWindow() {
     ImGui::PopItemWidth();
 
     ImGui::SliderFloat("Plane alpha", &_widget.alpha, 0.0f, 1.0f);
-
     ImGui::Checkbox("Show cell boundary", &_widget.showCellBd);
 
     dropDownMenu<LC::NematicArray::DrawType>("Nematic draw type", _widget.nematicDrawType, LC::NematicArray::DrawMap());
@@ -1733,17 +1512,13 @@ void Sandbox::handleVisualPropertiesWindow() {
     ImGui::End();
 }
 
-
 void Sandbox::handlePreimageWindow() {
     if (_widget.showPreimageSettings) {
         Dataset* data = (Dataset*)(_solver->GetDataPtr());
 
         ImGui::Begin("Configure Preimages", &_widget.showPreimageSettings);
 
-        
-
         if (ImGui::CollapsingHeader("Global Properties")) {
-
             ImGui::PushItemWidth(100.0f);
 
             ImGui::SliderFloat("Preimage alpha", &_widget.preimage_alpha, 0.0f, 1.0f);
@@ -1855,57 +1630,6 @@ void Sandbox::handlePreimageWindow() {
             ImGui::PopItemWidth();
         }
 
-        //if (ImGui::Button("Create Baryon Isosurface")) {
-        //    // Create a new vortex knot
-        //    _baryonIsosurface = BaryonIsosurface{};
-        //}
-
-
-        //ImGui::SameLine();
-
-        //if (ImGui::Button("Remove Baryon Isosurface")) {
-        //    if (_baryonIsosurface)
-        //        _baryonIsosurface->draw = false;
-        //    _baryonIsosurface = {};
-        //}
-
-
-        //if (_baryonIsosurface) {        
-        //    ImGui::SameLine();
-        //    ImGui::Checkbox("Draw", &_baryonIsosurface->draw);
-        //    ImGui::PushItemWidth(80.0f);
-        //    ImGui::InputFloat("Baryon isovalue", &_baryonIsosurface->isoLevel);
-        //    ImGui::InputFloat("Baryon value", &_baryonIsosurface->query);
-        //    ImGui::PopItemWidth();
-        //}
-
-        //// Quaternion preimages
-        //ImGui::PushItemWidth(200.0f);
-        //ImGui::TextColored({ 1.0f, 1.0f, 0.0f, 1.0f }, "Pion field preimages");
-        //ImGui::SliderFloat3("pi", &_widget.pionComponents[0], 0, 1.0f);
-        //ImGui::PopItemWidth();
-
-        /*if (ImGui::Button("Add pion preimage")) {
-            _pionPreimage = PionPreimage{_widget.pionComponents, _widget.isoLevel};
-        }
-
-        ImGui::SameLine();
-
-        if (ImGui::Button("Remove pion preimage")) {
-            if (_pionPreimage)
-                _pionPreimage->draw = false;
-            _pionPreimage = {};
-        }*/
-
-       /* if (_pionPreimage) {
-            ImGui::SameLine();
-            ImGui::PushItemWidth(50.0f);
-            ImGui::SliderFloat("Alpha", &_pionPreimage->alpha, 0.f, 1.f);
-            ImGui::PopItemWidth();
-            ImGui::SameLine();
-            ImGui::Checkbox("Draw", &_pionPreimage->draw);
-        }*/
-       
         static bool generated_preimages = false;
         bool gen_surfaces = ImGui::Button("Generate surfaces");
         
@@ -1926,7 +1650,6 @@ void Sandbox::handlePreimageWindow() {
             static char pimage_fdir[mod_pimage_graph_file_loc_sz] = "../data/";
             static char fname_pimage_graph_export[mod_pimage_graph_file_loc_sz] = "pknot";
 
-
             ImGui::Text("Preimage to graph parameters");
             ImGui::Separator();
             ImGui::InputText("Base file directory##pimage", &pimage_fdir[0], mod_pimage_graph_file_loc_sz);
@@ -1934,8 +1657,6 @@ void Sandbox::handlePreimageWindow() {
             ImGui::InputInt("Minimum component size##pimage", &graph_min_comp_size);
             ImGui::InputFloat("Exclusion scale (s: 2*s*dr)##pimage", &exclusion_scale);
             ImGui::InputInt("knn##pimage", &graph_knn);
-
-
 
             if (ImGui::Button("Convert preimage(s) to graph(s)##pimage")) {
                 // CODE: Nematic preimages is a good vector: convert to knot form and export
@@ -2080,32 +1801,6 @@ void Sandbox::handlePreimageWindow() {
                         }
                     }
 
-                    // Automatically sort indices
-                    /*auto components = graph.connectedComponents(graph_min_comp_size);
-
-                    for (int i = 0; i < components.size(); i++) {
-                        npoints_per_component.push_back(0);
-                        int end = npoints_per_component.size() - 1;
-                        npoints_per_component[end] = 0;
-                        for (const auto& ci : components[i]) {
-
-                            points.emplace_back(parsed_points[ci]);
-                            ++npoints_per_component[end];
-                        }
-                    }*/
-
-                    // Print the data
-                  /*  int offset = 0;
-                    for (const auto& ni : npoints_per_component) {
-                        for (int i = 0; i < ni; i++) {
-                            std::cout << (float)points[offset + i].x() * 20.f << " "
-                                << (float)points[offset + i].y() * 20.f << " "
-                                << (float)points[offset + i].z() * 20.f << std::endl;
-                        }
-                        offset += ni;
-                        std::cout << std::endl;
-                    }*/
-
                     if (parsed_points.size()) {
                         // Save the data
                         std::string spimage_fdir = std::string(pimage_fdir);
@@ -2121,18 +1816,7 @@ void Sandbox::handlePreimageWindow() {
 
                         std::ofstream ofile_graph((pimage_fname + ".txt").c_str(), std::ios::out);
 
-                        if (ofile_graph.is_open()) {
-                            /*int offset = 0;
-                            for (const auto& ni : npoints_per_component) {
-                                for (int i = 0; i < ni; i++) {
-                                    ofile_graph << (float)points[offset + i].x() * 20.f << " "
-                                        << (float)points[offset + i].y() * 20.f << " "
-                                        << (float)points[offset + i].z() * 20.f << std::endl;
-                                }
-                                offset += ni;
-                                ofile_graph << std::endl;
-                            }*/
-                        
+                        if (ofile_graph.is_open()) {                        
                             // 1. Save the points
                             // Save number of points
                             ofile_graph << parsed_points.size() << std::endl;
@@ -2165,8 +1849,6 @@ void Sandbox::handlePreimageWindow() {
                             ofile_graph.close();
                         }
                     }
-
-
                 }
             }
         }
@@ -2174,8 +1856,6 @@ void Sandbox::handlePreimageWindow() {
             // Preimages got reset
             generated_preimages = false;
         }
-
-
 
         ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
 
@@ -2282,7 +1962,6 @@ void Sandbox::handleKnotInteractionWindow() {
                                     nn(i, j, k, 2) = res[2];
                                 }
                             }
-
                 };
 
                 if (_widget.knot_interaction_handle.useInitialConditions == 1) {
@@ -2407,8 +2086,6 @@ void Sandbox::handleKnotInteractionWindow() {
                         tempfile.close();
                     }
 
-                    
-
                     // Read in data
                     std::ifstream ifile(fname_positions, std::ios::in | std::ios::binary);
                     if (ifile.is_open() && fsize > 0) {
@@ -2518,13 +2195,11 @@ void Sandbox::handleKnotInteractionWindow() {
                             current_switch_index = current_switch_index % num_switches;
                             current_switch = _widget.knot_interaction_handle.switching_data[current_switch_index];
                             solver->SetVoltage(current_switch.efield * data->cell_dims[2], 500);
-
                         }
                         else if (!_widget.knot_interaction_handle.cycleEfield && current_switch_index < num_switches) {
                             current_switch = _widget.knot_interaction_handle.switching_data[current_switch_index];
                             solver->SetVoltage(current_switch.efield * data->cell_dims[2], 500);
                         }
-
                         // Reset count
                         switch_frame_count = 0;
                     }
@@ -2549,7 +2224,6 @@ void Sandbox::handleKnotInteractionWindow() {
                 // Update the energy file each iteration
                 {
                     std::ofstream ofile(fname_energy, std::ios::out | std::ios::binary);
-                
                     if (ofile.is_open()) {
                         std::size_t nBytes = sizeof(LC::scalar) * energy_array.size();
                         ofile.write((char*)&energy_array[0], nBytes);
@@ -2587,7 +2261,6 @@ void Sandbox::handleKnotInteractionWindow() {
                         _header.readFile = res;
                     }
                 }
-
             }
 
             _widget.updateImage = true;
@@ -2597,208 +2270,258 @@ void Sandbox::handleKnotInteractionWindow() {
 }
 
 void Sandbox::handleVortexKnotWindow() {
-    if (_widget.showVortexKnotSettings) {
-        Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    if (!_widget.showVortexKnotSettings || !_solver) return;
 
-        ImGui::Begin("Knot Search Tool", &_widget.showVortexKnotSettings);
+    auto* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    if (!data) return;
 
-        
-        ImGui::PushItemWidth(120.f);
+    ImGui::SetNextWindowSize({ 410.0f, 620.0f }, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Knot Search Tool", &_widget.showVortexKnotSettings)) {
+        ImGui::End();
+        return;
+    }
 
-        if (ImGui::Button("Find Components")) {
+    if (ImGui::CollapsingHeader("Search & Tracing Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushItemWidth(130.0f);
+
+        if (ImGui::InputInt("Max Vortex Components", &_widget.maxVortexComponents)) {
+            _widget.maxVortexComponents = (std::max)(1, _widget.maxVortexComponents);
+        }
+        if (ImGui::InputInt("Min Component Size", &_widget.minComponentSize)) {
+            _widget.minComponentSize = (std::max)(1, _widget.minComponentSize);
+        }
+        if (ImGui::InputInt("Max Vortex Points", &_vortex_line.maxPoints)) {
+            _vortex_line.maxPoints = (std::max)(3, _vortex_line.maxPoints);
+        }
+        if (ImGui::InputInt("Max Conic Angle (deg)", &_vortex_line.maxConic)) {
+            _vortex_line.maxConic = std::clamp(_vortex_line.maxConic, 1, 180);
+        }
+
+        int knn = _vortex_line.knn;
+        if (ImGui::InputInt("Nearest Neighbors (k > 3)", &knn)) {
+            _vortex_line.knn = (std::max)(4, knn);
+        }
+
+        if (ImGui::InputFloat("Point Separation", &_vortex_line.pointSeparation, 0.05f, 0.25f, "%.3f")) {
+            _vortex_line.pointSeparation = (std::max)(1e-4f, _vortex_line.pointSeparation);
+        }
+        if (ImGui::InputFloat("Completion Threshold", &_widget.knotCompletionDist, 0.05f, 0.25f, "%.3f")) {
+            _widget.knotCompletionDist = (std::max)(0.0f, _widget.knotCompletionDist);
+        }
+
+        ImGui::PopItemWidth();
+    }
+
+    if (ImGui::CollapsingHeader("Refinement & Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushItemWidth(130.0f);
+
+        if (ImGui::InputInt("Initial Cutoff Points", &_widget.knotInitialCutoffIterations)) {
+            _widget.knotInitialCutoffIterations = (std::max)(0, _widget.knotInitialCutoffIterations);
+        }
+        if (ImGui::InputInt("Refinement Iterations", &_widget.knotRefinementIterations)) {
+            _widget.knotRefinementIterations = (std::max)(0, _widget.knotRefinementIterations);
+        }
+        if (ImGui::InputInt("Post-Process Upsampling", &_vortex_line.upSample)) {
+            _vortex_line.upSample = (std::max)(1, _vortex_line.upSample);
+        }
+        if (ImGui::InputFloat("Tube Radius", &_vortex_line.tubeRadius, 0.05f, 0.25f, "%.3f")) {
+            _vortex_line.tubeRadius = (std::max)(1e-4f, _vortex_line.tubeRadius);
+        }
+
+        ImGui::PopItemWidth();
+
+        if (ImGui::Button("Find Components", ImVec2(150.0f, 0.0f))) {
             findVortexKnotComponents();
         }
-
-        ImGui::PopItemWidth();
-
-        ImGui::PushItemWidth(100.f);
-        ImGui::InputInt("Max vortex components", &_widget.maxVortexComponents);
-        ImGui::InputInt("Max vortex points", &_vortex_line.maxPoints);
-        ImGui::InputInt("Max conic angle (Deg)", &_vortex_line.maxConic);
-        ImGui::InputInt("Min component size", &_widget.minComponentSize);
-        {
-            int knn = _vortex_line.knn;
-            ImGui::InputInt("Nearest neighbors", &knn);
-            if (knn > 3)
-                _vortex_line.knn = knn;
-        }
-        ImGui::InputFloat("Point separation", &_vortex_line.pointSeparation);
-        ImGui::InputFloat("Knot completion threshold", &_widget.knotCompletionDist);
-        ImGui::InputInt("Initial cutoff points", &_widget.knotInitialCutoffIterations);
-        ImGui::InputInt("Knot refinement iterations", &_widget.knotRefinementIterations);
-        ImGui::InputInt("Post-processing up-sampling", &_vortex_line.upSample);
-        ImGui::InputFloat("Tube radius", &_vortex_line.tubeRadius);
-        ImGui::PopItemWidth();
-
-        {
-            int it = 0;
-
-            if (_vortexKnot.size())
-                ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw knots");
-
-            for (auto iter = _vortexKnot.begin(); iter != _vortexKnot.end(); iter++) {
-
-                //std::string pts = "Points (K" + std::to_string(it) + ")";
-                std::string tub = "Draw (K" + std::to_string(it) + ")";
-                std::string col = "K" + std::to_string(it) + " Color";
-                std::string rem = "X##K" + std::to_string(it);
-
-                //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
-                //ImGui::SameLine();
-                ImGui::Checkbox(tub.c_str(), &iter->draw);
-                ImGui::SameLine();
-                if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
-                    iter->UpdateColor();
-                }
-
-                ImGui::SameLine();
-
-                if (ImGui::Button(rem.c_str())) {
-                    iter->draw = false;
-                    _vortexKnot.erase(iter);
-                    // Remove the corresponding component
-                    std::vector<std::vector<uint>>::iterator citer = _vortex_line.components.begin();
-                    std::advance(citer, it);
-                    _vortex_line.components.erase(citer);
-                    break;
-                }
-
-                ++it;
-            }
-
-            it = 0;
-
-            if (_processedVortexKnot.size())
-                ImGui::TextColored({ 1.f,1.f,0.f,1.f }, "Draw processed knots");
-
-            for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); iter++) {
-
-                //std::string pts = "Points (K" + std::to_string(it) + ")";
-                std::string tub = "Draw (K" + std::to_string(it) + ")##processed";
-                std::string col = "K" + std::to_string(it) + " Color##processed";
-                std::string rem = "X##processedK" + std::to_string(it);
-                ++it;
-
-                //ImGui::Checkbox(pts.c_str(), &line.drawSpheres);
-                //ImGui::SameLine();
-                ImGui::Checkbox(tub.c_str(), &iter->draw);
-                ImGui::SameLine();
-
-                if (ImGui::ColorEdit4(col.c_str(), &iter->knotColor[0], ImGuiColorEditFlags_NoInputs)) {
-                    iter->UpdateColor();
-                }
-
-
-                ImGui::SameLine();
-
-                if (ImGui::Button(rem.c_str())) {
-                    iter->draw = false;
-                    _processedVortexKnot.erase(iter);
-                    break;
-                }
-
-            }
-        }
+        ImGui::SameLine();
+        ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
 
         if (_widget.generateKnots) {
             generateIsosurface();
         }
+    }
 
-        ImGui::Checkbox("Draw Surfaces", &_widget.drawSurfaces);
+    const ImGuiTableFlags knotTableFlags = ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_SizingStretchProp;
 
+    if (!_vortexKnot.empty() && ImGui::CollapsingHeader("Detected Knots", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::BeginTable("RawKnotsTable", 4, knotTableFlags)) {
+            ImGui::TableSetupColumn("Knot", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Visible", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+            ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+            ImGui::TableSetupColumn("##Remove", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+            ImGui::TableHeadersRow();
 
-        const size_t mod_file_loc_sz = 128;
-        const size_t mod_file_load_sz = 128;
-        const size_t mod_file_save_sz = 128;
-
-        static char mod_file_loc_knot[mod_file_loc_sz] = "../data";
-        static char mod_file_save_knot[mod_file_save_sz] = "";
-
-        ImGui::InputText("File directory##Knot", mod_file_loc_knot, mod_file_loc_sz);
-        ImGui::InputText("Save name##Knot", mod_file_save_knot, mod_file_save_sz);
-
-        std::string knot_export_directory = mod_file_loc_knot;
-        std::string base_name = mod_file_save_knot;
-        static float knot_point_density = 1.f;
-
-        ImGui::PushItemWidth(50.f);
-        ImGui::InputFloat("Knot sample point density", &knot_point_density);
-        ImGui::PopItemWidth();
-
-        // Export string knots
-        if (ImGui::Button("Export knots")) {
             int it = 0;
-            for (auto Ki = _vortexKnot.begin(); Ki != _vortexKnot.end(); Ki++) {
-                // Ignore any ribbon knots
-                if (Ki->ribbon)
-                    continue;
+            for (auto iter = _vortexKnot.begin(); iter != _vortexKnot.end(); ++iter, ++it) {
+                ImGui::PushID(it);
+                ImGui::TableNextRow();
 
-                std::string obj_name = knot_export_directory + "\\" + base_name + "_K" + std::to_string(it);
-                std::string obj_name_cumulant = knot_export_directory + "\\" + base_name + "_K";
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Knot K%d%s", it, iter->ribbon ? " (Ribbon)" : "");
 
-                // Cast vertex data to vector
-                uint32_t Nv = Ki->surface.vertices.size();
-                int32_t Ni = Ki->surface.indices.size() / 3;
-                std::vector<MeshLib::PNCVertex<float>> Kiv(Nv);
-                std::vector<MeshLib::Triangle> Kitrigs(Ni);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Checkbox("##draw", &iter->draw);
 
-                for (auto i = 0; i < Nv; i++) {
-                    auto Kip = Ki->surface.vertices[i].position;
-                    auto Kin = Ki->surface.vertices[i].normal;
-                    auto Kic = Ki->surface.vertices[i].color;
-                    Kiv[i].position = { Kip[0], Kip[1], Kip[2] };
-                    Kiv[i].normal = { Kin[0], Kin[1], Kin[2] };
-                    Kiv[i].color = { Kic[0], Kic[1], Kic[2], Kic[3] };
+                ImGui::TableSetColumnIndex(2);
+                if (ImGui::ColorEdit4("##color", &iter->knotColor[0], ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) {
+                    iter->UpdateColor();
                 }
 
-                for (auto i = 0; i < Ni; i++) {
-                    Kitrigs[i][0] = Ki->surface.indices[3 * i];
-                    Kitrigs[i][1] = Ki->surface.indices[3 * i + 1];
-                    Kitrigs[i][2] = Ki->surface.indices[3 * i + 2];
+                ImGui::TableSetColumnIndex(3);
+                if (ImGui::SmallButton("X")) {
+                    iter->draw = false;
+                    _vortexKnot.erase(iter);
+                    if (static_cast<std::size_t>(it) < _vortex_line.components.size()) {
+                        _vortex_line.components.erase(_vortex_line.components.begin() + it);
+                    }
+                    ImGui::PopID();
+                    break;
                 }
 
-                auto cellf = data->cell_dims;
-                uint32_t vol = data->voxels[0] * data->voxels[1] * data->voxels[2];
-
-                float dr = data->cell_dims[0] / float(data->voxels[0] - 1);
-                LC::scalar min_point_dist = 2. * knot_point_density * sqrt(3) * dr;
-                auto exported_data = exportVortexKnot(Kiv, Kitrigs, min_point_dist, obj_name + std::string("_vortex.bin"));
-                auto exported_datac = exportVortexKnot(Kiv, Kitrigs, min_point_dist, obj_name_cumulant + std::string("_vortex.bin"), true);
-                // Transform positions to director data
-                auto pdata = std::get<0>(exported_data);
-                std::vector < Eigen::Vector2d > odata(pdata.size());
-
-                for (int p = 0; p < pdata.size(); p++) {
-                    // Transform position to index coords
-                    int i = (pdata[p].x() / cellf[0] + 0.5) * (data->voxels[0] - 1);
-                    int j = (pdata[p].y() / cellf[1] + 0.5) * (data->voxels[1] - 1);
-                    int k = (pdata[p].z() / cellf[2] + 0.5) * (data->voxels[2] - 1);
-                    uint id = i + j * data->voxels[0] + k * data->voxels[0] * data->voxels[1];
-
-                    odata[p][0] = acos(data->directors[id + 2 * vol]); // theta
-                    odata[p][1] = atan2(data->directors[id + vol], data->directors[id]); // phi
-                }
-
-                // Export director data at each point in the knot
-                std::string fname = obj_name + "_directors.bin";
-                std::ofstream ofile(fname.c_str(), std::ios::out | std::ios::binary);
-
-                if (ofile.is_open()) {
-                    int32_t osz = odata.size();
-                    ofile.write((char*)&osz, sizeof(int32_t));
-                    ofile.write((char*)&odata[0], osz * sizeof(Eigen::Vector2d));
-                    ofile.close();
-                }
-                ++it;
+                ImGui::PopID();
             }
+            ImGui::EndTable();
+        }
+    }
+
+    if (!_processedVortexKnot.empty() && ImGui::CollapsingHeader("Processed Knots", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::BeginTable("ProcessedKnotsTable", 4, knotTableFlags)) {
+            ImGui::TableSetupColumn("Knot", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Visible", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+            ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+            ImGui::TableSetupColumn("##Remove", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+            ImGui::TableHeadersRow();
+
+            int it = 0;
+            for (auto iter = _processedVortexKnot.begin(); iter != _processedVortexKnot.end(); ++iter, ++it) {
+                ImGui::PushID(1000 + it);
+                ImGui::TableNextRow();
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Processed K%d", it);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Checkbox("##draw_proc", &iter->draw);
+
+                ImGui::TableSetColumnIndex(2);
+                if (ImGui::ColorEdit4("##color_proc", &iter->knotColor[0], ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) {
+                    iter->UpdateColor();
+                }
+
+                ImGui::TableSetColumnIndex(3);
+                if (ImGui::SmallButton("X")) {
+                    iter->draw = false;
+                    _processedVortexKnot.erase(iter);
+                    ImGui::PopID();
+                    break;
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Export Knots", ImGuiTreeNodeFlags_DefaultOpen)) {
+        constexpr std::size_t bufSize = 128;
+        static char exportDirBuf[bufSize] = "../data";
+        static char exportNameBuf[bufSize] = "";
+        static float knotPointDensity = 1.0f;
+
+        ImGui::InputText("Directory##Knot", exportDirBuf, bufSize);
+        ImGui::InputText("Base Name##Knot", exportNameBuf, bufSize);
+
+        ImGui::SetNextItemWidth(110.0f);
+        if (ImGui::InputFloat("Sample Density", &knotPointDensity, 0.1f, 0.5f, "%.2f")) {
+            knotPointDensity = (std::max)(0.05f, knotPointDensity);
         }
 
+        if (ImGui::Button("Export Knots", ImVec2(140.0f, 0.0f)) && data->directors) {
+            const std::filesystem::path exportDir(exportDirBuf);
+            const std::string baseName = std::string(exportNameBuf).empty() ? "knot" : std::string(exportNameBuf);
 
+            const auto& cellf = data->cell_dims;
+            const int nx = data->voxels[0];
+            const int ny = data->voxels[1];
+            const int nz = data->voxels[2];
+            const std::size_t vol = static_cast<std::size_t>(nx) * ny * nz;
 
-        ImGui::End();
+            if (nx > 1 && ny > 1 && nz > 1) {
+                const float dr = static_cast<float>(cellf[0]) / static_cast<float>(nx - 1);
+                const LC::scalar minPointDist = 2.0 * knotPointDensity * std::sqrt(3.0) * dr;
+                const std::string cumulantBase = (exportDir / (baseName + "_K_vortex.bin")).generic_string();
 
+                bool firstExported = true;
+                int it = 0;
+
+                for (auto Ki = _vortexKnot.begin(); Ki != _vortexKnot.end(); ++Ki, ++it) {
+                    if (Ki->ribbon) continue;
+
+                    const std::string objPrefix = (exportDir / (baseName + "_K" + std::to_string(it))).generic_string();
+
+                    const std::size_t Nv = Ki->surface.vertices.size();
+                    const std::size_t Ni = Ki->surface.indices.size() / 3;
+                    std::vector<MeshLib::PNCVertex<float>> Kiv(Nv);
+                    std::vector<MeshLib::Triangle> Kitrigs(Ni);
+
+                    for (std::size_t i = 0; i < Nv; ++i) {
+                        const auto& Kip = Ki->surface.vertices[i].position;
+                        const auto& Kin = Ki->surface.vertices[i].normal;
+                        const auto& Kic = Ki->surface.vertices[i].color;
+                        Kiv[i].position = { Kip[0], Kip[1], Kip[2] };
+                        Kiv[i].normal = { Kin[0], Kin[1], Kin[2] };
+                        Kiv[i].color = { Kic[0], Kic[1], Kic[2], Kic[3] };
+                    }
+
+                    for (std::size_t i = 0; i < Ni; ++i) {
+                        Kitrigs[i][0] = Ki->surface.indices[3 * i];
+                        Kitrigs[i][1] = Ki->surface.indices[3 * i + 1];
+                        Kitrigs[i][2] = Ki->surface.indices[3 * i + 2];
+                    }
+
+                    auto exportedData = exportVortexKnot(Kiv, Kitrigs, minPointDist, objPrefix + "_vortex.bin", false);
+                    exportVortexKnot(Kiv, Kitrigs, minPointDist, cumulantBase, !firstExported);
+                    firstExported = false;
+
+                    const auto& pdata = std::get<0>(exportedData);
+                    if (pdata.empty()) continue;
+
+                    std::vector<Eigen::Vector2d> odata(pdata.size());
+
+                    for (std::size_t p = 0; p < pdata.size(); ++p) {
+                        const int ix = std::clamp(static_cast<int>(std::round((pdata[p].x() / cellf[0] + 0.5) * (nx - 1))), 0, nx - 1);
+                        const int iy = std::clamp(static_cast<int>(std::round((pdata[p].y() / cellf[1] + 0.5) * (ny - 1))), 0, ny - 1);
+                        const int iz = std::clamp(static_cast<int>(std::round((pdata[p].z() / cellf[2] + 0.5) * (nz - 1))), 0, nz - 1);
+
+                        const std::size_t id = static_cast<std::size_t>(ix)
+                            + static_cast<std::size_t>(iy) * nx
+                            + static_cast<std::size_t>(iz) * nx * ny;
+
+                        const LC::scalar nxVal = data->directors[id];
+                        const LC::scalar nyVal = data->directors[id + vol];
+                        const LC::scalar nzVal = std::clamp(data->directors[id + 2 * vol], LC::scalar(-1.0), LC::scalar(1.0));
+
+                        odata[p][0] = std::acos(nzVal);
+                        odata[p][1] = std::atan2(nyVal, nxVal);
+                    }
+
+                    std::ofstream ofile(objPrefix + "_directors.bin", std::ios::out | std::ios::binary);
+                    if (ofile.is_open()) {
+                        const std::int32_t osz = static_cast<std::int32_t>(odata.size());
+                        ofile.write(reinterpret_cast<const char*>(&osz), sizeof(std::int32_t));
+                        ofile.write(reinterpret_cast<const char*>(odata.data()), osz * sizeof(Eigen::Vector2d));
+                    }
+                }
+            }
+        }
     }
+
+    ImGui::End();
 }
+
+
 
 void Sandbox::nematicPreimageManager() {
 
@@ -3015,7 +2738,6 @@ void Sandbox::repeatVolume(int i_) {
             solver->SetVoltage(1.0);
         }
         FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
-
         FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
         FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
 
@@ -3035,8 +2757,6 @@ void Sandbox::repeatVolume(int i_) {
 
                     }
 
-
-
         LC::scalar v0 = vv(0, 0, voxi[2] - 1);
         data->cell_dims[i_] *= 2;
 
@@ -3050,7 +2770,6 @@ void Sandbox::repeatVolume(int i_) {
         solver->SetVoltage(v0);
         initVisuals();
         _widget.updateImageFromLoad = true;
-
     }
 }
 
@@ -3221,7 +2940,6 @@ void Sandbox::handleNonlinearImagingWindow() {
                     }
 
                     // Generate image
-
                     LC_INFO("Saving nonlinear scan as <{0}>", _nonlin_image_series.write_file.c_str());
                     _nonlin_image_series.GenerateAndWriteFrame(plane.get(), data->voxels[xx], data->voxels[yy]);
                 }
@@ -3233,70 +2951,120 @@ void Sandbox::handleNonlinearImagingWindow() {
 }
 
 void Sandbox::handleLCINFOWindow() {
-    if (_widget.showLCINFO) {
-        using namespace LC::FrankOseen;
+    if (!_widget.showLCINFO || !_solver) return;
 
-        Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    using namespace LC::FrankOseen;
 
-        ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
-        ImGui::Begin("LC Info", &_widget.showLCINFO);
+    auto* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    if (!data) return;
 
+    ImGui::SetNextWindowSize(ImVec2(480.0f, 520.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("LC Info", &_widget.showLCINFO)) {
+        ImGui::End();
+        return;
+    }
 
-        // Relaxation time series data
-        {
-            int points = _widget.series_x_axis.size();
-            
-            if (ImPlot::BeginPlot("Free Energy v. Iterations", "Iterations", "Free energy (Kp)")) {
-                ImPlot::SetNextMarkerStyle(ImPlotMarker_None);
-
-                // Reset points
-                if (_widget.updateImageFromLoad) points = _widget.max_graph_points;
-
-                ImPlot::PlotLine("F", &_widget.series_x_axis_vec[0], &_widget.energy_series_vec[0], points, 0, sizeof(LC::precision_scalar));
-                ImPlot::EndPlot();
-            }
+    if (ImGui::CollapsingHeader("Relaxation Convergence", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int points = static_cast<int>(_widget.series_x_axis.size());
+        if (_widget.updateImageFromLoad) {
+            points = _widget.max_graph_points;
         }
 
-        ImGui::PushItemWidth(100.f);
-        static int max_graph_points_LCINFO = _widget.max_graph_points;
-        ImGui::InputInt("Num Plot Points##LCINFO", &max_graph_points_LCINFO);
+        const int safeMaxPoints = static_cast<int>(
+            (std::min)(_widget.series_x_axis_vec.size(), _widget.energy_series_vec.size())
+            );
+        points = std::clamp(points, 0, safeMaxPoints);
+
+        const ImPlotAxisFlags axisFlags = ImPlotAxisFlags_AutoFit;
+        if (ImPlot::BeginPlot("Free Energy vs. Iterations", "Iterations", "Free Energy (Kp)", ImVec2(-1.0f, 220.0f), ImPlotFlags_None, axisFlags, axisFlags)) {
+            ImPlot::SetNextMarkerStyle(ImPlotMarker_None);
+            if (points > 0) {
+                ImPlot::PlotLine(
+                    "F",
+                    _widget.series_x_axis_vec.data(),
+                    _widget.energy_series_vec.data(),
+                    points,
+                    0,
+                    sizeof(LC::precision_scalar)
+                );
+            }
+            ImPlot::EndPlot();
+        }
+
+        static int maxGraphPointsInput = _widget.max_graph_points;
+        ImGui::SetNextItemWidth(110.0f);
+        if (ImGui::InputInt("History Buffer Size##LCINFO", &maxGraphPointsInput)) {
+            maxGraphPointsInput = (std::max)(10, maxGraphPointsInput);
+        }
         ImGui::SameLine();
-        if (ImGui::SmallButton("Update##LCINFO-PLOT"))
-            _widget.max_graph_points = max_graph_points_LCINFO;
-        
-        ImGui::PopItemWidth();
-        std::map<LC_TYPE, std::string> lcMap = LC::FrankOseen::LiquidCrystal::Map();
-        auto relaxMethodMap = Dataset::RelaxMap();
+        if (ImGui::Button("Apply##LCINFO-PLOT")) {
+            _widget.max_graph_points = maxGraphPointsInput;
+            _widget.series_x_axis_vec.resize(_widget.max_graph_points, 0.0);
+            _widget.energy_series_vec.resize(_widget.max_graph_points, 0.0);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("System & Material Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+        static const std::map<LC_TYPE, std::string> lcMap = LiquidCrystal::Map();
+        static const auto relaxMethodMap = Dataset::RelaxMap();
+
+        auto lcIt = lcMap.find(data->lc_type);
+        const char* lcName = (lcIt != lcMap.end()) ? lcIt->second.c_str() : "Custom / Unknown";
+
+        auto relaxIt = relaxMethodMap.find(data->relaxKind);
+        const char* relaxName = (relaxIt != relaxMethodMap.end()) ? relaxIt->second.c_str() : "Unknown";
 
         float dV = 0.0f;
-
-        if (data->voltage.get()) {
+        if (data->voltage && data->voxels[0] > 0 && data->voxels[1] > 0 && data->voxels[2] > 0) {
             FOFDSolver::Tensor3 voltage(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
-            dV = voltage(0, 0, data->voxels[2] - 1) - voltage(0, 0, 0);
+            dV = static_cast<float>(voltage(0, 0, data->voxels[2] - 1) - voltage(0, 0, 0));
         }
 
-        // Show LC information
-        ImGui::Text("LC = %s", lcMap[data->lc_type].c_str());
-        ImGui::Text("Topological Charge = %.3f", _widget.computed_topological_charge);
+        const ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerH |
+            ImGuiTableFlags_BordersOuter |
+            ImGuiTableFlags_RowBg |
+            ImGuiTableFlags_SizingStretchProp;
 
-        ImGui::SameLine();
+        if (ImGui::BeginTable("LCInfoTable", 2, tableFlags)) {
+            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 155.0f);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-        if (ImGui::Button("Calculate charge")) {
-            if (checkRelax()) {
-                // Compute topological charge
-                _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
+            auto addRow = [](const char* label, const char* fmt, ...) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("%s", label);
+                ImGui::TableSetColumnIndex(1);
+                va_list args;
+                va_start(args, fmt);
+                ImGui::TextV(fmt, args);
+                va_end(args);
+                };
+
+            addRow("Liquid Crystal", "%s", lcName);
+            addRow("Relaxation Method", "%s", relaxName);
+            addRow("Iterations", "%d", data->numIterations);
+            addRow("Voltage (dV)", "%.3f V", dV);
+            addRow("Grid Voxels", "%d x %d x %d", data->voxels[0], data->voxels[1], data->voxels[2]);
+            addRow("Cell Dimensions", "%.2f x %.2f x %.2f", data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
+            addRow("Periodic BCs", "[%d, %d, %d]", data->bc[0], data->bc[1], data->bc[2]);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Topological Charge");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%.3f", _widget.computed_topological_charge);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Compute Q") && data->directors) {
+                if (checkRelax()) {
+                    _widget.computed_topological_charge = LC::Math::ComputeHopfCharge(data->directors.get(), data->voxels);
+                }
             }
+            ImGui::EndTable();
         }
-
-
-        ImGui::Text("Voltage = %f", dV);
-        ImGui::Text("Voxels = %d %d %d", data->voxels[0], data->voxels[1], data->voxels[2]);
-        ImGui::Text("Cell dimensions = %.2f %.2f %.2f", data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
-        ImGui::Text("Periodic Boundaries = %d %d %d", data->bc[0], data->bc[1], data->bc[2]);
-        ImGui::Text("Iterations = %d", data->numIterations);
-        ImGui::Text("Relax method = %s", relaxMethodMap[data->relaxKind].c_str());
-        ImGui::End();
     }
+    ImGui::End();
 }
 
 // Find the new positions after relaxation by computing the COM of the n = +- preimages for each heliknoton
@@ -3353,7 +3121,6 @@ std::vector<Eigen::Vector3d> detect_heliknoton_COM(std::vector<std::tuple<std::v
 
     }
 
-    // <missile>
     // From the displacement vectors computed, compute the symmetrized or antisymmetrized position (whichever is greater)
     if (displacement_vectors.size() == 2) {
         Eigen::Vector3d sum = 0.5 * (displacement_vectors[0] + displacement_vectors[1]);
@@ -3363,649 +3130,461 @@ std::vector<Eigen::Vector3d> detect_heliknoton_COM(std::vector<std::tuple<std::v
         else
             heliknotons_found.emplace_back(diff);
     }
-
-
     return heliknotons_found;
 }
 
-
 void Sandbox::handleModificationWindow() {
-    if (_widget.showModificationWindow) {
-        FOFDSolver* solver = (FOFDSolver*)(_solver.get());
-        Dataset* data = (Dataset*)(_solver->GetDataPtr());
-        ImGui::SetNextWindowContentSize({ 150,100 });
-        ImGui::SetNextWindowPos({ 0, 450 }, ImGuiCond_FirstUseEver);
-        ImGui::Begin("LC Modification window", &_widget.showModificationWindow);
+    if (!_widget.showModificationWindow || !_solver) return;
 
+    auto* solver = static_cast<FOFDSolver*>(_solver.get());
+    auto* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    if (!data) return;
 
-        // Local load and save section
-        const size_t mod_file_loc_sz = 128;
-        const size_t mod_file_load_sz = 128;
-        const size_t mod_file_save_sz = 128;
+    ImGui::SetNextWindowSize({ 430.0f, 680.0f }, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos({ 0.0f, 450.0f }, ImGuiCond_FirstUseEver);
 
-        static char mod_file_loc[mod_file_loc_sz] = "../data/";
-        static char mod_file_load[mod_file_load_sz] = "";
-        static char mod_file_save[mod_file_save_sz] = "";
+    if (!ImGui::Begin("LC Modification Window", &_widget.showModificationWindow)) {
+        ImGui::End();
+        return;
+    }
 
-        ImGui::InputText("File directory", mod_file_loc, mod_file_loc_sz);
-        ImGui::InputText("Load", mod_file_load, mod_file_load_sz);
-        ImGui::InputText("Save", mod_file_save, mod_file_save_sz);
+    if (ImGui::CollapsingHeader("File I/O", ImGuiTreeNodeFlags_DefaultOpen)) {
+        constexpr std::size_t bufSize = 128;
+        static char fileDir[bufSize] = "../data/";
+        static char loadFile[bufSize] = "";
+        static char saveFile[bufSize] = "";
 
-        if (ImGui::Button("Load##ModificationWindow")) {
-            std::string loadName = mod_file_loc + std::string(mod_file_load);
+        ImGui::InputText("Directory", fileDir, bufSize);
+        ImGui::InputText("Load File", loadFile, bufSize);
+        ImGui::InputText("Save File", saveFile, bufSize);
 
-            // Check if load file exists
+        if (ImGui::Button("Load##ModificationWindow", ImVec2(120.0f, 0.0f))) {
+            std::filesystem::path fullPath = std::filesystem::path(fileDir) / loadFile;
+            std::string loadName = fullPath.generic_string();
+
             std::ifstream checkLoadFile(loadName);
-            if (checkLoadFile.good()) {
+            if (!std::string(loadFile).empty() && checkLoadFile.good()) {
                 checkLoadFile.close();
-                bool ready = checkRelax();
-                if (!ready) return;
-
-                if (!loadName.empty()) {
+                if (checkRelax()) {
                     _header.readFile = loadName;
                     _solver->Import(_header);
-                    // Update visuals
                     initVisuals();
-                    //updateColor();
                     _widget.updateImageFromLoad = true;
-
                     LC_INFO("Loaded file {0}", loadName.c_str());
                 }
             }
         }
+
         ImGui::SameLine();
-        if (ImGui::Button("Save##ModificationWindow")) {
-            std::string saveName = mod_file_loc + std::string(mod_file_save);
+        if (ImGui::Button("Save##ModificationWindow", ImVec2(120.0f, 0.0f))) {
+            if (!std::string(saveFile).empty() && checkRelax()) {
+                std::filesystem::path fullPath = std::filesystem::path(fileDir) / saveFile;
+                std::string saveName = fullPath.generic_string();
 
-            bool ready = checkRelax();
-            if (!ready) return;
-
-            if (!saveName.empty()) {
                 _header.writeFile = saveName;
                 _solver->Export(_header);
-                LC_INFO("Saved to file {0}", saveName.c_str());
                 _header.readFile = saveName;
+                LC_INFO("Saved to file {0}", saveName.c_str());
             }
         }
-        ImGui::Separator();
+    }
 
-        ImGui::InputFloat3("Cell dims", &_widget.celldims[0]);
-        ImGui::PushItemWidth(75.f);
-        ImGui::InputInt3("PBCs", &_widget.boundaries[0]);
-        ImGui::InputInt("npp", &_widget.npp);
-        ImGui::SameLine();
-        ImGui::InputInt("Q", &_widget.topological_charge);
-        ImGui::SameLine();
-        ImGui::InputInt("Chirality", &_widget.chirality);
-        ImGui::PopItemWidth();
-        
-        static float phase_offset = 0.f;
-        ImGui::InputFloat("Phase offset", &phase_offset);
+    if (ImGui::CollapsingHeader("Cell & Topology Generation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::InputFloat3("Cell dims", &_widget.celldims[0], "%.2f");
+        ImGui::InputInt3("PBCs (x, y, z)", &_widget.boundaries[0]);
 
-        ImGui::Separator();
+        if (ImGui::BeginTable("CellParamsTable", 3, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::SetNextItemWidth(-40.0f);
+            ImGui::InputInt("npp", &_widget.npp);
 
-        ImGui::RadioButton("Heliknoton", &_widget.hopfion_type, 0);
-        ImGui::SameLine();
-        ImGui::RadioButton("Hopfion", &_widget.hopfion_type, 1);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-30.0f);
+            ImGui::InputInt("Q", &_widget.topological_charge);
 
-        ImGui::Separator();
-        
-        ImGui::RadioButton("Toron", &_widget.hopfion_type, 2);
-        ImGui::SameLine();
-        ImGui::RadioButton("Twistion (T1B2)", &_widget.hopfion_type, 3);
-        ImGui::SameLine();
-        ImGui::RadioButton("Twistion (T2B2)", &_widget.hopfion_type, 4);
-
-        ImGui::RadioButton("CF3", &_widget.hopfion_type, 5);
-        ImGui::SameLine();
-        ImGui::RadioButton("CF1", &_widget.hopfion_type, 6);
-        ImGui::SameLine();
-        ImGui::RadioButton("CF1 (L)", &_widget.hopfion_type, 7);
-        ImGui::RadioButton("Lehmann Cluster Line", &_widget.hopfion_type, 8);
-
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.f,1.f,0.f,1.f), "Experimental");
-        ImGui::RadioButton("PQ knot", &_widget.hopfion_type, 9);
-        static int PQ_P = 2;
-        static int PQ_Q = 3;
-        ImGui::PushItemWidth(100.f);
-        ImGui::InputInt("P##ModifyPQKnot", &PQ_P);
-        ImGui::SameLine();
-        ImGui::InputInt("Q##ModifyPQKnot", &PQ_Q);
-        ImGui::PopItemWidth();
-        
-        ImGui::Separator();
-
-
-        static std::array<float, 3> heli_lim = { 1.f,1.f,1.f };
-        static std::array<LC::scalar, 3> sheli_lim = { 1.f,1.f,1.f };
-        if (_widget.hopfion_type == 0) { // Heliknoton
-            ImGui::InputFloat3("Heliknoton scaling##LCMOD", &heli_lim[0]);
-
-            for (int d = 0; d < 3; d++)
-                sheli_lim[d] = heli_lim[d];
+            ImGui::TableSetColumnIndex(2);
+            ImGui::SetNextItemWidth(-65.0f);
+            ImGui::InputInt("Chirality", &_widget.chirality);
+            ImGui::EndTable();
         }
 
-        
-        int Q = _widget.topological_charge;
-        int npp = _widget.npp;
-        float v0 = _widget.voltage;
+        static constexpr const char* configNames[] = {
+            "Heliknoton",
+            "Hopfion",
+            "Toron",
+            "Twistion (T1B2)",
+            "Twistion (T2B2)",
+            "CF3",
+            "CF1",
+            "CF1 (Loop)",
+            "Lehmann Cluster Line",
+            "PQ Torus Knot (Experimental)"
+        };
 
-        if (ImGui::Button("Generate")) {
+        ImGui::Combo("Ansatz Type", &_widget.hopfion_type, configNames, IM_ARRAYSIZE(configNames));
 
-            std::array<int, 3> V = { _widget.celldims[0] * npp, _widget.celldims[1] * npp, _widget.celldims[2] * npp };
+        static float phaseOffset = 0.0f;
+        static std::array<float, 3> heliLim = { 1.0f, 1.0f, 1.0f };
+        static int pqP = 2;
+        static int pqQ = 3;
 
-            (*data).Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
+        if (_widget.hopfion_type == 0) {
+            ImGui::InputFloat3("Heliknoton Scaling", &heliLim[0], "%.2f");
+            ImGui::InputFloat("Phase Offset", &phaseOffset, 0.05f, 0.25f, "%.2f");
+        }
+        else if (_widget.hopfion_type == 9) {
+            ImGui::PushItemWidth(110.0f);
+            ImGui::InputInt("P##ModifyPQKnot", &pqP);
+            ImGui::SameLine();
+            ImGui::InputInt("Q##ModifyPQKnot", &pqQ);
+            ImGui::PopItemWidth();
+        }
 
+        if (ImGui::Button("Generate New", ImVec2(140.0f, 0.0f))) {
+            const int Q = _widget.topological_charge;
+            const int npp = (std::max)(1, _widget.npp);
+            const std::array<int, 3> V = {
+                static_cast<int>(_widget.celldims[0] * npp),
+                static_cast<int>(_widget.celldims[1] * npp),
+                static_cast<int>(_widget.celldims[2] * npp)
+            };
+
+            data->Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
+
+            std::array<LC::scalar, 3> sHeliLim = { heliLim[0], heliLim[1], heliLim[2] };
             Dataset::Config cfg;
 
-            if (_widget.hopfion_type == 0)      cfg = Dataset::Heliknoton(Q, V, data->cell_dims, 1., sheli_lim, { 0.f,0.f,0.f }, phase_offset);
-            else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
-            else if (_widget.hopfion_type == 2) cfg = Dataset::Toron(data->cell_dims, Q);
-            else if (_widget.hopfion_type == 3) cfg = Dataset::Twistion_T1B2(data->cell_dims);
-            else if (_widget.hopfion_type == 4) cfg = Dataset::Twistion_T2B2(data->cell_dims);
-            else if (_widget.hopfion_type == 5) cfg = Dataset::CF3(data->cell_dims[0]);
-            else if (_widget.hopfion_type == 6) cfg = Dataset::CF1(data->cell_dims);
-            else if (_widget.hopfion_type == 7) cfg = Dataset::CF1_Loop(data->cell_dims);
-            else if (_widget.hopfion_type == 8) cfg = Dataset::LehmannClusterLine(data->cell_dims, V);
-            else if (_widget.hopfion_type == 9) cfg = Dataset::PQTorusKnot(PQ_P, PQ_Q, data->cell_dims, V, 0.5);
-            else cfg = Dataset::Toron(data->cell_dims, Q);
-
-            data->chirality = _widget.chirality;
-
-            (*data).Voxels(V[0], V[1], V[2])
-                .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2]);
-            (*data).Configuration(cfg);
-
-            // Reset data
-            (*data).numIterations = 0;
-
-            _widget.energy_series = std::list<LC::precision_scalar>{};
-            _widget.series_x_axis = std::list<LC::precision_scalar>{};
-            for (int i = 0; i < _widget.energy_series_vec.size(); i++) {
-                _widget.energy_series_vec[i] = 0.0;
-                _widget.series_x_axis_vec[i] = 0.0;
+            switch (_widget.hopfion_type) {
+            case 0: cfg = Dataset::Heliknoton(Q, V, data->cell_dims, Q, sHeliLim, { 0.f, 0.f, 0.f }, phaseOffset); break;
+            case 1: cfg = Dataset::Hopfion(Q); break;
+            case 2: cfg = Dataset::Toron(data->cell_dims, Q); break;
+            case 3: cfg = Dataset::Twistion_T1B2(data->cell_dims); break;
+            case 4: cfg = Dataset::Twistion_T2B2(data->cell_dims); break;
+            case 5: cfg = Dataset::CF3(data->cell_dims[0]); break;
+            case 6: cfg = Dataset::CF1(data->cell_dims); break;
+            case 7: cfg = Dataset::CF1_Loop(data->cell_dims); break;
+            case 8: cfg = Dataset::LehmannClusterLine(data->cell_dims, V); break;
+            case 9: cfg = Dataset::PQTorusKnot(pqP, pqQ, data->cell_dims, V, 0.5); break;
+            default: cfg = Dataset::Toron(data->cell_dims, Q); break;
             }
 
-            // Initialize
+            data->chirality = _widget.chirality;
+            data->Voxels(V[0], V[1], V[2])
+                .Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2]);
+            data->Configuration(cfg);
+            data->numIterations = 0;
+
+            _widget.energy_series.clear();
+            _widget.series_x_axis.clear();
+            std::fill(_widget.energy_series_vec.begin(), _widget.energy_series_vec.end(), 0.0);
+            std::fill(_widget.series_x_axis_vec.begin(), _widget.series_x_axis_vec.end(), 0.0);
+
             _solver->Init();
-            // Update visuals
             initVisuals();
             _widget.updateImageFromLoad = true;
         }
-        ImGui::SameLine();
 
-        if (ImGui::Button("Edit existing")) {
+        ImGui::SameLine();
+        if (ImGui::Button("Apply Cell Metadata", ImVec2(150.0f, 0.0f))) {
             data->chirality = _widget.chirality;
-            (*data).Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
+            data->Boundaries(_widget.boundaries[0], _widget.boundaries[1], _widget.boundaries[2])
                 .Cell(_widget.celldims[0], _widget.celldims[1], _widget.celldims[2]);
             initVisuals();
-            //updateColor();
             _widget.updateImageFromLoad = true;
         }
+    }
 
+    const int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2], 1 });
 
-        int maxVox = (std::max)({ data->voxels[0], data->voxels[1], data->voxels[2] });
-        ImGui::SliderInt3("Heliknoton position##ModifyLC", &_widget.heliknotonInsertLocation[0], 1, maxVox);
-        // Clamp
-        for (int d = 0; d < 3; d++) {
-            if (_widget.heliknotonInsertLocation[d] < 1) _widget.heliknotonInsertLocation[d] = 1;
-            if (_widget.heliknotonInsertLocation[d] > data->voxels[d]) _widget.heliknotonInsertLocation[d] = data->voxels[d];
+    if (ImGui::CollapsingHeader("Subvolume Region & Cropping", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderInt3("Start (1-based)", &_widget.shrink_interval_begin[0], 1, maxVox);
+        ImGui::SliderInt3("End (1-based)", &_widget.shrink_interval_end[0], 1, maxVox);
+
+        for (int d = 0; d < 3; ++d) {
+            const int vMax = (std::max)(1, data->voxels[d]);
+            _widget.shrink_interval_begin[d] = std::clamp(_widget.shrink_interval_begin[d], 1, (std::max)(1, vMax - 1));
+            _widget.shrink_interval_end[d] = std::clamp(_widget.shrink_interval_end[d], _widget.shrink_interval_begin[d] + 1, vMax);
         }
 
+        ImGui::TextDisabled("Active Region: nn(%d:%d, %d:%d, %d:%d)",
+            _widget.shrink_interval_begin[0], _widget.shrink_interval_end[0],
+            _widget.shrink_interval_begin[1], _widget.shrink_interval_end[1],
+            _widget.shrink_interval_begin[2], _widget.shrink_interval_end[2]
+        );
 
-        if (ImGui::Button("Insert heliknoton##ModifyLC")) {
-            _widget.updateImageFromLoad = true;
-            // Embed a heliknoton into the selected region
+        if (ImGui::Button("Crop to Region")) {
+            std::array<int, 3> vNew;
+            for (int d = 0; d < 3; ++d) {
+                vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
+                data->cell_dims[d] *= static_cast<LC::scalar>(vNew[d]) / static_cast<LC::scalar>(data->voxels[d]);
+            }
 
-            /*Dataset::Config cfg;
-            if (_widget.hopfion_type == 0) cfg = Dataset::Heliknoton(Q,data->voxels,data->cell_dims);
-            else if (_widget.hopfion_type == 1) cfg = Dataset::Hopfion(Q);
-            else cfg = Dataset::Toron(data->cell_dims, Q);*/
+            const std::size_t newTotal = static_cast<std::size_t>(vNew[0]) * vNew[1] * vNew[2];
+            auto field_nn = std::make_unique<LC::scalar[]>(3 * newTotal);
+            auto field_vv = std::make_unique<LC::scalar[]>(newTotal);
+
+            if (!data->voltage) {
+                solver->SetVoltage(1.0);
+            }
 
             FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            LC::scalar xp = ((LC::scalar)_widget.heliknotonInsertLocation[0] / (data->voxels[0] - 1) - 0.5) * data->cell_dims[0];
-            LC::scalar yp = ((LC::scalar)_widget.heliknotonInsertLocation[1] / (data->voxels[1] - 1) - 0.5) * data->cell_dims[1];
-            LC::scalar zp = ((LC::scalar)_widget.heliknotonInsertLocation[2] / (data->voxels[2] - 1) - 0.5) * data->cell_dims[2];
-            Eigen::Vector3d translation_vector(xp, yp, zp);
-           
-            LC::scalar omega0 = 2. * M_PI * data->chirality * translation_vector[2];
-            auto heli_vfield = LC::Math::Heliknoton(1, data->cell_dims, 1., 1., { 0.,0.,0. }, omega0, false);
+            FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
+            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
+            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
 
-            for (int i = 0; i < data->voxels[0]; i++)
-                for (int j = 0; j < data->voxels[1]; j++)
-                    for (int k = 0; k < data->voxels[2]; k++) {
-                        // Current coords
-                        Eigen::Vector3d pos;
-                        pos[0] = data->cell_dims[0] * ((LC::scalar)i / (data->voxels[0] - 1) - 0.5);
-                        pos[1] = data->cell_dims[1] * ((LC::scalar)j / (data->voxels[1] - 1) - 0.5);
-                        pos[2] = data->cell_dims[2] * ((LC::scalar)k / (data->voxels[2] - 1) - 0.5);
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; ++i) {
+                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; ++j) {
+                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; ++k) {
+                        const int ip = i - _widget.shrink_interval_begin[0] + 1;
+                        const int jp = j - _widget.shrink_interval_begin[1] + 1;
+                        const int kp = k - _widget.shrink_interval_begin[2] + 1;
 
-                        pos = pos - translation_vector;
+                        for (int d = 0; d < 3; ++d) {
+                            nn_new(ip, jp, kp, d) = nn(i, j, k, d);
+                        }
+                        vv_new(ip, jp, kp) = vv(i, j, k);
+                    }
+                }
+            }
 
-                        auto res = heli_vfield(pos[0], pos[1], pos[2]);
-                        if (res[0] != 0. || res[1] != 0. || res[2] != 0.) {
+            data->voxels = vNew;
+            data->directors = std::move(field_nn);
+            data->voltage = std::move(field_vv);
+            data->en_density = std::make_unique<LC::scalar[]>(newTotal);
+
+            initVisuals();
+            _widget.updateImageFromLoad = true;
+        }
+
+        ImGui::SameLine();
+        repeatVolume(0);
+        ImGui::SameLine();
+        repeatVolume(1);
+        ImGui::SameLine();
+        repeatVolume(2);
+    }
+
+    if (ImGui::CollapsingHeader("Field Embedding & Transformations", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderInt3("Insert Pos", &_widget.heliknotonInsertLocation[0], 1, maxVox);
+        for (int d = 0; d < 3; ++d) {
+            _widget.heliknotonInsertLocation[d] = std::clamp(_widget.heliknotonInsertLocation[d], 1, data->voxels[d]);
+        }
+
+        if (ImGui::Button("Insert Heliknoton##ModifyLC")) {
+            _widget.updateImageFromLoad = true;
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+            Eigen::Vector3d translation;
+            for (int d = 0; d < 3; ++d) {
+                translation[d] = (static_cast<LC::scalar>(_widget.heliknotonInsertLocation[d]) / (data->voxels[d] - 1) - 0.5) * data->cell_dims[d];
+            }
+
+            const LC::scalar omega0 = 2.0 * M_PI * data->chirality * translation[2];
+            auto heliField = LC::Math::Heliknoton(1, data->cell_dims, 1.0, 1.0, { 0.0, 0.0, 0.0 }, omega0, false);
+
+            for (int i = 0; i < data->voxels[0]; ++i) {
+                for (int j = 0; j < data->voxels[1]; ++j) {
+                    for (int k = 0; k < data->voxels[2]; ++k) {
+                        Eigen::Vector3d pos(
+                            data->cell_dims[0] * (static_cast<LC::scalar>(i) / (data->voxels[0] - 1) - 0.5),
+                            data->cell_dims[1] * (static_cast<LC::scalar>(j) / (data->voxels[1] - 1) - 0.5),
+                            data->cell_dims[2] * (static_cast<LC::scalar>(k) / (data->voxels[2] - 1) - 0.5)
+                        );
+                        pos -= translation;
+
+                        auto res = heliField(pos[0], pos[1], pos[2]);
+                        if (res[0] != 0.0 || res[1] != 0.0 || res[2] != 0.0) {
                             nn(i, j, k, 0) = res[0];
                             nn(i, j, k, 1) = res[1];
                             nn(i, j, k, 2) = res[2];
                         }
                     }
-            
-
+                }
+            }
         }
         ImGui::SameLine();
         ImGui::Checkbox("Hide Indicator", &_widget.hideHeliknotonInsertIndicator);
 
-        ImGui::InputInt("Interpolate", &_widget.interpolate);
-        if (ImGui::Button("Begin Interpolate") && _widget.interpolate > 1) {
+        ImGui::Separator();
 
-            // Create a new ptr
-            unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
-            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * numDirectors * _widget.interpolate * _widget.interpolate * _widget.interpolate]);
-            std::unique_ptr<LC::scalar[]> field_vv(new LC::scalar[numDirectors * _widget.interpolate * _widget.interpolate * _widget.interpolate]);
-            // Check voltage quickly
-            if (!data->voltage.get()) {
+        if (ImGui::Button("Helical Field")) {
+            _widget.updateImage = true;
+            auto helical = LC::Math::Planar(2, 1);
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+
+            const LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
+            const LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
+            const LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
+
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; ++i) {
+                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; ++j) {
+                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; ++k) {
+                        const LC::scalar px = -0.5 * data->cell_dims[0] + i * dx;
+                        const LC::scalar py = -0.5 * data->cell_dims[1] + j * dy;
+                        const LC::scalar pz = -0.5 * data->cell_dims[2] + k * dz - _widget.helicalLayerOffset;
+
+                        auto n = helical(px, py, pz);
+                        for (int d = 0; d < 3; ++d) {
+                            nn(i, j, k, d) = n[d];
+                        }
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::InputFloat("Layer Offset (p)", &_widget.helicalLayerOffset, 0.05f, 0.25f, "%.2f");
+
+        static bool s_uniformFlip = false;
+        if (ImGui::Button("Uniform Field")) {
+            _widget.updateImage = true;
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+            const LC::scalar nzVal = s_uniformFlip ? -1.0 : 1.0;
+
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; ++i) {
+                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; ++j) {
+                    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; ++k) {
+                        nn(i, j, k, 0) = 0.0;
+                        nn(i, j, k, 1) = 0.0;
+                        nn(i, j, k, 2) = nzVal;
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        ImGui::Checkbox("Invert (-z)", &s_uniformFlip);
+        ImGui::SameLine();
+
+        if (ImGui::Button("Flip Chirality") && data->directors) {
+            const int nx = data->voxels[0];
+            const int ny = data->voxels[1];
+            const int nz = data->voxels[2];
+            const std::size_t totalVoxels = static_cast<std::size_t>(nx) * ny * nz;
+
+            FOFDSolver::Tensor4 nn(data->directors.get(), nx, ny, nz, 3);
+            for (std::size_t idx = 0; idx < totalVoxels / 2; ++idx) {
+                const int i = idx % nx;
+                const int j = (idx / nx) % ny;
+                const int k = idx / (static_cast<std::size_t>(nx) * ny);
+
+                const int i_f = nx - 1 - i;
+                const int j_f = ny - 1 - j;
+                const int k_f = nz - 1 - k;
+
+                for (int d = 0; d < 3; ++d) {
+                    std::swap(nn(i, j, k, d), nn(i_f, j_f, k_f, d));
+                }
+            }
+            _widget.updateImage = true;
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Z-Plane Translation:");
+        const bool arrowUp = ImGui::ArrowButton("Up", ImGuiDir_Up);
+        ImGui::SameLine();
+        const bool arrowDown = ImGui::ArrowButton("Down", ImGuiDir_Down);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::InputInt("z-planes", &_widget.translationNumber);
+        ImGui::SameLine();
+        ImGui::Checkbox("Helical", &_widget.helicalTranslation);
+
+        if (arrowUp || arrowDown) {
+            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
+            const int nz = data->voxels[2];
+            const int startz = arrowUp ? _widget.shrink_interval_end[2] - 1 : _widget.shrink_interval_begin[2] - 1;
+            const int endz = arrowUp ? _widget.shrink_interval_begin[2] - 1 : _widget.shrink_interval_end[2] - 1;
+            const int translate = arrowDown ? -_widget.translationNumber : _widget.translationNumber;
+
+            auto loop = LC::Utility::create_search_list(LC::Utility::irange_pair(startz, endz));
+            const LC::scalar dz = data->cell_dims[2] / (nz - 1);
+            const LC::scalar dtheta = 2.0 * M_PI * data->chirality * dz;
+            const LC::scalar cosNtheta = std::cos(translate * dtheta);
+            const LC::scalar sinNtheta = std::sin(translate * dtheta);
+
+            auto wrapZ = [nz](int kVal) -> int {
+                return ((kVal % nz) + nz) % nz;
+                };
+
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; ++i) {
+                for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; ++j) {
+                    for (const auto& k : loop) {
+                        const int kup = wrapZ(k + translate);
+                        const int kdown = wrapZ(k - translate);
+
+                        for (int d = 0; d < 3; ++d) {
+                            nn(i, j, kup, d) = nn(i, j, k, d);
+                            nn(i, j, k, d) = nn(i, j, kdown, d);
+                        }
+
+                        if (_widget.helicalTranslation) {
+                            const LC::scalar n1x = nn(i, j, kup, 0);
+                            const LC::scalar n1y = nn(i, j, kup, 1);
+                            const LC::scalar n2x = nn(i, j, k, 0);
+                            const LC::scalar n2y = nn(i, j, k, 1);
+
+                            nn(i, j, kup, 0) = n1x * cosNtheta - n1y * sinNtheta;
+                            nn(i, j, kup, 1) = n1x * sinNtheta + n1y * cosNtheta;
+                            nn(i, j, k, 0) = n2x * cosNtheta - n2y * sinNtheta;
+                            nn(i, j, k, 1) = n2x * sinNtheta + n2y * cosNtheta;
+                        }
+                    }
+                }
+            }
+            _widget.updateImage = true;
+        }
+
+        ImGui::Separator();
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::InputInt("Scale Factor", &_widget.interpolate);
+        ImGui::SameLine();
+        if (ImGui::Button("Interpolate Grid") && _widget.interpolate > 1) {
+            const int factor = _widget.interpolate;
+            const std::size_t oldTotal = static_cast<std::size_t>(data->voxels[0]) * data->voxels[1] * data->voxels[2];
+            const std::size_t newTotal = oldTotal * factor * factor * factor;
+
+            auto field_nn = std::make_unique<LC::scalar[]>(3 * newTotal);
+            auto field_vv = std::make_unique<LC::scalar[]>(newTotal);
+
+            if (!data->voltage) {
                 solver->SetVoltage(1.0);
             }
-            LC::Math::Interp3(data->directors.get(), field_nn.get(), data->voxels, { _widget.interpolate, _widget.interpolate , _widget.interpolate }, 3);
-            LC::Math::Interp3(data->voltage.get(), field_vv.get(), data->voxels, { _widget.interpolate, _widget.interpolate , _widget.interpolate }, 1);
 
-            // Replace data
-            for (int d = 0; d < 3; d++) data->voxels[d] *= _widget.interpolate;
-            numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
-            data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
-            data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
+            LC::Math::Interp3(data->directors.get(), field_nn.get(), data->voxels, { factor, factor, factor }, 3);
+            LC::Math::Interp3(data->voltage.get(), field_vv.get(), data->voxels, { factor, factor, factor }, 1);
 
-            // Normalize director field
-            for (std::size_t i = 0; i < numDirectors; i++) {
-                LC::scalar norm = 0.;
-                for (int d = 0; d < 3; d++)
-                    norm += data->directors[i + d * numDirectors] * data->directors[i + d * numDirectors];
-                if (norm != 0.) {
-                    norm = sqrt(norm);
-                    for (int d = 0; d < 3; d++)
-                        data->directors[i + d * numDirectors] /= norm;
-                }
-                else {
-                    // Director averaged to zero -> just choose n = zhat
-                    data->directors[i + 2 * numDirectors] = 1.;
-                }
-
+            for (int d = 0; d < 3; ++d) {
+                data->voxels[d] *= factor;
             }
 
-            // Set energy again
-            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[numDirectors]);
+            data->directors = std::move(field_nn);
+            data->voltage = std::move(field_vv);
 
+            for (std::size_t i = 0; i < newTotal; ++i) {
+                LC::scalar normSq = 0.0;
+                for (int d = 0; d < 3; ++d) {
+                    const LC::scalar comp = data->directors[i + d * newTotal];
+                    normSq += comp * comp;
+                }
+                if (normSq > 0.0) {
+                    const LC::scalar invNorm = 1.0 / std::sqrt(normSq);
+                    for (int d = 0; d < 3; ++d) {
+                        data->directors[i + d * newTotal] *= invNorm;
+                    }
+                }
+                else {
+                    data->directors[i + 2 * newTotal] = 1.0;
+                }
+            }
+
+            data->en_density = std::make_unique<LC::scalar[]>(newTotal);
             solver->Normalize();
             initVisuals();
             updateColor();
         }
-
-        // Flip the chirality
-        if (ImGui::Button("Flip chirality")) {
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            int X_2 = (data->voxels[0]) / 2;
-            int Y_2 = (data->voxels[1]) / 2;
-            int Z_2 = (data->voxels[2]) / 2;
-            LC_INFO("{0} {1} {2}", X_2, Y_2, Z_2);
-
-            // Flip X
-            for (int i = 0; i < X_2; i++) {
-                int i_f = data->voxels[0] - 1 - i;
-                for (int j = 0; j < data->voxels[1]; j++) {
-                    for (int k = 0; k < data->voxels[2]; k++) {
-                        for (int d = 0; d < 3; d++) {
-                            LC::scalar temp = nn(i, j, k, d);
-                            nn(i, j, k, d) = nn(i_f, j, k, d);
-                            nn(i_f, j, k, d) = temp;
-                        }
-                    }
-                }
-            }
-            // Flip Y
-            for (int j = 0; j < Y_2; j++) {
-                int j_f = data->voxels[1] - 1 - j;
-                for (int i = 0; i < data->voxels[0]; i++) {
-                    for (int k = 0; k < data->voxels[2]; k++) {
-                        for (int d = 0; d < 3; d++) {
-                            LC::scalar temp = nn(i, j, k, d);
-                            nn(i, j, k, d) = nn(i, j_f, k, d);
-                            nn(i, j_f, k, d) = temp;
-                        }
-                    }
-                }
-            }
-            // Flip Z
-            for (int k = 0; k < Z_2; k++) {
-                int k_f = data->voxels[2] - 1 - k;
-                for (int i = 0; i < data->voxels[0]; i++) {
-                    for (int j = 0; j < data->voxels[1]; j++) {
-                        for (int d = 0; d < 3; d++) {
-                            LC::scalar temp = nn(i, j, k, d);
-                            nn(i, j, k, d) = nn(i, j, k_f, d);
-                            nn(i, j, k_f, d) = temp;
-                        }
-                    }
-                }
-            }
-
-        }
-
-        {
-
-            /*ImGui::PushItemWidth(80.f);
-            ImGui::InputInt("Tilt angle (deg)", &_widget.tilt_angle);
-            ImGui::SameLine();
-            ImGui::InputInt("Tilt direction (deg)", &_widget.tilt_direction);
-            ImGui::PopItemWidth();*/
-
-            //if (ImGui::Button("Tilt")) {
-
-            //    std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * data->voxels[0] * data->voxels[1] * data->voxels[2]]);
-
-            //    // tilt direction vector
-            //    LC::scalar tilt_angle_rad = _widget.tilt_angle * M_PI / 180.;
-            //    LC::scalar tilt_dir_rad = _widget.tilt_direction * M_PI / 180.;
-            //    LC::scalar ux = -sin(tilt_dir_rad);
-            //    LC::scalar uy = cos(tilt_dir_rad);
-            //    LC::scalar uz = 0.;
-            //    Eigen::Quaternion<LC::scalar> q(cos(tilt_angle_rad / 2.), ux * sin(tilt_angle_rad / 2.), uy * sin(tilt_angle_rad / 2.), uz * sin(tilt_angle_rad / 2.));
-            //    Eigen::Quaternion<LC::scalar> qbar = q.conjugate();
-
-            //    FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            //    FOFDSolver::Tensor4 nn_new(field_nn.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-            //    // Copy
-            //    for (int i = 0; i < data->voxels[0]; i++) {
-            //        for (int j = 0; j < data->voxels[1]; j++) {
-            //            for (int k = 0; k < data->voxels[2]; k++) {
-
-            //                for (int d = 0; d < 3; d++) {
-            //                    nn_new(i, j, k, d) = nn(i, j, k, d);
-            //                }
-
-            //            }
-            //        }
-            //    }
-
-
-            //    for (int i = 0; i < data->voxels[0]; i++) {
-            //        for (int j = 0; j < data->voxels[1]; j++) {
-            //            for (int k = 0; k < data->voxels[2]; k++) {
-
-            //                // Rotate using quaternion conjugation
-            //                Eigen::Quaternion<LC::scalar> n_i(0., nn_new(i, j, k, 0), nn(i, j, k, 1), nn(i, j, k, 2));
-
-            //                auto result = q * n_i * qbar;
-
-            //                Eigen::Quaternion<LC::scalar> vpos(0., i - (data->voxels[0] - 1) / 2., j - (data->voxels[1] - 1) / 2., k - (data->voxels[2] - 1) / 2.);
-
-            //                int in = i;
-            //                int jn = j;
-            //                int kn = k;
-
-            //                if (in < 0 || in >= data->voxels[0] || jn < 0 || jn >= data->voxels[1] || kn < 0 || kn >= data->voxels[2]) {
-            //                    continue;
-            //                }
-
-            //                // Normalize result
-            //                LC::scalar len = sqrt(result.x() * result.x() + result.y() * result.y() + result.z() * result.z());
-
-            //                if (len == 0.0) {
-            //                    nn_new(in, jn, kn, 0) = 0.;
-            //                    nn_new(in, jn, kn, 1) = 0.;
-            //                    nn_new(in, jn, kn, 2) = 1.;
-            //                }
-            //                else {
-
-            //                    nn_new(in, jn, kn, 0) = result.x() / len;
-            //                    nn_new(in, jn, kn, 1) = result.y() / len;
-            //                    nn_new(in, jn, kn, 2) = result.z() / len;
-
-            //                }
-
-            //            }
-            //        }
-            //    }
-
-            //    // Copy back
-            //    for (int i = 0; i < data->voxels[0]; i++) {
-            //        for (int j = 0; j < data->voxels[1]; j++) {
-            //            for (int k = 0; k < data->voxels[2]; k++) {
-
-            //                for (int d = 0; d < 3; d++) {
-            //                    nn(i, j, k, d) = nn_new(i, j, k, d);
-            //                }
-
-            //            }
-            //        }
-            //    }
-
-            //    _widget.updateImage = true;
-            //}
-
-            if (ImGui::Button("Helical field")) {
-                _widget.updateImage = true;
-                auto helical = LC::Math::Planar(2, 1);
-                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-                std::array<float, 3> pos;
-
-                LC::scalar dx = data->cell_dims[0] / (data->voxels[0] - 1);
-                LC::scalar dy = data->cell_dims[1] / (data->voxels[1] - 1);
-                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
-
-                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
-                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
-                        for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
-
-                            pos[0] = -data->cell_dims[0] / 2.0 + i * dx;
-                            pos[1] = -data->cell_dims[1] / 2.0 + j * dy;
-                            pos[2] = -data->cell_dims[2] / 2.0 + k * dz;
-
-                            auto n = helical(pos[0], pos[1], pos[2] - _widget.helicalLayerOffset);
-
-                            for (int d = 0; d < 3; d++) {
-                                nn(i, j, k, d) = n[d];
-                            }
-                        }
-            }
-
-            ImGui::SameLine();
-            ImGui::PushItemWidth(50.f);
-            ImGui::InputFloat("Layer offset (p)", &_widget.helicalLayerOffset);
-            ImGui::PopItemWidth();
-            ImGui::SameLine();
-
-            static bool s_uniformflip = false;
-
-            if (ImGui::Button("Uniform field")) {
-                _widget.updateImage = true;
-                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-                std::array<float, 3> pos;
-
-                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
-                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
-                        for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
-                            nn(i, j, k, 0) = 0;
-                            nn(i, j, k, 1) = 0;
-                            if (s_uniformflip)
-                                nn(i, j, k, 2) = -1.0;
-                            else
-                                nn(i, j, k, 2) = 1.0;
-                        }
-            }
-            ImGui::SameLine();
-            ImGui::Checkbox("Invert", &s_uniformflip);
-
-
-            // Position in [-Lx/2:Lx/2, -Ly/2:Ly/2, -Lz/2:Lz/2]                
-
-
-            ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation region");
-            ImGui::Text("nn(%d:%d,%d:%d,%d:%d,:)", _widget.shrink_interval_begin[0], _widget.shrink_interval_end[0],
-                _widget.shrink_interval_begin[1], _widget.shrink_interval_end[1],
-                _widget.shrink_interval_begin[2], _widget.shrink_interval_end[2]
-            );
-            ImGui::TextColored(ImVec4{ 1.0f, 1.0f, 0.0f, 1.0f }, "Translation direction");
-            bool arrow_up = ImGui::ArrowButton("Up", ImGuiDir_Up);
-            ImGui::SameLine();
-            bool arrow_down = ImGui::ArrowButton("Down", ImGuiDir_Down);
-            ImGui::SameLine();
-            ImGui::PushItemWidth(100.0f);
-            ImGui::InputInt("Number of z-planes", &_widget.translationNumber);
-            ImGui::SameLine();
-            ImGui::Checkbox("Helical", &_widget.helicalTranslation);
-            ImGui::PopItemWidth();
-
-            if (arrow_up || arrow_down) {
-
-                FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-
-                int startz, endz;
-
-                startz = arrow_up ? _widget.shrink_interval_end[2] - 1 : _widget.shrink_interval_begin[2] - 1;
-                endz = arrow_up ? _widget.shrink_interval_begin[2] - 1 : _widget.shrink_interval_end[2] - 1;
-                int translate = _widget.translationNumber;
-
-                if (arrow_down) translate *= -1;
-
-                auto loop = LC::Utility::create_search_list(LC::Utility::irange_pair(startz, endz));
-
-                LC::scalar dz = data->cell_dims[2] / (data->voxels[2] - 1);
-                LC::scalar dtheta = 2. * M_PI * data->chirality * dz;
-                LC::scalar cosNtheta = cos(translate * dtheta);
-                LC::scalar sinNtheta = sin(translate * dtheta);
-
-                for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++) {
-                    for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++) {
-                        for (const auto& k : loop) {
-
-                            int kup = k + translate;
-                            int kdown = k - translate;
-
-                            kup = kup >= data->voxels[2] ? kup % data->voxels[2] : kup;
-                            kup = kup < 0 ? data->voxels[2] + kup : kup;
-
-                            kdown = kdown >= data->voxels[2] ? kdown % data->voxels[2] : kdown;
-                            kdown = kdown < 0 ? data->voxels[2] + kdown : kdown;
-
-                            for (int d = 0; d < 3; d++) {
-
-                                // First translate up (down)
-                                nn(i, j, kup, d) = nn(i, j, k, d);
-                                // then copy from below (above) by same amount
-                                nn(i, j, k, d) = nn(i, j, kdown, d);
-                            }
-
-                            if (_widget.helicalTranslation) {
-                                // Apply a rotation based on chirality, translate, and dz
-                                LC::scalar n1x = nn(i, j, kup, 0);
-                                LC::scalar n1y = nn(i, j, kup, 1);
-                                LC::scalar n2x = nn(i, j, k, 0);
-                                LC::scalar n2y = nn(i, j, k, 1);
-
-                                nn(i, j, kup, 0) = n1x * cosNtheta - n1y * sinNtheta;
-                                nn(i, j, kup, 1) = n1x * sinNtheta + n1y * cosNtheta;
-
-                                nn(i, j, k, 0) = n2x * cosNtheta - n2y * sinNtheta;
-                                nn(i, j, k, 1) = n2x * sinNtheta + n2y * cosNtheta;
-
-                            }
-
-                        }
-                    }
-                }
-
-
-                _widget.updateImage = true;
-            }
-        }
-
-        ImGui::SliderInt3("Start Indices", &_widget.shrink_interval_begin[0], 0, maxVox);
-        ImGui::SliderInt3("End Indices", &_widget.shrink_interval_end[0], 0, maxVox);
-
-        // Clamp
-        for (int d = 0; d < 3; d++) {
-            if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
-            if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
-            while (_widget.shrink_interval_begin[d] >= _widget.shrink_interval_end[d]) {
-                --_widget.shrink_interval_begin[d];
-                ++_widget.shrink_interval_end[d];
-                if (_widget.shrink_interval_begin[d] < 1) _widget.shrink_interval_begin[d] = 1;
-                if (_widget.shrink_interval_end[d] > data->voxels[d]) _widget.shrink_interval_end[d] = data->voxels[d];
-            }
-        }
-
-        if (ImGui::Button("Resize")) {
-            // Create a new ptr
-            unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
-            std::array<int, 3> vNew;
-            for (int d = 0; d < 3; d++) {
-                vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
-                // Update cell dims
-                data->cell_dims[d] *= (LC::scalar)vNew[d] / (LC::scalar)data->voxels[d];
-            }
-
-
-
-
-            std::unique_ptr<LC::scalar[]> field_nn(new LC::scalar[3 * vNew[0] * vNew[1] * vNew[2]]);
-            std::unique_ptr<LC::scalar[]> field_vv(new LC::scalar[vNew[0] * vNew[1] * vNew[2]]);
-
-            FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
-            // Check if voltage is initialized
-            if (!data->voltage.get()) {
-                solver->SetVoltage(1.0);
-            }
-            FOFDSolver::Tensor3 vv(data->voltage.get(), data->voxels[0], data->voxels[1], data->voxels[2]);
-
-            FOFDSolver::Tensor4 nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
-            FOFDSolver::Tensor3 vv_new(field_vv.get(), vNew[0], vNew[1], vNew[2]);
-
-            for (int i = _widget.shrink_interval_begin[0]-1; i < _widget.shrink_interval_end[0]; i++)
-                for (int j = _widget.shrink_interval_begin[1]-1; j < _widget.shrink_interval_end[1]; j++)
-                    for (int k = _widget.shrink_interval_begin[2]-1; k < _widget.shrink_interval_end[2]; k++) {
-
-
-                        int ip = i - _widget.shrink_interval_begin[0]+1;
-                        int jp = j - _widget.shrink_interval_begin[1]+1;
-                        int kp = k - _widget.shrink_interval_begin[2]+1;
-
-                        for (int d = 0; d < 3; d++)
-                            nn_new(ip, jp, kp, d) = nn(i, j, k, d);
-
-                        vv_new(ip, jp, kp) = vv(i, j, k);
-
-                    }
-
-            // Replace data
-            for (int d = 0; d < 3; d++) data->voxels[d] = vNew[d];
-            data->directors = std::unique_ptr<LC::scalar[]>(field_nn.release());
-            data->voltage = std::unique_ptr<LC::scalar[]>(field_vv.release());
-            data->en_density = std::unique_ptr<LC::scalar[]>(new LC::scalar[vNew[0]* vNew[1]* vNew[2]]);
-
-            initVisuals();
-            _widget.updateImageFromLoad = true;
-        }
-
-        ImGui::SameLine();
-
-        // Duplicate the volume along the x axis
-        repeatVolume(0);
-        ImGui::SameLine();
-        // Duplicate the volume along the y axis
-        repeatVolume(1);
-        ImGui::SameLine();
-        // Duplicate the volume along the z axis
-        repeatVolume(2);
-
-
-
-        ImGui::End();
     }
-
+    ImGui::End();
 }
 
 void Sandbox::handleInteractionEnergyWindow() {
@@ -4047,7 +3626,6 @@ void Sandbox::handleInteractionEnergyWindow() {
     static float theta0 = 0.;
     static int Navg = 1;
     static float EField = 0.5f;
-    
     static float voltage = EField * _widget.interactionCellSize[2];
 
 
@@ -4169,7 +3747,6 @@ void Sandbox::handleInteractionEnergyWindow() {
                     if (pow(pos[0] / a_axis, 2) + pow(pos[1] / b_axis, 2) + pow(pos[2] / c_axis, 2) <= 1)
                         heliknoton.push_back({ pos, dir });
 
-
                 }
             }
         }
@@ -4180,10 +3757,6 @@ void Sandbox::handleInteractionEnergyWindow() {
             LC_ERROR("Empty heliknoton!!!");
             return;
         }
-
-
-        //LC_INFO("Heliknoton center of mass R = ({0}, {1}, {2})", center_of_mass(0), center_of_mass(1), center_of_mass(2));
-
         // Translate the heliknoton center of mass to the origin
         for (auto& p : heliknoton) {
             p.position = p.position - center_of_mass;
@@ -4607,8 +4180,6 @@ void Sandbox::handleInteractionEnergyWindow() {
                 interaction_data[count++].separation *= 0.5; // Need to multiply by half to get the distance from the center
             }
 
-
-
             // Create full configuration
             if (!_widget.singleInteractionHeliknoton) {
                 // Reset
@@ -4638,9 +4209,6 @@ void Sandbox::handleInteractionEnergyWindow() {
                 ++count;
             }
         }
-
-
-        
         
         std::ofstream ofile(saveName.c_str(), std::ios::out | std::ios::binary);
 
@@ -4683,1837 +4251,459 @@ void Sandbox::handleInteractionEnergyWindow() {
 
 
 void Sandbox::findVortexKnotComponents(bool saveObj, const std::string& obj_name) {
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    std::array<float, 3> cellf = { data->cell_dims[0], data->cell_dims[1], data->cell_dims[2] };
-    std::array<LC::scalar, 3> dr;
-    for (int i = 0; i < 3; i++)
-        dr[i] = cellf[i] / (data->voxels[i] - 1);
+    using namespace VKH;
 
-    uint slice = data->voxels[0] * data->voxels[1];
-    uint vol = data->voxels[2] * slice;
+    Dataset* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    std::array<float, 3> cellf = {
+        static_cast<float>(data->cell_dims[0]),
+        static_cast<float>(data->cell_dims[1]),
+        static_cast<float>(data->cell_dims[2])
+    };
 
-    // Clean knots
-    if (!_vortexKnot.empty()) {
-        VortexKnot* knot;
-        for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++) {
-            knot = &(*it);
-            knot->draw = false;
-        }
+    GridMetrics base_grid(data->voxels, cellf, 1);
+    GridMetrics interp_grid(data->voxels, cellf, _widget.knot_interaction_handle.upsampling_multiplier);
 
-        while (!_vortexKnot.empty()) {
-            std::list<VortexKnot>::iterator iter;
-            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
-                iter = it;
-            _vortexKnot.erase(iter);
-        }
+    for (auto& knot : _vortexKnot) {
+        knot.draw = false;
     }
-
-    // Clean manipulator
+    _vortexKnot.clear();
     _vortexManipulator = std::make_unique<LC::Drawable::Object3D>();
     _vortexManipulator->setParent(_manipulator.get());
 
-    std::unique_ptr<float[]> chi_field,
-        field_nn(new float[3 * vol]),
-        valid_fieldf(new float[vol]),
-        field_Q(new float[5 * vol]),
-        field_S(new float[vol]);
+    auto smoothMCMesh = [&](LC::ExtendedMC::MarchingCubes& mc_inst, float lambda, float mu, int iterations, float* nn_ptr, const std::array<float, 4>& color) -> SmoothedMesh {
+        if (mc_inst.nverts() == 0 || mc_inst.ntrigs() == 0) return {};
 
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
-                uint id = i + data->voxels[0] * j + slice * k;
-                field_nn[id] = data->directors[id];
-                field_nn[id + vol] = data->directors[id + vol];
-                field_nn[id + 2 * vol] = data->directors[id + 2 * vol];
-            }
+        int nverts = mc_inst.nverts();
+        auto iso_verts = std::make_unique<LC::Math::IsoVertex[]>(nverts);
+        LC::ExtendedMC::Vertex* raw_verts = mc_inst.vertices();
+
+        for (int i = 0; i < nverts; ++i) {
+            iso_verts[i] = toIsoVertex(raw_verts[i]);
         }
-    }
 
-    _vortex_line.numNodes = LC::Math::ChiralityField(field_nn.get(), chi_field, data->voxels, cellf, _vortex_line.valid_field, true, _widget.knot_interaction_handle.tolerance, false);
+        uint* indices = reinterpret_cast<uint*>(mc_inst.triangles());
+        auto result = TaubinSmoothingGeneral(
+            lambda, mu, iterations,
+            iso_verts.get(), nverts, indices, mc_inst.ntrigs() * 3,
+            nn_ptr, data->voxels, color, 0, 0, 0, 0
+        );
 
-    // Convert valid field to floats and make a list of all vortex indices
-    std::vector<std::size_t> vortex_indices;
-    std::set<std::size_t> vortex_indices_set;
-    vortex_indices.reserve(_vortex_line.numNodes);
+        return { std::move(std::get<0>(result)), std::move(std::get<1>(result)) };
+    };
 
-    // Convert valid field to floats and make a list of all defect indices
-    for (auto ii = 0; ii < vol; ii++) {
-        valid_fieldf[ii] = 0.f;
-        if (_vortex_line.valid_field[ii]) {
+    auto addKnotToScene = [&](SmoothedMesh& mesh, const Color4& color, bool is_ribbon) {
+        _vortexKnot.emplace_back();
+        VortexKnot& knot = _vortexKnot.back();
+        knot.knotColor = color;
+        knot.ribbon = is_ribbon;
 
-            int k = ii / slice;
-            int j = (ii - k * slice) / data->voxels[0];
-            int i = ii - j * data->voxels[1] - slice * k;
-            LC::scalar avgcos2_chi = 0.;
-            LC::scalar avgcos2_tau = 0.;
-            Eigen::Vector3d chi0(chi_field[ii], chi_field[ii + vol], chi_field[ii + 2 * vol]);
-            Eigen::Vector3d nn0(field_nn[ii], field_nn[ii + vol], field_nn[ii + 2 * vol]);
-            Eigen::Vector3d tau0 = chi0.cross(nn0);
-            // Compute the scalar order parameter with the chi field
+        knot.surface.Init(
+            reinterpret_cast<LC::Surface::Vertex*>(mesh.vertices.data()),
+            mesh.vertices.size(),
+            &mesh.triangles[0][0],
+            mesh.triangles.size() * 3,
+            _widget.preimage_translate
+        );
+        knot.mesh = knot.surface.Mesh();
 
-
-            int points_in_bds = 0;
-
-            for (int x = -1; x <= 1; x++) {
-                for (int y = -1; y <= 1; y++) {
-                    for (int z = -1; z <= 1; z++) {
-                        uint ip = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                        if (ip >= 0 && ip < vol && ip != ii) {
-                            points_in_bds++;
-                            Eigen::Vector3d chi_xyz(chi_field[ip], chi_field[ip + vol], chi_field[ip + 2 * vol]);
-                            Eigen::Vector3d nn_xyz(field_nn[ip], field_nn[ip + vol], field_nn[ip + 2 * vol]);
-                            Eigen::Vector3d tau_xyz = chi_xyz.cross(nn_xyz);
-                            avgcos2_chi += pow(chi0.dot(chi_xyz), 2);
-                            avgcos2_tau += pow(tau0.dot(tau_xyz), 2);
-                        }
-                    }
-                }
-            }
-
-            LC::scalar Sop_chi, Sop_lambda, Sop_tau;
-            if (points_in_bds > 0) {
-                Sop_chi = 0.5 * (3. * avgcos2_chi / points_in_bds - 1.);
-                Sop_tau = 0.5 * (3. * avgcos2_tau / points_in_bds - 1.);
-                LC::scalar S = 0.5 * (Sop_chi + Sop_tau);
-                field_S[ii] = S;
-                if (S < _widget.knot_interaction_handle.isoValue) {
-                    _vortex_line.valid_field[ii] = 0;
-                }
-            }
-
-        }
-        else {
-            //vortex_indices.emplace_back(ii);
-            field_S[ii] = 0.f;
-        }
-    }
-
-    // Try secondary vortex knot classification based on |grad(S)|=0 and S <= S.isoValue
-
-    for (auto ii = 0; ii < vol; ii++) {
-        int k = ii / slice;
-        int j = (ii - k * slice) / data->voxels[0];
-        int i = ii - j * data->voxels[1] - slice * k;
-
-        int line = data->voxels[0];
-
-        auto get_id = [slice, line](int x, int y, int z) {
-            return x + line * y + slice * z;
+        new LC::Drawable::TransparentNormalDrawable{
+            *_vortexManipulator, _phongShader, *(knot.mesh),
+            knot.draw, knot.cullFaces, _transparentNormalDrawables
         };
+    };
 
-        // Compute S derivatives
-        float Sd2 = 0.f;
-        if (i > 1 && j > 1 && k > 1 && i < data->voxels[0] - 2 && j < data->voxels[1] - 2 && k < data->voxels[2] - 2) {
-            float S200 = (field_S[get_id(i + 1, j, k)] + field_S[get_id(i - 1, j, k)] - 2. * field_S[ii]);
-            float S020 = (field_S[get_id(i, j + 1, k)] + field_S[get_id(i, j - 1, k)] - 2. * field_S[ii]);
-            float S002 = (field_S[get_id(i, j, k + 1)] + field_S[get_id(i, j, k - 1)] - 2. * field_S[ii]);
-            Sd2 = S200 + S020 + S002;
-        }
+    std::unique_ptr<float[]> chi_field;
+    auto field_nn = std::make_unique<float[]>(3 * base_grid.vol);
+    auto valid_fieldf = std::make_unique<float[]>(base_grid.vol);
+    auto field_S = std::make_unique<float[]>(base_grid.vol);
 
-
-        // Classify the current index ii
-        if (field_S[ii] < _widget.knot_interaction_handle.isoValue) {
-            vortex_indices.emplace_back(ii);
-            vortex_indices_set.insert(ii);
-        }
-
+    for (uint id = 0; id < 3 * base_grid.vol; ++id) {
+        field_nn[id] = static_cast<float>(data->directors[id]);
     }
 
-    // Classify only the raw defect core
-    for (const auto& id : vortex_indices) {
-        valid_fieldf[id] = -1.f;
-    }
+    LC::Math::MeshProcessor processor( base_grid.dims[0], base_grid.dims[1], base_grid.dims[2] );
+    processor.SetSpacing(base_grid.dr[0], base_grid.dr[1], base_grid.dr[2]);
+    processor.SetOrigin( -0.5f * cellf[0], -0.5f * cellf[1], -0.5f * cellf[2] );
 
-    // Recount newly classified nodes
+    float vortexTubeRadius = _vortex_line.tubeRadius * 0.35f * (std::min)({ base_grid.dr[0], base_grid.dr[1], base_grid.dr[2] });
+    auto umbilicMesh = processor.ComputeUmbilicTube(field_nn.get(), vortexTubeRadius, 12, 0.2f);
+
+    _vortex_line.numNodes = LC::Math::ChiralityField(
+        field_nn.get(), chi_field, data->voxels, cellf,
+        _vortex_line.valid_field, true, _widget.knot_interaction_handle.tolerance, false
+    );
+
+    computeOrderParameterAndFilter(
+        base_grid, field_nn.get(), chi_field.get(),
+        _widget.knot_interaction_handle.isoValue,
+        _vortex_line.valid_field.get(), valid_fieldf.get(), field_S.get()
+    );
+
     _vortex_line.numNodes = 0;
-
-    for (auto ii = 0; ii < vol; ii++) {
+    for (uint ii = 0; ii < base_grid.vol; ++ii) {
         if (valid_fieldf[ii] < 0.f) {
-            _vortex_line.valid_field[ii] = 0;
             _vortex_line.numNodes++;
         }
     }
 
-    std::map<uint, Face> unvisited_list_local;
-    // Key: vertex, value: Triangle
-    std::multimap<uint, uint> mmap;
-    // Make the initial color white to distinguish components that were too small
+
     std::array<float, 4> col_white = { 1.f, 1.f, 1.f, 1.f };
+    auto sample_grid = std::make_unique<float[]>(interp_grid.vol);
+    std::vector<uint8_t> upsampled_mask(interp_grid.vol, 0);
+    std::vector<uint> vortex_indices_upsampled;
 
-    auto extended_to_iso = [](const LC::ExtendedMC::Vertex& v) {
-        LC::Math::IsoVertex viso;
-        viso.position[0] = v.x; viso.position[1] = v.y; viso.position[2] = v.z;
-        viso.normal[0] = v.nx; viso.normal[1] = v.ny; viso.normal[2] = v.nz;
+    LC::ExtendedMC::MarchingCubes mc2;
+    mc2.clean_all();
+    mc2.set_resolution(interp_grid.dims[0], interp_grid.dims[1], interp_grid.dims[2]);
+    mc2.set_ext_data(sample_grid.get());
+    mc2.init_all();
 
-        return viso;
-    };
+    if (!umbilicMesh.empty()) {
+        // Format the mesh
+        std::vector<MeshLib::PNCVertex<float>> umbilic_vertices;
+        std::vector<MeshLib::Triangle> umbilic_triangles;
+        size_t nVert = umbilicMesh.numVertices();
+        size_t nTrig = umbilicMesh.numTriangles();
+        umbilic_vertices.resize(nVert);
+        umbilic_triangles.resize(nTrig);
 
-    // Use extended marching cubes to generate the isosurface
-    LC::ExtendedMC::MarchingCubes mc, mc2;
+        float normSign = 1.0f;
+        auto color = Magnum::Color4{ 0.5f, 0.5f, 0.5f, 0.5f };
 
-    mc.clean_all();
-    mc.set_resolution(data->voxels[0], data->voxels[1], data->voxels[2]);
-    mc.init_all();
+        for (size_t i = 0; i < nVert; ++i) {
+            const auto& src = umbilicMesh.vertices[i];
+            auto& dst = umbilic_vertices[i];
 
-    mc.set_ext_data(valid_fieldf.get());
-    mc.run();
+            dst.position[0] = src.position[0];
+            dst.position[1] = src.position[1];
+            dst.position[2] = src.position[2];
 
-    // Smooth the vortex knot data
-    std::vector<MeshLib::PNCVertex<float>> smooth0_vertices;
-    std::vector<MeshLib::Triangle> smooth0_trigs;
-    {
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc.vertices();
-        uint* iso_ind_ptr = (uint*)mc.triangles();
+            dst.normal[0] = normSign * src.normal[0];
+            dst.normal[1] = normSign * src.normal[1];
+            dst.normal[2] = normSign * src.normal[2];
 
-        for (int vi = 0; vi < mc.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
+            dst.color[0] = color[0];
+            dst.color[1] = color[1];
+            dst.color[2] = color[2];
+            dst.color[3] = color[3];
         }
 
-        LC::ExtendedMC::Triangle* tri_data = mc.triangles();
-
-        // Random color
-        std::array<float, 4> col_arr;
-        for (int d = 0; d < 4; d++)
-            col_arr[d] = col_white[d];
-
-        // Apply Taubin smoothing to the pre-sampled vertices
-        float lambda = 0.5f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-
-        auto smoothing_result = TaubinSmoothingGeneral(lambda,mu,smoothIterations,iso_verts.get(), mc.nverts(), iso_ind_ptr,
-            mc.ntrigs() * 3, 0, data->voxels, col_arr, 0, 0, 0, 0);
-
-        smooth0_vertices = std::get<0>(smoothing_result);
-        smooth0_trigs = std::get<1>(smoothing_result);
-
-        // Clean the mc data
-        mc.reset_mesh();
-    }
-
-    // Rescale positions
-    {
-        float dx = data->cell_dims[0] / (data->voxels[0] - 1);
-        float dy = data->cell_dims[1] / (data->voxels[1] - 1);
-        float dz = data->cell_dims[2] / (data->voxels[2] - 1);
-        float xmin = -0.5 * data->cell_dims[0];
-        float ymin = -0.5 * data->cell_dims[1];
-        float zmin = -0.5 * data->cell_dims[2];
-
-        for (uint i = 0; i < smooth0_vertices.size(); ++i) {
-            MeshLib::PNCVertex<float>& v = smooth0_vertices[i];
-            
-            v.position[0] = dx * v.position[0] + xmin;
-            v.position[1] = dy * v.position[1] + ymin;
-            v.position[2] = dz * v.position[2] + zmin;
-
-            // Normalize normals
-            float nrm = v.normal[0] * v.normal[0] + v.normal[1] * v.normal[1] + v.normal[2] * v.normal[2];
-            if (nrm != 0)
-            {
-                nrm = 1.0 / sqrt(nrm);
-                v.normal[0] *= nrm;
-                v.normal[1] *= nrm;
-                v.normal[2] *= nrm;
-            }
+        for (size_t t = 0; t < nTrig; ++t) {
+            umbilic_triangles[t][0] = umbilicMesh.indices[3 * t + 0];
+            umbilic_triangles[t][1] = umbilicMesh.indices[3 * t + 2];
+            umbilic_triangles[t][2] = umbilicMesh.indices[3 * t + 1];
         }
-    }
+        _vortex_line.components = extractConnectedComponents(SmoothedMesh{umbilic_vertices, umbilic_triangles});
 
-    std::array<int, 3> vox_interp;
-    for (int d = 0; d < 3; d++)
-        vox_interp[d] = data->voxels[d] * _widget.knot_interaction_handle.upsampling_multiplier; // Can play around with this parameter
-    std::array<float, 3> dr_interp;
-    for (int d = 0; d < 3; d++) {
-        dr_interp[d] = cellf[d] / (vox_interp[d] - 1);
-    }
-    uint vol_interp = vox_interp[0] * vox_interp[1] * vox_interp[2];
-    std::unique_ptr<float[]> sample_grid(new float[vol_interp]), field_Ssb(new float[vol_interp]);
-    std::set<uint> vortex_indices_upsampled;
-
-    if (smooth0_vertices.size() && smooth0_trigs.size()) {
-        unsigned int nVert = smooth0_vertices.size();
-        unsigned int nInd = smooth0_trigs.size() * 3;
-        unsigned int nTriangles = nInd / 3;
-
-        // Feed data to indices,verts
-
-        // Note that verts currently refers to verts and not global indices
-        // Therefore, convert indices data to global index space through vertex positions
-        for (int tri = 0; tri < nTriangles; tri++) {
-            uint i1 = smooth0_trigs[tri][0];
-            uint i2 = smooth0_trigs[tri][1];
-            uint i3 = smooth0_trigs[tri][2];
-
-            mmap.insert({ i1, tri });
-            mmap.insert({ i2, tri });
-            mmap.insert({ i3, tri });
-
-            unvisited_list_local.insert({ tri, Face(i1, i2, i3) });
-        }
-
-        // Find components through the vertices
-        try {
-            _vortex_line.components = find_all_components_graph(unvisited_list_local, nVert, 15);
-        }
-        catch (const std::runtime_error& e) {
-            LC_INFO("Error: {0}", e.what());
-        }
-
-        //_vortex_line.vertices = vertices;
-        // Color vertices by their component
+        std::array<LC::scalar, 3> cell = {
+            data->cell_dims[0] / (data->voxels[0] - 1),
+            data->cell_dims[1] / (data->voxels[1] - 1),
+            data->cell_dims[2] / (data->voxels[2] - 1)
+        };
 
         int col_i = 0;
-        float Ddeg = 360.f / (float)_vortex_line.components.size();
+        float d_deg = _vortex_line.components.empty() ? 0.f : 360.f / static_cast<float>(_vortex_line.components.size());
 
-        mc2.clean_all();
-        mc2.set_resolution(vox_interp[0], vox_interp[1], vox_interp[2]);
-        mc2.set_ext_data(sample_grid.get());
-        mc2.init_all();
+        for (const auto& component : _vortex_line.components) {
+            Color4 color = Color3::fromHsv({ Deg(d_deg * col_i++), 1.f, 1.f });
+            std::array<float, 4> col_arr = { color[0], color[1], color[2], color[3] };
 
-        int Radius = _widget.knot_interaction_handle.saturation;
+            // Get the subset of vertices and relabel triangles
+            std::vector<MeshLib::PNCVertex<float>> comp_vertices(component.size());
+            std::vector<MeshLib::Triangle> comp_triangles;
+            
+            comp_triangles.reserve(2*component.size());
 
+            std::map<size_t, size_t> map_glob_to_local;
 
-        // Split apart vertex data
-        
-        for (auto& component : _vortex_line.components) {
-
-            // Initialize the sample grid
-            for (int ii = 0; ii < vol_interp; ii++)
-                sample_grid[ii] = 0.1f;
-
-            // Sample the component using the indices
-            for (const auto& ci : component) {
-                auto v_ci = smooth0_vertices[ci];
-                
-                // Convert the vertex into an index on the new grid
-                uint i = (v_ci.position[0] + 0.5f * cellf[0]) / cellf[0] * (vox_interp[0] - 1);
-                uint j = (v_ci.position[1] + 0.5f * cellf[1]) / cellf[1] * (vox_interp[1] - 1);
-                uint k = (v_ci.position[2] + 0.5f * cellf[2]) / cellf[2] * (vox_interp[2] - 1);
-
-                // Calculate the new index
-                uint id = i + j * vox_interp[0] + k * vox_interp[0] * vox_interp[1];
-
-                // Apply some sampling technique to the vortex knot at this position
-                for (int x = -Radius; x <= Radius; x++)
-                    for (int y = -Radius; y <= Radius; y++)
-                        for (int z = -Radius; z <= Radius; z++) {
-                            // Compute the index to modify
-                            uint id_ball = (i + x) + (j + y) * vox_interp[0] + (k + z) * vox_interp[0] * vox_interp[1];
-                            // Make sure defect is in bounds
-                            if (id_ball < vol_interp && id_ball >= 0) {
-                                //_vortex_line.valid_field[id_ball] = 0;
-                                float r2 = x * x + y * y + z * z;
-                                if (id_ball == id)
-                                    sample_grid[id_ball] += -1.f;
-                                else
-                                    sample_grid[id_ball] += -1.f / r2;
-                            }
-                        }
-
+            for (size_t i = 0; i < component.size(); ++i) {
+                size_t c_i = component[i];
+                comp_vertices[i] = umbilic_vertices[c_i];
+                map_glob_to_local.emplace(c_i, i);
             }
 
-            // Compute the new knot isosurface from sample_grid
-            mc2.reset_mesh();
-            mc2.run();
-
-            // Rescale the new isosurface vertices
-            {
-                float xmin = -0.5 * cellf[0];
-                float ymin = -0.5 * cellf[1];
-                float zmin = -0.5 * cellf[2];
-
-                for (uint i = 0; i < mc2.nverts(); ++i) {
-                    LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
-                    v.x = dr_interp[0] * v.x + xmin;
-                    v.y = dr_interp[1] * v.y + ymin;
-                    v.z = dr_interp[2] * v.z + zmin;
-
-                    // Normalize normals
-                    float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-                    if (nrm != 0)
-                    {
-                        nrm = 1.0 / sqrt(nrm);
-                        v.nx *= nrm;
-                        v.ny *= nrm;
-                        v.nz *= nrm;
-                    }
+            for (const auto& tri : umbilic_triangles) {
+                // Look for the first index to see if the triangle will be in the list
+                auto it = map_glob_to_local.find(tri[0]);
+                if (it != map_glob_to_local.end()) {
+                    MeshLib::Triangle local_triangle = { map_glob_to_local[tri[0]], map_glob_to_local[tri[1]], map_glob_to_local[tri[2]] };
+                    comp_triangles.emplace_back(local_triangle);
                 }
             }
-
-            // Re-interleave data to IsoVertex format
-            std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
-            LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
-            uint* iso_ind_ptr = (uint*)mc2.triangles();
-
-            LC_INFO("Interp verts {0}", mc2.nverts());
-
-            for (int vi = 0; vi < mc2.nverts(); vi++) {
-                iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-            }
-
-            LC::ExtendedMC::Triangle* tri_data = mc2.triangles();
-
-            // Use color wheel colors for fun
-            Color4 color = Color3::fromHsv({ Deg(Ddeg * col_i++), 1.f, 1.f });
-            std::array<float, 4> col_arr;
-            for (int d = 0; d < 4; d++)
-                col_arr[d] = color[d];
-
-            // Apply Taubin smoothing to the vertices
-            float lambda = 0.5f;
-            float mu = -0.34f;
-            int smoothIterations = 120;
-            auto smoothing_result = TaubinSmoothingGeneral(lambda,mu,smoothIterations,iso_verts.get(), mc2.nverts(), iso_ind_ptr,
-                mc2.ntrigs() * 3, 0, data->voxels, col_arr, 0, 0, 0, 0);
-            
-            auto smooth_vertices = std::get<0>(smoothing_result);
-            auto smooth_triangles = std::get<1>(smoothing_result);
-
-            
-            _vortexKnot.push_back(VortexKnot{});
-            VortexKnot* knot;
-            {
-                // Go to the newly added vortex knot
-                std::list<VortexKnot>::iterator iter;
-                for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
-                    iter = it;
-                knot = &(*iter);
-            }
-
-
-            knot->knotColor = color;
-            // Use director cols instead
-            for (auto& v : smooth_vertices) {
-                int x = (v.position[0] / cellf[0] + 0.5) * (data->voxels[0] - 1);
-                int y = (v.position[1] / cellf[1] + 0.5) * (data->voxels[1] - 1);
-                int z = (v.position[2] / cellf[2] + 0.5) * (data->voxels[2] - 1);
-                int xi = (v.position[0] / cellf[0] + 0.5) * (vox_interp[0] - 1);
-                int yi = (v.position[1] / cellf[1] + 0.5) * (vox_interp[1] - 1);
-                int zi = (v.position[2] / cellf[2] + 0.5) * (vox_interp[2] - 1);
-                uint id = x + data->voxels[0] * y + slice * z;
-                uint idi = xi + vox_interp[0] * yi + vox_interp[0] * vox_interp[1] * zi;
-
-                if (idi < vol_interp)
-                    vortex_indices_upsampled.insert(idi);
-
-                float theta = acos(data->directors[id + 2 * vol]);
-                float phi = atan2(data->directors[id + vol], data->directors[id]);
-
-                Magnum::Color3 dcol;
-
-                dcol = LC::Imaging::Colors::RungeSphere(theta, phi);
-                v.color[0] = dcol[0];
-                v.color[1] = dcol[1];
-                v.color[2] = dcol[2];
-                v.color[3] = 1.f;
-            }
-            
-
-            // Initialize the mesh
-            knot->surface.Init((LC::Surface::Vertex*)&smooth_vertices[0], smooth_vertices.size(), &smooth_triangles[0][0],
-                smooth_triangles.size()*3, _widget.preimage_translate);
-
-            // Create the mesh
-            knot->mesh = knot->surface.Mesh();
-
-            // Add default vortex line to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
+           
+            colorVerticesByDirector(comp_vertices, base_grid, interp_grid, field_nn.get(), upsampled_mask, vortex_indices_upsampled);
+            addKnotToScene(SmoothedMesh{ comp_vertices, comp_triangles }, color, false);
         }
 
         LC_INFO("Discovered {0} component(s)", _vortex_line.components.size());
-        for (auto& c : _vortex_line.components)
+        for (const auto& c : _vortex_line.components) {
             LC_INFO("- Component size = {0}", c.size());
-
-    }
-
-    int Nx = data->voxels[0];
-    std::set<uint> fat_vortex_list;
-    auto sub2ind = [slice, Nx, vol](int i, int j, int k, int d) {
-        return i + Nx * j + slice * k + vol * d;
-    };
-    // Compute Qij for the chi field
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
-
-                uint ii = i + data->voxels[0] * j + slice * k;
-                // Compute the order parameter S
-
-                Eigen::Vector3d chi0(chi_field[ii], chi_field[ii + vol], chi_field[ii + 2 * vol]);
-                // Compute the scalar order parameter with the chi field
-
-                // Use the scalar order parameter value computed above
-                LC::scalar S = 1.;// field_S[ii];
-
-
-                field_Q[ii] = 0.5 * S * (3. * chi0[0] * chi0[0] - 1.); // qa
-                field_Q[ii + vol] = 0.5 * S * (3. * chi0[0] * chi0[1]); // qb
-                field_Q[ii + 2 * vol] = 0.5 * S * (3. * chi0[0] * chi0[2]); // qc
-                field_Q[ii + 3 * vol] = 0.5 * S * (3. * chi0[1] * chi0[1] - 1.); // qd
-                field_Q[ii + 4 * vol] = 0.5 * S * (3. * chi0[1] * chi0[2]); // qe
-            }
         }
     }
 
-    // Fill fattened vortex excluding the knot knot itself
-    int sb_rad = _widget.knot_interaction_handle.sb_saturation;
-    uint slice_interp = vox_interp[0] * vox_interp[1];
+    auto field_Q = std::make_unique<float[]>(5 * base_grid.vol);
+    computeChiQTensor(base_grid, chi_field.get(), field_Q.get());
 
-    for (const auto& id : vortex_indices_upsampled) {
-        // Convert the index to i,j,k space
-        int k = id / slice_interp;
-        int j = (id - k * slice_interp) / vox_interp[0];
-        int i = id - j * vox_interp[0] - slice_interp * k;
+    std::vector<uint> fat_vortex_list = buildFatVortexRegion(
+        interp_grid, vortex_indices_upsampled, upsampled_mask,
+        _widget.knot_interaction_handle.sb_saturation
+    );
 
-        for (int x = -sb_rad; x <= sb_rad; x++)
-            for (int y = -sb_rad; y <= sb_rad; y++)
-                for (int z = -sb_rad; z <= sb_rad; z++) {
-                    // Compute the index to modify
-                    uint id_ball = (i + x) + (j + y) * vox_interp[0] + (k + z) * slice_interp;
-                    // Make sure defect is in bounds
-                    if (id_ball < vol_interp && id_ball >= 0) {
-                        //_vortex_line.valid_field[id_ball] = 0;
-                        // Exclude the vortex knot itself
-                        if (vortex_indices_upsampled.find(id_ball) == vortex_indices_upsampled.end())
-                            fat_vortex_list.insert(id_ball);
-                    }
-                }
+    auto field_Ssb = std::make_unique<float[]>(interp_grid.vol);
+    SplayBendStats sb_stats = computeInterpolatedSplayBend(
+        base_grid, interp_grid, field_Q.get(), fat_vortex_list, field_Ssb.get()
+    );
 
-    }
-
-    // Statistical parameters
-    float max_sb = 0.f;
-    float min_sb = 0.f;
-    float mean_sb_pos = 0.f;
-    float mean_sb_neg = 0.f;
-    float stdev = 0.f;
-    int Npos = 0;
-    int Nneg = 0;
-
-    // Next compute the splay bend around the knot
-    auto splay_bend = [&](int i, int j, int k) {
-        float qa002 = (field_Q[sub2ind(i, j, k + 1, 0)] + field_Q[sub2ind(i, j, k - 1, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[2] * dr[2]);
-        float qa200 = (field_Q[sub2ind(i + 1, j, k, 0)] + field_Q[sub2ind(i - 1, j, k, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[0] * dr[0]);
-        float qd002 = (field_Q[sub2ind(i, j, k + 1, 3)] + field_Q[sub2ind(i, j, k - 1, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[2] * dr[2]);
-        float qd020 = (field_Q[sub2ind(i, j + 1, k, 3)] + field_Q[sub2ind(i, j - 1, k, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[1] * dr[1]);
-        float qb110 = (field_Q[sub2ind(i + 1, j + 1, k, 1)] + field_Q[sub2ind(i - 1, j - 1, k, 1)]
-            - field_Q[sub2ind(i - 1, j + 1, k, 1)] - field_Q[sub2ind(i + 1, j - 1, k, 1)]) / (4.f * dr[0] * dr[1]);
-        float qc101 = (field_Q[sub2ind(i + 1, j, k + 1, 2)] + field_Q[sub2ind(i - 1, j, k - 1, 2)]
-            - field_Q[sub2ind(i - 1, j, k + 1, 2)] - field_Q[sub2ind(i + 1, j, k - 1, 2)]) / (4.f * dr[0] * dr[2]);
-        float qe011 = (field_Q[sub2ind(i, j + 1, k + 1, 4)] + field_Q[sub2ind(i, j - 1, k - 1, 4)]
-            - field_Q[sub2ind(i, j - 1, k + 1, 4)] - field_Q[sub2ind(i, j + 1, k - 1, 4)]) / (4.f * dr[1] * dr[2]);
-
-        return -qa002 + qa200 + 2.f * (qb110 + qc101) - qd002 + qd020 + 2.f * qe011;
-    };
-
-    Float cijk[2][2][2];
-    Float cjk[2][2];
-    Float ck[2];
-
-    for (int i = 0; i < vox_interp[0]; i++) {
-        for (int j = 0; j < vox_interp[1]; j++) {
-            for (int k = 0; k < vox_interp[2]; k++) {
-                uint id = i + vox_interp[0] * j + slice_interp * k;
-                if (i > 1 && i < vox_interp[0] - 2 && j > 1 && j < vox_interp[1] - 2 && k > 1 && k < vox_interp[2] - 2) {
-
-
-                    // Found area to compute the splay bend
-                    if (fat_vortex_list.find(id) != fat_vortex_list.end()) {
-                        // Use trilinear interpolation
-                        float x = i * dr_interp[0];
-                        float y = j * dr_interp[1];
-                        float z = k * dr_interp[2];
-                        // Bottom corner points
-                        int i_0 = x / dr[0];
-                        int j_0 = y / dr[1];
-                        int k_0 = z / dr[2];
-                        float x_0 = i_0 * dr[0];
-                        float y_0 = j_0 * dr[1];
-                        float z_0 = k_0 * dr[2];
-                        // Interpolation coordinates
-                        float x_d = (x - x_0) / dr[0];
-                        float y_d = (y - y_0) / dr[1];
-                        float z_d = (z - z_0) / dr[2];
-                        // Fill the interpolant
-                        for (int a = 0; a < 2; a++)
-                            for (int b = 0; b < 2; b++)
-                                for (int c = 0; c < 2; c++)
-                                    cijk[a][b][c] = splay_bend(i_0 + a, j_0 + b, k_0 + c);
-
-                        // Begin interpolation
-                        for (int b = 0; b < 2; b++)
-                            for (int c = 0; c < 2; c++)
-                                cjk[b][c] = (1.f - x_d) * cijk[0][b][c] + x_d * cijk[1][b][c];
-
-                        // Begin interpolation
-                        for (int c = 0; c < 2; c++)
-                            ck[c] = (1.f - y_d) * cjk[0][c] + y_d * cjk[1][c];
-
-                        field_Ssb[id] = (1.f - z_d) * ck[0] + z_d * ck[1];
-                    }
-                    else // splay bend not close enough to the vortex knot
-                        field_Ssb[id] = 0.f;
-                }
-                else {
-                    // Far field value
-                    field_Ssb[id] = 0.f;
-                }
-
-                if (field_Ssb[id] > 0.f) {
-                    mean_sb_pos += field_Ssb[id];
-                    Npos++;
-                }
-                else if (field_Ssb[id] < 0.f) {
-                    mean_sb_neg += field_Ssb[id];
-                    Nneg++;
-                }
-
-
-                if (field_Ssb[id] > max_sb) {
-                    max_sb = field_Ssb[id];
-                }
-                if (field_Ssb[id] < min_sb) {
-                    min_sb = field_Ssb[id];
-                }
-            }
-        }
-    }
-
-    if (Npos > 0)
-        mean_sb_pos /= (float)Npos;
-    if (Nneg > 0)
-        mean_sb_neg /= (float)Nneg;
-
-    // Choose the cutoff values
-    float up = 0.f;
-    float un = 0.f;
-    float alpha = 0.1f;
-    float tc_pos = (1.f - up) * (mean_sb_pos/max_sb) * alpha + up;
-    float tc_neg = (1.f - un) * (mean_sb_neg/min_sb) * alpha + un;
-
-
-    // ===============================
-    // Splay-bend pieces             |
-    // ===============================
-    // Positive splay-bend knot isosurface
-    auto sub2ind_int = [&](int i, int j, int k) {
-        return i + vox_interp[0] * j + slice_interp * k;
-    };
-    std::vector<uint> pos_splay_ribbon;
-    for (const auto & id : fat_vortex_list) {
-
-        int k = id / slice_interp;
-        int j = (id - k * slice_interp) / vox_interp[0];
-        int i = id - j * vox_interp[0] - k * slice_interp;
-
-        float local_avg_field_Ssb = field_Ssb[id];
-        for (int x : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i + x, j, k)];
-        for (int y : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j + y, k)];
-        for (int z : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j, k + z)];
-
-        local_avg_field_Ssb /= 7.;
-                
-        if (tc_pos <= local_avg_field_Ssb / max_sb)
-            pos_splay_ribbon.emplace_back(id);
-
-        //valid_fieldf[id] = 0.f;
-    }
-   
-    // Reset sample grid
-    for (auto id = 0; id < vol_interp; id++)
-        sample_grid[id] = 0.f;
-
-    // Choose the points to include in the isosurface
-    for (const auto& id : pos_splay_ribbon) {
-        sample_grid[id] = -1.f;
-        //valid_fieldf[id] = -1.f;
-    }
-
-
-    mc2.reset_mesh();
-    mc2.run();
-
-    for (uint i = 0; i < mc2.nverts(); ++i) {
-        LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
-        v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
-        v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
-        v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
-
-        // Normalize normals
-        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-        if (nrm != 0)
-        {
-            nrm = 1.0 / sqrt(nrm);
-            v.nx *= nrm;
-            v.ny *= nrm;
-            v.nz *= nrm;
-        }
-    }
-
-    if (mc2.nverts() && mc2.ntrigs()) {
-        unsigned int nVert = mc2.nverts();
-        unsigned int nInd = mc2.ntrigs() * 3;
-        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-        unsigned int* indices = new unsigned int[nInd];
-
-        LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
-        int* ind_temp = (int*)mc2.triangles();
-
-        // Feed data to indices,verts
-
-        for (int i = 0; i < nInd; i++)
-            indices[i] = ind_temp[i];
-
-        for (int i = 0; i < nVert; i++) {
-            verts[i].position[0] = temp_verts[i].x;
-            verts[i].position[1] = temp_verts[i].y;
-            verts[i].position[2] = temp_verts[i].z;
-            verts[i].normal[0] = temp_verts[i].nx;
-            verts[i].normal[1] = temp_verts[i].ny;
-            verts[i].normal[2] = temp_verts[i].nz;
-
-        }
-
-        std::array<float, 4> blue = { 0.f,0.f,1.f,1.f };
-
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
-        uint* iso_ind_ptr = (uint*)mc2.triangles();
-
-        for (int vi = 0; vi < mc2.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-        }
-
-        // Apply Taubin smoothing to the vertices
-        float lambda = 0.35f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-        auto smoothing_result = TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
-            mc2.ntrigs() * 3, field_nn.get(), data->voxels, blue, false, 0, 0);
-
-
-        smooth0_vertices = std::get<0>(smoothing_result);
-        smooth0_trigs = std::get<1>(smoothing_result);
-
-        Color4 c4_blue = { 0.f, 0.f, 1.f, 1.f }; // blue
-        _vortexKnot.push_back(VortexKnot{});
-        VortexKnot* knot;
-        {
-            // Go to the newly added vortex knot
-            std::list<VortexKnot>::iterator iter;
-            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
-                iter = it;
-            knot = &(*iter);
-        }
-
-        knot->knotColor = c4_blue;
-        knot->ribbon = true;
-
-        // Load the surface to view
-        // Initialize the mesh
-        knot->surface.Init((LC::Surface::Vertex*)&smooth0_vertices[0], smooth0_vertices.size(), &smooth0_trigs[0][0],
-            smooth0_trigs.size() * 3, _widget.preimage_translate);
-
-        // Create the mesh
-        knot->mesh = knot->surface.Mesh();
-
-        // Add default vortex line to the scene
-        new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
+    auto buildSplayBendRibbon = [&](float threshold_ratio, float extremum_sb, float lambda, const std::array<float, 4>& col_arr, const Color4& col4, const char* label) {
+        populateSplayBendSampleGrid(interp_grid, fat_vortex_list, field_Ssb.get(), threshold_ratio, extremum_sb, sample_grid.get());
         mc2.reset_mesh();
-    }
-    else {
-        LC_INFO("Not enough points for positive SB");
-    }
+        mc2.run();
+        rescaleAndNormalizeMC(mc2, interp_grid);
 
-    // yesn't
-    // Negative splay bend
-    std::vector<uint> neg_splay_ribbon;
-    for (const auto& id : fat_vortex_list) {
-
-        uint k = id / slice_interp;
-        uint j = (id - k * slice_interp) / vox_interp[0];
-        uint i = id - j * vox_interp[0] - k * slice_interp;
-
-        float local_avg_field_Ssb = field_Ssb[id];
-        for (int x : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i + x, j, k)];
-        for (int y : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j + y, k)];
-        for (int z : {-1, 1})
-            local_avg_field_Ssb += field_Ssb[sub2ind_int(i, j, k + z)];
-
-        local_avg_field_Ssb /= 7.;
-
-        if (tc_neg <= local_avg_field_Ssb / min_sb)
-            neg_splay_ribbon.emplace_back(id);
-
-        //valid_fieldf[id] = 0.f;
-    }
-
-    // Reset sample grid
-    for (auto id = 0; id < vol_interp; id++)
-        sample_grid[id] = 0.f;
-
-    // Choose the points to include in the isosurface
-    for (const auto& id : neg_splay_ribbon) {
-        sample_grid[id] = -1.f;
-        //valid_fieldf[id] = -1.f;
-    }
-
-    mc2.reset_mesh();
-    mc2.run();
-
-    for (uint i = 0; i < mc2.nverts(); ++i) {
-        LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
-        v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
-        v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
-        v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
-
-        // Normalize normals
-        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-        if (nrm != 0)
-        {
-            nrm = 1.0 / sqrt(nrm);
-            v.nx *= nrm;
-            v.ny *= nrm;
-            v.nz *= nrm;
-        }
-    }
-
-    if (mc2.nverts() && mc2.ntrigs()) {
-        unsigned int nVert = mc2.nverts();
-        unsigned int nInd = mc2.ntrigs() * 3;
-        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-        unsigned int* indices = new unsigned int[nInd];
-
-        LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
-        int* ind_temp = (int*)mc2.triangles();
-
-        // Feed data to indices,verts
-
-        for (int i = 0; i < nInd; i++)
-            indices[i] = ind_temp[i];
-
-        for (int i = 0; i < nVert; i++) {
-            verts[i].position[0] = temp_verts[i].x;
-            verts[i].position[1] = temp_verts[i].y;
-            verts[i].position[2] = temp_verts[i].z;
-            verts[i].normal[0] = temp_verts[i].nx;
-            verts[i].normal[1] = temp_verts[i].ny;
-            verts[i].normal[2] = temp_verts[i].nz;
-
-        }
-
-
-        std::vector<MeshLib::PNCVertex<float>> vertices;
-        std::vector<MeshLib::Triangle> triangles;
-        std::array<float, 4> yellow = { 1.f,1.f,0.f,1.f };
-
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
-        uint* iso_ind_ptr = (uint*)mc2.triangles();
-
-        for (int vi = 0; vi < mc2.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-        }
-
-        // Smooth the mesh and save it
-
-        float lambda = 0.33f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-        auto smoothing_result = TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
-            mc2.ntrigs() * 3, field_nn.get(), data->voxels, yellow, false, 0, 0);
-
-        smooth0_vertices = std::get<0>(smoothing_result);
-        smooth0_trigs = std::get<1>(smoothing_result);
-
-        Color4 c4_yellow = { 1.f, 1.f, 0.f, 1.f }; // blue
-        _vortexKnot.push_back(VortexKnot{});
-        VortexKnot* knot;
-        {
-            // Go to the newly added vortex knot
-            std::list<VortexKnot>::iterator iter;
-            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
-                iter = it;
-            knot = &(*iter);
-        }
-
-        knot->knotColor = c4_yellow;
-        knot->ribbon = true;
-
-        // Load the surface to view
-        // Initialize the mesh
-        knot->surface.Init((LC::Surface::Vertex*)&smooth0_vertices[0], smooth0_vertices.size(), &smooth0_trigs[0][0],
-            smooth0_trigs.size() * 3, _widget.preimage_translate);
-
-        // Create the mesh
-        knot->mesh = knot->surface.Mesh();
-
-        // Add default vortex line to the scene
-        new LC::Drawable::TransparentNormalDrawable{ *_vortexManipulator, _phongShader, *(knot->mesh), knot->draw, knot->cullFaces, _transparentNormalDrawables };
+        SmoothedMesh ribbon_mesh = smoothMCMesh(mc2, lambda, -0.34f, 80, field_nn.get(), col_arr);
         mc2.reset_mesh();
-    }
-    else {
-        LC_INFO("Not enough points for negative SB");
-    }
 
+        if (!ribbon_mesh.empty()) {
+            addKnotToScene(ribbon_mesh, col4, true);
+        }
+        else {
+            LC_INFO("Not enough points for {0}", label);
+        }
+    };
 
+    buildSplayBendRibbon(sb_stats.tc_pos, sb_stats.max_sb, 0.35f, { 0.f, 0.f, 1.f, 1.f }, Color4{ 0.f, 0.f, 1.f, 1.f }, "positive SB");
+    buildSplayBendRibbon(sb_stats.tc_neg, sb_stats.min_sb, 0.33f, { 1.f, 1.f, 0.f, 1.f }, Color4{ 1.f, 1.f, 0.f, 1.f }, "negative SB");
 }
 
 std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>>
-Sandbox::findVortexKnot(bool saveObj, const std::string& obj_name,
-    // Parameters
-    std::unique_ptr<float[]> &chi_field, std::unique_ptr<float[]>& field_nn, std::unique_ptr<float[]>& valid_fieldf,
-    std::unique_ptr<float[]>& field_S, std::unique_ptr<float[]>& sample_grid,
-    std::unique_ptr<float[]>& field_Q, std::unique_ptr<float[]>& field_Ssb,
-    LC::ExtendedMC::MarchingCubes &mc,
-    LC::ExtendedMC::MarchingCubes &mc2,
-    std::array<int,3> &vox_interp
-    ) {
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
-    std::array<float, 3> cellf = { data->cell_dims[0], data->cell_dims[1], data->cell_dims[2] };
-    std::array<LC::scalar, 3> dr;
-    for (int i = 0; i < 3; i++)
-        dr[i] = cellf[i] / (data->voxels[i] - 1);
+Sandbox::findVortexKnot(
+    bool saveObj,
+    const std::string& obj_name,
+    std::unique_ptr<float[]>& chi_field,
+    std::unique_ptr<float[]>& field_nn,
+    std::unique_ptr<float[]>& valid_fieldf,
+    std::unique_ptr<float[]>& field_S,
+    std::unique_ptr<float[]>& sample_grid,
+    std::unique_ptr<float[]>& field_Q,
+    std::unique_ptr<float[]>& field_Ssb,
+    LC::ExtendedMC::MarchingCubes& mc,
+    LC::ExtendedMC::MarchingCubes& mc2,
+    std::array<int, 3>& vox_interp)
+{
+    using namespace VKH;
+    Dataset* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    std::array<float, 3> cellf = {
+        static_cast<float>(data->cell_dims[0]),
+        static_cast<float>(data->cell_dims[1]),
+        static_cast<float>(data->cell_dims[2])
+    };
 
+    GridMetrics base_grid(data->voxels, cellf, 1);
+    GridMetrics interp_grid(vox_interp, cellf, 1);
 
-    // Parameters for data management
-    uint slice = data->voxels[0] * data->voxels[1];
-    uint vol = data->voxels[2] * slice;
-    std::array<float, 3> dr_interp;
-    for (int d = 0; d < 3; d++) {
-        dr_interp[d] = cellf[d] / (vox_interp[d] - 1);
+    for (auto& knot : _vortexKnot) {
+        knot.draw = false;
     }
-    uint vol_interp = vox_interp[0] * vox_interp[1] * vox_interp[2];
+    _vortexKnot.clear();
 
-    // Clean knots
-    if (!_vortexKnot.empty()) {
-        VortexKnot* knot;
-        for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++) {
-            knot = &(*it);
-            knot->draw = false;
-        }
-
-        while (!_vortexKnot.empty()) {
-            std::list<VortexKnot>::iterator iter;
-            for (auto it = _vortexKnot.begin(); it != _vortexKnot.end(); it++)
-                iter = it;
-            _vortexKnot.erase(iter);
-        }
+    for (uint id = 0; id < 3 * base_grid.vol; ++id) {
+        field_nn[id] = static_cast<float>(data->directors[id]);
     }
 
+    LC::Math::ChiralityField(
+        field_nn.get(), chi_field, data->voxels, cellf,
+        _vortex_line.valid_field, false, _widget.knot_interaction_handle.tolerance, false
+    );
 
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
-                uint id = i + data->voxels[0] * j + slice * k;
-                field_nn[id] = data->directors[id];
-                field_nn[id + vol] = data->directors[id + vol];
-                field_nn[id + 2 * vol] = data->directors[id + 2 * vol];
-            }
-        }
-    }
+    computeOrderParameterAndFilter(
+        base_grid, field_nn.get(), chi_field.get(),
+        _widget.knot_interaction_handle.isoValue,
+        _vortex_line.valid_field.get(), valid_fieldf.get(), field_S.get(),
+        true
+    );
 
-    // Compute everything
-    LC::Math::ChiralityField(field_nn.get(), chi_field, data->voxels, cellf, _vortex_line.valid_field, false, _widget.knot_interaction_handle.tolerance, false);
-    
-
-    // Convert valid field to floats and make a list of all defect indices
-    std::vector<uint> vortex_indices;
-    std::set<uint> fat_vortex_list;
-
-    for (auto ii = 0; ii < vol; ii++) {
-
-        valid_fieldf[ii] = 0.f;
-        if (_vortex_line.valid_field[ii]) {
-
-            int k = ii / slice;
-            int j = (ii - k * slice) / data->voxels[0];
-            int i = ii - j * data->voxels[1] - slice * k;
-            LC::scalar avgcos2_chi = 0.;
-            LC::scalar avgcos2_tau = 0.;
-            Eigen::Vector3d chi0(chi_field[ii], chi_field[ii + vol], chi_field[ii + 2 * vol]);
-            Eigen::Vector3d nn0(field_nn[ii], field_nn[ii + vol], field_nn[ii + 2 * vol]);
-            Eigen::Vector3d tau0 = chi0.cross(nn0);
-            if (tau0.squaredNorm() > 0.)
-                tau0.normalize();
-            // Compute the scalar order parameter with the chi field
-
-
-            int points_in_bds = 0;
-
-            for (int x = -1; x <= 1; x++) {
-                for (int y = -1; y <= 1; y++) {
-                    for (int z = -1; z <= 1; z++) {
-                        uint ip = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                        if (ip >= 0 && ip < vol && ip != ii) {
-                            points_in_bds++;
-                            Eigen::Vector3d chi_xyz(chi_field[ip], chi_field[ip + vol], chi_field[ip + 2 * vol]);
-                            Eigen::Vector3d nn_xyz(field_nn[ip], field_nn[ip + vol], field_nn[ip + 2 * vol]);
-                            Eigen::Vector3d tau_xyz = chi_xyz.cross(nn_xyz);
-
-                            if (tau_xyz.squaredNorm() > 0.)
-                                tau_xyz.normalize();
-
-                            avgcos2_chi += pow(chi0.dot(chi_xyz), 2);
-                            avgcos2_tau += pow(tau0.dot(tau_xyz), 2);
-                            
-                        }
-                    }
-                }
-            }
-
-            LC::scalar Sop_chi, Sop_lambda, Sop_tau;
-            if (points_in_bds > 0) {
-                Sop_chi = 0.5 * (3. * avgcos2_chi / points_in_bds - 1.);
-                Sop_tau = 0.5 * (3. * avgcos2_tau / points_in_bds - 1.);
-                LC::scalar S = 0.5 * (Sop_chi + Sop_tau);
-                field_S[ii] = S;
-                if (abs(S) < _widget.knot_interaction_handle.isoValue) {
-                    //vortex_indices.emplace_back(ii);
-                    _vortex_line.valid_field[ii] = 0;
-                }
-            }
-
-        }
-        else {
-            field_S[ii] = 0.;
-            //vortex_indices.emplace_back(ii);
-        }
-    }
-
-    // New vortex classification scheme
-    for (auto ii = 0; ii < vol; ii++) {
-        int k = ii / slice;
-        int j = (ii - k * slice) / data->voxels[0];
-        int i = ii - j * data->voxels[1] - slice * k;
-
-        int line = data->voxels[0];
-
-        auto get_id = [slice, line](int x, int y, int z) {
-            return x + line * y + slice * z;
-        };
-
-        // Compute S derivatives
-        float Sd2 = 0.f;
-        if (i > 1 && j > 1 && k > 1 && i < data->voxels[0] - 2 && j < data->voxels[1] - 2 && k < data->voxels[2] - 2) {
-            float S200 = (field_S[get_id(i + 1, j, k)] + field_S[get_id(i - 1, j, k)] - 2. * field_S[ii]);
-            float S020 = (field_S[get_id(i, j + 1, k)] + field_S[get_id(i, j - 1, k)] - 2. * field_S[ii]);
-            float S002 = (field_S[get_id(i, j, k + 1)] + field_S[get_id(i, j, k - 1)] - 2. * field_S[ii]);
-            Sd2 = S200 + S020 + S002;
-        }
-
-
-        // Classify the current index ii
-        if (field_S[ii] < _widget.knot_interaction_handle.isoValue) {
-            //if (Sd2 > 0.5)
-                vortex_indices.emplace_back(ii);
-        }
-
-    }
-
-    // Classify only the raw defect core
-    for (const auto& id : vortex_indices) {
-        valid_fieldf[id] = -1.f;
-    }
-
-    // Recount newly classified nodes
     _vortex_line.numNodes = 0;
-
-    for (auto ii = 0; ii < vol; ii++) {
+    for (uint ii = 0; ii < base_grid.vol; ++ii) {
         if (valid_fieldf[ii] < 0.f) {
-            _vortex_line.valid_field[ii] = 0;
             _vortex_line.numNodes++;
         }
     }
 
-    std::map<uint, Face> unvisited_list_local;
-    // Key: vertex, value: Triangle
-    std::multimap<uint, uint> mmap;
-    // Make the initial color white to distinguish components that were too small
-    std::array<float, 4> col_white = { 1.f, 1.f, 1.f, 1.f };
+    auto smoothAndExportMC = [&](
+        LC::ExtendedMC::MarchingCubes& mc_inst,
+        float lambda, float mu, int iterations,
+        float* nn_ptr, const std::array<float, 4>& color,
+        int smooth_mode, bool do_save, const std::string& filename,
+        std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>* out_raw_mesh = nullptr) -> SmoothedMesh
+        {
+            if (mc_inst.nverts() == 0 || mc_inst.ntrigs() == 0) return {};
 
-    auto extended_to_iso = [](const LC::ExtendedMC::Vertex& v) {
-        LC::Math::IsoVertex viso;
-        viso.position[0] = v.x; viso.position[1] = v.y; viso.position[2] = v.z;
-        viso.normal[0] = v.nx; viso.normal[1] = v.ny; viso.normal[2] = v.nz;
+            int nverts = mc_inst.nverts();
+            int ntrigs = mc_inst.ntrigs();
+            auto iso_verts = std::make_unique<LC::Math::IsoVertex[]>(nverts);
+            LC::ExtendedMC::Vertex* raw_verts = mc_inst.vertices();
+            uint* indices = reinterpret_cast<uint*>(mc_inst.triangles());
 
-        return viso;
+            for (int i = 0; i < nverts; ++i) {
+                iso_verts[i] = toIsoVertex(raw_verts[i]);
+            }
+
+            if (out_raw_mesh) {
+                auto& out_v = std::get<0>(*out_raw_mesh);
+                auto& out_i = std::get<1>(*out_raw_mesh);
+                out_v.assign(iso_verts.get(), iso_verts.get() + nverts);
+                out_i.assign(indices, indices + ntrigs * 3);
+            }
+
+            if (do_save || !filename.empty()) {
+                auto result = TaubinSmoothingGeneral(
+                    lambda, mu, iterations,
+                    iso_verts.get(), nverts, indices, ntrigs * 3,
+                    nn_ptr, data->voxels, color, false, smooth_mode, 0, do_save, filename
+                );
+                return { std::move(std::get<0>(result)), std::move(std::get<1>(result)) };
+            }
+            else {
+                auto result = TaubinSmoothingGeneral(
+                    lambda, mu, iterations,
+                    iso_verts.get(), nverts, indices, ntrigs * 3,
+                    nn_ptr, data->voxels, color, 0, 0, 0, 0
+                );
+                return { std::move(std::get<0>(result)), std::move(std::get<1>(result)) };
+            }
     };
-
-    // Use extended marching cubes to generate the isosurface
 
     mc.set_ext_data(valid_fieldf.get());
     mc2.set_ext_data(sample_grid.get());
     mc.reset_mesh();
     mc2.reset_mesh();
-
     mc.run();
 
-    std::tuple<std::vector<Eigen::Vector3d>, std::vector<int>> exported_data; // exported vortex knot data
+    std::array<float, 4> col_white = { 1.f, 1.f, 1.f, 1.f };
+    SmoothedMesh initial_mesh = smoothAndExportMC(mc, 0.5f, -0.34f, 80, nullptr, col_white, 0, false, "");
+    mc.reset_mesh();
+    rescaleAndNormalizeMesh(initial_mesh, base_grid);
 
-    // Smooth the raw vortex knot isosurface
-    std::vector<MeshLib::PNCVertex<float>> smooth0_vertices;
-    std::vector<MeshLib::Triangle> smooth0_trigs;
-    {
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc.vertices();
-        uint* iso_ind_ptr = (uint*)mc.triangles();
+    if (!initial_mesh.empty()) {
+        std::vector<std::vector<uint>> components = extractConnectedComponents(initial_mesh);
 
-        for (int vi = 0; vi < mc.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-        }
-
-        LC::ExtendedMC::Triangle* tri_data = mc.triangles();
-
-        // Random color
-        std::array<float, 4> col_arr;
-        for (int d = 0; d < 4; d++)
-            col_arr[d] = col_white[d];
-
-        // Apply Taubin smoothing to the pre-sampled vertices
-        float lambda = 0.5f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-
-        auto smoothing_result = TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc.nverts(), iso_ind_ptr,
-            mc.ntrigs() * 3, 0, data->voxels, col_arr, 0, 0, 0, 0);
-
-        smooth0_vertices = std::get<0>(smoothing_result);
-        smooth0_trigs = std::get<1>(smoothing_result);
-
-        // Clean the mc data
-        mc.reset_mesh();
-    }
-
-    // Rescale positions
-    {
-        float dx = data->cell_dims[0] / (data->voxels[0] - 1);
-        float dy = data->cell_dims[1] / (data->voxels[1] - 1);
-        float dz = data->cell_dims[2] / (data->voxels[2] - 1);
-        float xmin = -0.5 * data->cell_dims[0];
-        float ymin = -0.5 * data->cell_dims[1];
-        float zmin = -0.5 * data->cell_dims[2];
-
-        for (uint i = 0; i < smooth0_vertices.size(); ++i) {
-            MeshLib::PNCVertex<float>& v = smooth0_vertices[i];
-
-            v.position[0] = dx * v.position[0] + xmin;
-            v.position[1] = dy * v.position[1] + ymin;
-            v.position[2] = dz * v.position[2] + zmin;
-
-            // Normalize normals
-            float nrm = v.normal[0] * v.normal[0] + v.normal[1] * v.normal[1] + v.normal[2] * v.normal[2];
-            if (nrm != 0)
-            {
-                nrm = 1.0 / sqrt(nrm);
-                v.normal[0] *= nrm;
-                v.normal[1] *= nrm;
-                v.normal[2] *= nrm;
-            }
-        }
-    }
-    
-
-    if (smooth0_vertices.size() && smooth0_trigs.size()) {
-        unsigned int nVert = smooth0_vertices.size();
-        unsigned int nInd = smooth0_trigs.size() * 3;
-        unsigned int nTriangles = nInd / 3;
-
-        // Feed data to indices,verts
-
-        //mc.reset_mesh();
-
-        // Note that verts currently refers to verts and not global indices
-        // Therefore, convert indices data to global index space through vertex positions
-        for (int tri = 0; tri < nTriangles; tri++) {
-            uint i1 = smooth0_trigs[tri][0];
-            uint i2 = smooth0_trigs[tri][1];
-            uint i3 = smooth0_trigs[tri][2];
-
-            mmap.insert({ i1, tri });
-            mmap.insert({ i2, tri });
-            mmap.insert({ i3, tri });
-
-            unvisited_list_local.insert({ tri, Face(i1, i2, i3) });
-        }
-
-        // Find components through the vertices
-        std::vector<std::vector<uint>> components;
-        try {
-            components = find_all_components_graph(unvisited_list_local, nVert, 15);
-        }
-        catch (const std::runtime_error& e) {
-            LC_INFO("Error: {0}", e.what());
-        }
-        
-        std::array<float, 4> randcol = { 1.f,1.f,1.f,1.f };
-        std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangle>> smoothing_result;
-        
-        // Determine the minimum point separation of vortex knot points
-        LC::scalar dist = 2. * _widget.knot_interaction_handle.point_density * sqrt(dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]);
-
-        // Export string knots
         if (_widget.knot_interaction_handle.saveStringKnots) {
-            exported_data = exportVortexKnot(smooth0_vertices, smooth0_trigs, dist, obj_name + std::string("_vortex.bin"));
-            // Transform positions to director data
-            auto pdata = std::get<0>(exported_data);
-            std::vector < Eigen::Vector2d > odata(pdata.size());
+            LC::scalar dist = 2.0 * _widget.knot_interaction_handle.point_density *
+                std::sqrt(base_grid.dr[0] * base_grid.dr[0] + base_grid.dr[1] * base_grid.dr[1] + base_grid.dr[2] * base_grid.dr[2]);
 
-            for (int p = 0; p < pdata.size(); p++) {
-                // Transform position to index coords
-                int i = (pdata[p].x() / cellf[0] + 0.5) * (data->voxels[0] - 1);
-                int j = (pdata[p].y() / cellf[1] + 0.5) * (data->voxels[1] - 1);
-                int k = (pdata[p].z() / cellf[2] + 0.5) * (data->voxels[2] - 1);
-                uint id = i + j * data->voxels[0] + k * data->voxels[0] * data->voxels[1];
+            auto exported_data = exportVortexKnot(initial_mesh.vertices, initial_mesh.triangles, dist, obj_name + "_vortex.bin");
+            const auto& pdata = std::get<0>(exported_data);
+            std::vector<Eigen::Vector2d> odata(pdata.size());
 
-                odata[p][0] = acos(field_nn[id + 2 * vol]); // theta
-                odata[p][1] = atan2(field_nn[id + vol], field_nn[id]); // phi
-            }
+            for (size_t p = 0; p < pdata.size(); ++p) {
+                int i = static_cast<int>((pdata[p].x() / cellf[0] + 0.5) * (base_grid.dims[0] - 1));
+                int j = static_cast<int>((pdata[p].y() / cellf[1] + 0.5) * (base_grid.dims[1] - 1));
+                int k = static_cast<int>((pdata[p].z() / cellf[2] + 0.5) * (base_grid.dims[2] - 1));
 
-            // Export
-            std::string fname = obj_name + "_sphere.bin";
-            std::ofstream ofile(fname.c_str(), std::ios::out | std::ios::binary);
-            
-            if (ofile.is_open()) {
-                int32_t osz = odata.size();
-                ofile.write((char*)&osz, sizeof(int32_t));
-                ofile.write((char*)&odata[0], osz * sizeof(Eigen::Vector2d));
-                ofile.close();
-            }
-        }
-
-        int Radius = _widget.knot_interaction_handle.saturation;
-
-        // Split apart vertex data
-        int comp = 0;
-        for (auto& component : components) {
-
-            // Initialize the sample grid
-            for (int ii = 0; ii < vol_interp; ii++)
-                sample_grid[ii] = 0.1f;
-
-            // Sample the component using the indices
-            for (const auto& ci : component) {
-                auto v_ci = smooth0_vertices[ci];
-
-                // Convert the vertex into an index on the new grid
-                uint i = (v_ci.position[0] + 0.5f * cellf[0]) / cellf[0] * (vox_interp[0] - 1);
-                uint j = (v_ci.position[1] + 0.5f * cellf[1]) / cellf[1] * (vox_interp[1] - 1);
-                uint k = (v_ci.position[2] + 0.5f * cellf[2]) / cellf[2] * (vox_interp[2] - 1);
-
-                // Calculate the new index
-                uint id = i + j * vox_interp[0] + k * vox_interp[0] * vox_interp[1];
-
-                // Apply some sampling technique to the vortex knot at this position
-                for (int x = -Radius; x <= Radius; x++)
-                    for (int y = -Radius; y <= Radius; y++)
-                        for (int z = -Radius; z <= Radius; z++) {
-                            // Compute the index to modify
-                            uint id_ball = (i + x) + (j + y) * vox_interp[0] + (k + z) * vox_interp[0] * vox_interp[1];
-                            // Make sure defect is in bounds
-                            if (id_ball < vol_interp && id_ball >= 0) {
-                                //_vortex_line.valid_field[id_ball] = 0;
-                                float r2 = x * x + y * y + z * z;
-                                if (id_ball == id)
-                                    sample_grid[id_ball] += -1.f;
-                                else
-                                    sample_grid[id_ball] += -1.f / r2;
-                            }
-                        }
-
-            }
-
-            // Compute the new knot isosurface from sample_grid
-
-            mc2.reset_mesh();
-            mc2.run();
-
-            // Rescale the new isosurface vertices
-            {
-                float xmin = -0.5 * cellf[0];
-                float ymin = -0.5 * cellf[1];
-                float zmin = -0.5 * cellf[2];
-
-                for (uint i = 0; i < mc2.nverts(); ++i) {
-                    LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
-                    v.x = dr_interp[0] * v.x + xmin;
-                    v.y = dr_interp[1] * v.y + ymin;
-                    v.z = dr_interp[2] * v.z + zmin;
-
-                    // Normalize normals
-                    float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-                    if (nrm != 0)
-                    {
-                        nrm = 1.0 / sqrt(nrm);
-                        v.nx *= nrm;
-                        v.ny *= nrm;
-                        v.nz *= nrm;
-                    }
+                if (base_grid.inBounds(i, j, k)) {
+                    uint id = base_grid.to1D(i, j, k);
+                    odata[p][0] = std::acos(field_nn[id + 2 * base_grid.vol]);
+                    odata[p][1] = std::atan2(field_nn[id + base_grid.vol], field_nn[id]);
                 }
             }
 
-            // Re-interleave data to IsoVertex format
-            std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
-            LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
-            uint* iso_ind_ptr = (uint*)mc2.triangles();
-
-            for (int vi = 0; vi < mc2.nverts(); vi++) {
-                iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
+            std::ofstream ofile(obj_name + "_sphere.bin", std::ios::out | std::ios::binary);
+            if (ofile.is_open()) {
+                int32_t osz = static_cast<int32_t>(odata.size());
+                ofile.write(reinterpret_cast<const char*>(&osz), sizeof(int32_t));
+                ofile.write(reinterpret_cast<const char*>(odata.data()), osz * sizeof(Eigen::Vector2d));
             }
+        }
 
-            LC::ExtendedMC::Triangle* tri_data = mc2.triangles();
+        int radius = _widget.knot_interaction_handle.saturation;
+        int comp_idx = 0;
 
-            // Apply Taubin smoothing to the vertices
-            float lambda = 0.5f;
-            float mu = -0.34f;
-            int smoothIterations = 120;
-            smoothing_result = TaubinSmoothingGeneral(lambda,mu,smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
-                mc2.ntrigs() * 3, field_nn.get(), data->voxels, randcol, false, 1, 0, true, 
-                obj_name + std::string("_vortex"+std::to_string(++comp)+"_of_"+ std::to_string(components.size()) +".ply"));
+        for (const auto& component : components) {
+            stampComponentToGrid(component, initial_mesh.vertices, interp_grid, radius, sample_grid.get());
 
-            
-            
-            //auto smooth_vertices = std::get<0>(smoothing_result);
-            //auto smooth_triangles = std::get<1>(smoothing_result);
+            mc2.reset_mesh();
+            mc2.run();
+            rescaleAndNormalizeMC(mc2, interp_grid);
+
+            std::string ply_name = obj_name + "_vortex" + std::to_string(++comp_idx) + "_of_" + std::to_string(components.size()) + ".ply";
+            smoothAndExportMC(mc2, 0.5f, -0.34f, 120, field_nn.get(), col_white, 1, true, ply_name);
         }
     }
 
 #define SAVE_SPLAY_BEND 1
-
 #if SAVE_SPLAY_BEND
-    int Nx = data->voxels[0];
+    computeChiQTensor(base_grid, chi_field.get(), field_Q.get());
 
-    auto sub2ind = [slice, Nx, vol](int i, int j, int k, int d) {
-        return i + Nx * j + slice * k + vol * d;
-    };
-    // Compute Qij for the chi field
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
+    float stdev = computeBaseGridSplayBend(
+        base_grid, valid_fieldf.get(), field_Q.get(),
+        _widget.knot_interaction_handle.sb_saturation, field_Ssb.get()
+    );
 
-                uint ii = i + data->voxels[0] * j + slice * k;
-                // Compute the order parameter S
+    auto exportSplayBendBand = [&](float lower_bound, float upper_bound, float lambda, const std::array<float, 4>& color, const std::string& suffix) {
+        std::fill_n(valid_fieldf.get(), base_grid.vol, 0.f);
 
-                Eigen::Vector3d chi0(chi_field[ii], chi_field[ii + vol], chi_field[ii + 2 * vol]);
-                // Compute the scalar order parameter with the chi field
-
-                // Use the scalar order parameter value computed above
-                LC::scalar S = 1.;// field_S[ii];
-
-
-                field_Q[ii] = 0.5 * S * (3. * chi0[0] * chi0[0] - 1.); // qa
-                field_Q[ii + vol] = 0.5 * S * (3. * chi0[0] * chi0[1]); // qb
-                field_Q[ii + 2 * vol] = 0.5 * S * (3. * chi0[0] * chi0[2]); // qc
-                field_Q[ii + 3 * vol] = 0.5 * S * (3. * chi0[1] * chi0[1] - 1.); // qd
-                field_Q[ii + 4 * vol] = 0.5 * S * (3. * chi0[1] * chi0[2]); // qe
-            }
-        }
-    }
-
-    // Fill fattened vortex
-    int sb_rad = _widget.knot_interaction_handle.sb_saturation;
-    for (const auto& id : vortex_indices) {
-        // Convert the index to i,j,k space
-        int k = id / slice;
-        int j = (id - k * slice) / data->voxels[0];
-        int i = id - j * data->voxels[0] - slice * k;
-
-        for (int x = -sb_rad; x <= sb_rad; x++)
-            for (int y = -sb_rad; y <= sb_rad; y++)
-                for (int z = -sb_rad; z <= sb_rad; z++) {
-                    // Compute the index to modify
-                    uint id_ball = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                    // Make sure defect is in bounds
-                    if (id_ball < vol && id_ball >= 0) {
-                        //_vortex_line.valid_field[id_ball] = 0;
-                        fat_vortex_list.insert(id_ball);
+        for (int k = 1; k < base_grid.dims[2] - 1; ++k) {
+            for (int j = 1; j < base_grid.dims[1] - 1; ++j) {
+                for (int i = 1; i < base_grid.dims[0] - 1; ++i) {
+                    uint id = base_grid.to1D(i, j, k);
+                    if (lower_bound < field_Ssb[id] && field_Ssb[id] < upper_bound) {
+                        valid_fieldf[id] = -1.f;
                     }
                 }
-
-    }
-
-    // Statistical parameters
-    float max_sb = 0.f;
-    float min_sb = 0.f;
-    float mean = 0.f;
-    float stdev = 0.f;
-    int N = 0;
-
-    // [derivative][qtensor]
-    //float qD[3][5];
-    // [position][qtensor][--, -, +, ++]
-    //float Qt[3][5][4];
-    //constexpr float c1 = 1.0 / 12.0;
-    //constexpr float c2 = 2.0 / 3.0;
-    //constexpr float c3 = 4.0 / 3.0;
-
-    //auto D2 = [&](int i, int d) {
-    //    qD[i][d] = (-c1 * Qt[i][d][3] + c2 * Qt[i][d][2] - c2 * Qt[i][d][1] + c1 * Qt[i][d][0]) / dr[i];
-    //};
-
-    // Next compute the seven terms needed for splay bend
-    for (int i = 0; i < data->voxels[0]; i++) {
-        for (int j = 0; j < data->voxels[1]; j++) {
-            for (int k = 0; k < data->voxels[2]; k++) {
-                if (i > 1 && i < data->voxels[0] - 2 && j > 1 && j < data->voxels[1] - 2 && k > 1 && k < data->voxels[2] - 2) {
-                    
-                    // Second order
-                    float qa002 = (field_Q[sub2ind(i, j, k + 1, 0)] + field_Q[sub2ind(i, j, k - 1, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[2] * dr[2]);
-                    float qa200 = (field_Q[sub2ind(i + 1, j, k, 0)] + field_Q[sub2ind(i - 1, j, k, 0)] - 2.f * field_Q[sub2ind(i, j, k, 0)]) / (dr[0] * dr[0]);
-                    float qd002 = (field_Q[sub2ind(i, j, k + 1, 3)] + field_Q[sub2ind(i, j, k - 1, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[2] * dr[2]);
-                    float qd020 = (field_Q[sub2ind(i, j + 1, k, 3)] + field_Q[sub2ind(i, j - 1, k, 3)] - 2.f * field_Q[sub2ind(i, j, k, 3)]) / (dr[1] * dr[1]);
-                    float qb110 = (field_Q[sub2ind(i + 1, j + 1, k, 1)] + field_Q[sub2ind(i - 1, j - 1, k, 1)]
-                        - field_Q[sub2ind(i - 1, j + 1, k, 1)] - field_Q[sub2ind(i + 1, j - 1, k, 1)]) / (4.f * dr[0] * dr[1]);
-                    float qc101 = (field_Q[sub2ind(i + 1, j, k + 1, 2)] + field_Q[sub2ind(i - 1, j, k - 1, 2)]
-                        - field_Q[sub2ind(i - 1, j, k + 1, 2)] - field_Q[sub2ind(i + 1, j, k - 1, 2)]) / (4.f * dr[0] * dr[2]);
-                    float qe011 = (field_Q[sub2ind(i, j + 1, k + 1, 4)] + field_Q[sub2ind(i, j - 1, k - 1, 4)]
-                        - field_Q[sub2ind(i, j - 1, k + 1, 4)] - field_Q[sub2ind(i, j + 1, k - 1, 4)]) / (4.f * dr[1] * dr[2]);
-                    
-
-                    uint id = sub2ind(i, j, k, 0);
-
-                    // Found area to compute the splay bend
-                    if (fat_vortex_list.find(id) != fat_vortex_list.end())
-                        field_Ssb[id] = -qa002 + qa200 + 2.f * qb110 + 2.f * qc101 - qd002 + qd020 + 2.f * qe011;
-                    else // splay bend not close enough to the vortex knot
-                        field_Ssb[id] = 0.f;
-                }
-                else {
-                    // Far field value
-                    field_Ssb[sub2ind(i, j, k, 0)] = 0.f;
-                }
-
-           
-                mean += field_Ssb[sub2ind(i, j, k, 0)];
-                N++;
-                
-
-                if (field_Ssb[sub2ind(i, j, k, 0)] > max_sb) {
-                    max_sb = field_Ssb[sub2ind(i, j, k, 0)];
-                }
-                if (field_Ssb[sub2ind(i, j, k, 0)] < min_sb) {
-                    min_sb = field_Ssb[sub2ind(i, j, k, 0)];
-                }
             }
         }
-    }
-
-
-    mean /= (float)N;
-
-
-    // Compute the standard deviation
-    for (auto i = 0; i < vol; i++) {
-        stdev += pow(field_Ssb[i] - mean,2);
-    }
-
-    if (N > 0)
-        stdev = sqrt(stdev / N);
-
-    // Compute the two isosurfaces for positive and negative-splay bend
-    // -----------------------------------------------------------------
-    // > Positive splay bend
-    std::vector<uint> pos_splay_ribbon;
-    for (int i = 1; i < data->voxels[0]-1; i++) {
-        for (int j = 1; j < data->voxels[1]-1; j++) {
-            for (int k = 1; k < data->voxels[2]-1; k++) {
-                uint id = sub2ind(i, j, k, 0);
-                //if (field_Ssb[id] > max_sb * _widget.knot_interaction_handle.sb_pos_iso_ratio_lower &&
-                //    field_Ssb[id] <= max_sb * _widget.knot_interaction_handle.sb_pos_iso_ratio_upper) {
-                //    pos_splay_ribbon.emplace_back(id);
-                //}
-
-                float local_avg_field_Ssb = field_Ssb[id];
-                for (int x : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i + x, j, k, 0)];
-                for (int y : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i, j + y, k, 0)];
-                for (int z : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i, j, k + z, 0)];
-
-                local_avg_field_Ssb /= 7.;
-
-                if (_widget.knot_interaction_handle.sb_pos_iso_ratio_lower* stdev < field_Ssb[id]
-                    && field_Ssb[id] < _widget.knot_interaction_handle.sb_pos_iso_ratio_upper * stdev) {
-                    pos_splay_ribbon.emplace_back(id);
-                }
-                valid_fieldf[id] = 0.f;
-            }
-        }
-    }
-
-    int Radius = 0;
-
-    // Saturate the ribbon to enhance the contrast
-    for (const auto& id : pos_splay_ribbon) {
-        // Convert the index to i,j,k space
-        int k = id / slice;
-        int j = (id - k * slice) / data->voxels[0];
-        int i = id - j * data->voxels[0] - slice * k;
-
-        for (int x = -Radius; x <= Radius; x++)
-            for (int y = -Radius; y <= Radius; y++)
-                for (int z = -Radius; z <= Radius; z++) {
-                    // Compute the index to modify
-                    uint id_ball = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                    // Make sure defect is in bounds
-                    if (id_ball < vol && id_ball >= 0) {
-                        //_vortex_line.valid_field[id_ball] = 0;
-                        float r2 = x * x + y * y + z * z;
-                        valid_fieldf[id_ball] = -1.f;
-                    }
-                }
-
-    }
-
-    mc.reset_mesh();
-    mc.run();
-
-    for (uint i = 0; i < mc.nverts(); ++i) {
-        LC::ExtendedMC::Vertex& v = mc.vertices()[i];
-        v.x = dr[0] * v.x - cellf[0] * 0.5f;
-        v.y = dr[1] * v.y - cellf[1] * 0.5f;
-        v.z = dr[2] * v.z - cellf[2] * 0.5f;
-
-        // Normalize normals
-        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-        if (nrm != 0)
-        {
-            nrm = 1.0 / sqrt(nrm);
-            v.nx *= nrm;
-            v.ny *= nrm;
-            v.nz *= nrm;
-        }
-    }
-
-    if (mc.nverts() && mc.ntrigs()) {
-        unsigned int nVert = mc.nverts();
-        unsigned int nInd = mc.ntrigs() * 3;
-        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-        unsigned int* indices = new unsigned int[nInd];
-
-        LC::ExtendedMC::Vertex* temp_verts = mc.vertices();
-        int* ind_temp = (int*)mc.triangles();
-
-        // Feed data to indices,verts
-
-        for (int i = 0; i < nInd; i++)
-            indices[i] = ind_temp[i];
-
-        for (int i = 0; i < nVert; i++) {
-            verts[i].position[0] = temp_verts[i].x;
-            verts[i].position[1] = temp_verts[i].y;
-            verts[i].position[2] = temp_verts[i].z;
-            verts[i].normal[0] = temp_verts[i].nx;
-            verts[i].normal[1] = temp_verts[i].ny;
-            verts[i].normal[2] = temp_verts[i].nz;
-
-        }
-
-        std::array<float, 4> blue = { 0.f,0.f,1.f,1.f };
-
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc.vertices();
-        uint* iso_ind_ptr = (uint*)mc.triangles();
-
-        for (int vi = 0; vi < mc.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-        }
-
-
-        // Smooth the mesh and save it
-        //TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), data->voxels, blue, false, 0, 0, saveObj, obj_name + std::string("_SB_pos.ply"));
-
-        // Apply Taubin smoothing to the vertices
-        float lambda = 0.35f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-        TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc.nverts(), iso_ind_ptr,
-            mc.ntrigs() * 3, field_nn.get(), data->voxels, blue, false, 0, 0, saveObj,
-            obj_name + std::string("_SB_pos.ply"));
 
         mc.reset_mesh();
-    }
+        mc.run();
+        rescaleAndNormalizeMC(mc, base_grid);
 
-    // > Negative splay bend
-    std::vector<uint> neg_splay_ribbon;
-    for (int i = 1; i < data->voxels[0]-1; i++) {
-        for (int j = 1; j < data->voxels[1]-1; j++) {
-            for (int k = 1; k < data->voxels[2]-1; k++) {
-                uint id = sub2ind(i, j, k, 0);
-                // upper(mag) <= Ssb < lower(mag)
-                //if (_widget.knot_interaction_handle.sb_neg_iso_ratio_upper * min_sb <= field_Ssb[id] &&
-                //    field_Ssb[id] < min_sb * _widget.knot_interaction_handle.sb_neg_iso_ratio_lower) {
-                //    neg_splay_ribbon.emplace_back(id);
-                //}
-
-                float local_avg_field_Ssb = field_Ssb[id];
-                for (int x : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i + x, j, k, 0)];
-                for (int y : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i, j + y, k, 0)];
-                for (int z : {-1, 1})
-                    local_avg_field_Ssb += field_Ssb[sub2ind(i, j, k + z, 0)];
-
-                local_avg_field_Ssb /= 7.;
-
-
-                if (- _widget.knot_interaction_handle.sb_neg_iso_ratio_upper * stdev < field_Ssb[id]
-                    && field_Ssb[id] < - _widget.knot_interaction_handle.sb_neg_iso_ratio_lower * stdev) {
-                    neg_splay_ribbon.emplace_back(id);
-                }
-                valid_fieldf[id] = 0.f;
-            }
-        }
-    }
-
-    // Saturate the ribbon to enhance the contrast
-    for (const auto& id : neg_splay_ribbon) {
-        // Convert the index to i,j,k space
-        int k = id / slice;
-        int j = (id - k * slice) / data->voxels[0];
-        int i = id - j * data->voxels[0] - slice * k;
-
-        for (int x = -Radius; x <= Radius; x++)
-            for (int y = -Radius; y <= Radius; y++)
-                for (int z = -Radius; z <= Radius; z++) {
-                    // Compute the index to modify
-                    uint id_ball = (i + x) + (j + y) * data->voxels[0] + (k + z) * slice;
-                    // Make sure defect is in bounds
-                    if (id_ball < vol && id_ball >= 0) {
-                        //_vortex_line.valid_field[id_ball] = 0;
-                        float r2 = x * x + y * y + z * z;
-                        valid_fieldf[id_ball] = -1.f;
-                    }
-                }
-
-    }
-
-    mc.reset_mesh();
-    mc.run();
-
-    for (uint i = 0; i < mc.nverts(); ++i) {
-        LC::ExtendedMC::Vertex& v = mc.vertices()[i];
-        v.x = dr[0] * v.x - cellf[0] * 0.5f;
-        v.y = dr[1] * v.y - cellf[1] * 0.5f;
-        v.z = dr[2] * v.z - cellf[2] * 0.5f;
-
-        // Normalize normals
-        float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-        if (nrm != 0)
-        {
-            nrm = 1.0 / sqrt(nrm);
-            v.nx *= nrm;
-            v.ny *= nrm;
-            v.nz *= nrm;
-        }
-    }
-
-    if (mc.nverts() && mc.ntrigs()) {
-        unsigned int nVert = mc.nverts();
-        unsigned int nInd = mc.ntrigs() * 3;
-        LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-        unsigned int* indices = new unsigned int[nInd];
-
-        LC::ExtendedMC::Vertex* temp_verts = mc.vertices();
-        int* ind_temp = (int*)mc.triangles();
-
-        // Feed data to indices,verts
-
-        for (int i = 0; i < nInd; i++)
-            indices[i] = ind_temp[i];
-
-        for (int i = 0; i < nVert; i++) {
-            verts[i].position[0] = temp_verts[i].x;
-            verts[i].position[1] = temp_verts[i].y;
-            verts[i].position[2] = temp_verts[i].z;
-            verts[i].normal[0] = temp_verts[i].nx;
-            verts[i].normal[1] = temp_verts[i].ny;
-            verts[i].normal[2] = temp_verts[i].nz;
-
-        }
-
-
-        std::vector<MeshLib::PNCVertex<float>> vertices;
-        std::vector<MeshLib::Triangle> triangles;
-        std::array<float, 4> yellow = { 1.f,1.f,0.f,1.f };
-
-        // Re-interleave data to IsoVertex format
-        std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc.nverts()]);
-        LC::ExtendedMC::Vertex* iso_v_ptr = mc.vertices();
-        uint* iso_ind_ptr = (uint*)mc.triangles();
-
-        for (int vi = 0; vi < mc.nverts(); vi++) {
-            iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-        }
-
-        // Smooth the mesh and save it
-        //TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), data->voxels, yellow, false, 0, 0, saveObj, obj_name + std::string("_SB_neg.ply"));
-        
-        float lambda = 0.33f;
-        float mu = -0.34f;
-        int smoothIterations = 80;
-        TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc.nverts(), iso_ind_ptr,
-            mc.ntrigs() * 3, field_nn.get(), data->voxels, yellow, false, 0, 0, saveObj,
-            obj_name + std::string("_SB_neg.ply"));
-
-
+        smoothAndExportMC(mc, lambda, -0.34f, 80, field_nn.get(), color, 0, saveObj, obj_name + suffix);
         mc.reset_mesh();
-    }
-
-#endif
-
-    // <dog>
-    // Compute director preimages
-    Eigen::Vector3f cijk[2][2][2];
-    Eigen::Vector3f cjk[2][2];
-    Eigen::Vector3f ck[2];
-
-    int preim_ct = 0;
-    int nPreimages = _widget.knot_interaction_handle.preimages.size();
-
-    // Record the vertices and return
-    std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>> heliknoton_list;
-    heliknoton_list.reserve(2);
-
-    for (auto preim : _widget.knot_interaction_handle.preimages) {
-        float iso = _widget.knot_interaction_handle.preimage_isovalue;
-        float th = preim.theta / 180.f * M_PI;
-        float ph = preim.phi / 180.f * M_PI;
-
-        Eigen::Vector3f p0(sin(th)* cos(ph), sin(th)* sin(ph), cos(th));
-
-        std::tuple<std::vector<LC::Math::IsoVertex>,std::vector<uint>> p_list;
-
-        auto get_director = [&](int i, int j, int k) {
-            // Apply PBCs
-            if (i >= data->voxels[0])
-                i -= data->voxels[0];
-            if (j >= data->voxels[1])
-                j -= data->voxels[1];
-            if (k >= data->voxels[2])
-                k -= data->voxels[2];
-            uint32_t v_i = i + j * data->voxels[0] + k * slice;
-            return Eigen::Vector3f(field_nn[v_i], field_nn[v_i + vol], field_nn[v_i + 2 * vol]);
         };
 
-        for (int i = 0; i < vox_interp[0]; i++) {
-            for (int j = 0; j < vox_interp[1]; j++) {
-                for (int k = 0; k < vox_interp[2]; k++) {
+    exportSplayBendBand(
+        _widget.knot_interaction_handle.sb_pos_iso_ratio_lower * stdev,
+        _widget.knot_interaction_handle.sb_pos_iso_ratio_upper * stdev,
+        0.35f, { 0.f, 0.f, 1.f, 1.f }, "_SB_pos.ply"
+    );
 
-                    // interpolant id
-                    uint32_t ii = i + j * vox_interp[0] + k * vox_interp[0] * vox_interp[1];
+    exportSplayBendBand(
+        -_widget.knot_interaction_handle.sb_neg_iso_ratio_upper * stdev,
+        -_widget.knot_interaction_handle.sb_neg_iso_ratio_lower * stdev,
+        0.33f, { 1.f, 1.f, 0.f, 1.f }, "_SB_neg.ply"
+    );
+#endif
 
-                    // Use trilinear interpolation
-                    float x = i * dr_interp[0];
-                    float y = j * dr_interp[1];
-                    float z = k * dr_interp[2];
-                    // Bottom corner points
-                    int i_0 = x / dr[0];
-                    int j_0 = y / dr[1];
-                    int k_0 = z / dr[2];
-                    float x_0 = i_0 * dr[0];
-                    float y_0 = j_0 * dr[1];
-                    float z_0 = k_0 * dr[2];
-                    // Interpolation coordinates
-                    float x_d = (x - x_0) / dr[0];
-                    float y_d = (y - y_0) / dr[1];
-                    float z_d = (z - z_0) / dr[2];
-                    // Fill the interpolant
-                    for (int a = 0; a < 2; a++)
-                        for (int b = 0; b < 2; b++)
-                            for (int c = 0; c < 2; c++)
-                                cijk[a][b][c] = get_director(i_0 + a, j_0 + b, k_0 + c);
+    int preim_ct = 0;
+    int nPreimages = static_cast<int>(_widget.knot_interaction_handle.preimages.size());
 
-                    // Begin interpolation
-                    for (int b = 0; b < 2; b++)
-                        for (int c = 0; c < 2; c++)
-                            cjk[b][c] = (1.f - x_d) * cijk[0][b][c] + x_d * cijk[1][b][c];
+    std::vector<std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>>> heliknoton_list;
+    heliknoton_list.reserve(nPreimages);
 
-                    // Begin interpolation
-                    for (int c = 0; c < 2; c++)
-                        ck[c] = (1.f - y_d) * cjk[0][c] + y_d * cjk[1][c];
+    for (const auto& preim : _widget.knot_interaction_handle.preimages) {
+        float iso = _widget.knot_interaction_handle.preimage_isovalue;
+        float th = preim.theta / 180.f * static_cast<float>(M_PI);
+        float ph = preim.phi / 180.f * static_cast<float>(M_PI);
 
-                    Eigen::Vector3f result = (1.f - z_d)* ck[0] + z_d * ck[1];
-                    result.normalize();
+        Eigen::Vector3f p0(std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th));
 
-                    sample_grid[ii] = (result - p0).squaredNorm();
-                }
-            }
-        }
+        populatePreimageSampleGrid(base_grid, interp_grid, field_nn.get(), p0, sample_grid.get());
 
         mc2.reset_mesh();
-        mc2.run( iso );
+        mc2.run(iso);
+        rescaleAndNormalizeMC(mc2, interp_grid);
 
-        for (uint i = 0; i < mc2.nverts(); ++i) {
-            LC::ExtendedMC::Vertex& v = mc2.vertices()[i];
-            v.x = dr_interp[0] * v.x - cellf[0] * 0.5f;
-            v.y = dr_interp[1] * v.y - cellf[1] * 0.5f;
-            v.z = dr_interp[2] * v.z - cellf[2] * 0.5f;
-
-            // Normalize normals
-            float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-            if (nrm != 0)
-            {
-                nrm = 1.0 / sqrt(nrm);
-                v.nx *= nrm;
-                v.ny *= nrm;
-                v.nz *= nrm;
-            }
-        }
-
-        if (mc2.nverts() && mc2.ntrigs()) {
-            unsigned int nVert = mc2.nverts();
-            unsigned int nInd = mc2.ntrigs() * 3;
-
-            std::get<0>(p_list).reserve(nVert);
-
-            LC::ExtendedMC::Vertex* temp_verts = mc2.vertices();
-            int* ind_temp = (int*)mc2.triangles();
-
-            std::vector<MeshLib::PNCVertex<float>> vertices;
-            std::vector<MeshLib::Triangle> triangles;
+        if (mc2.nverts() > 0 && mc2.ntrigs() > 0) {
             auto col = LC::Imaging::Colors::RungeSphere(th, 2.f * ph);
             std::array<float, 4> col4 = { col[0], col[1], col[2], 1.f };
 
-            // Re-interleave data to IsoVertex format
-            std::unique_ptr<LC::Math::IsoVertex[]> iso_verts(new LC::Math::IsoVertex[mc2.nverts()]);
-            LC::ExtendedMC::Vertex* iso_v_ptr = mc2.vertices();
-            uint* iso_ind_ptr = (uint*)mc2.triangles();
-
-            // Export heliknoton data
-            for (int vi = 0; vi < mc2.nverts(); vi++) {
-                iso_verts[vi] = extended_to_iso(iso_v_ptr[vi]);
-                std::get<0>(p_list).emplace_back(iso_verts[vi]);
-            }
-
-            for (int i = 0; i < mc2.ntrigs(); i++) {
-                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i]);
-                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i+1]);
-                std::get<1>(p_list).emplace_back(iso_ind_ptr[3*i+2]);
-            }
-
-            float lambda = 0.33f;
-            float mu = -0.34f;
-            int smoothIterations = 80;
+            std::tuple<std::vector<LC::Math::IsoVertex>, std::vector<uint>> p_list;
             std::string fullName = obj_name + "_preim_" + std::to_string(++preim_ct) + "_of_" + std::to_string(nPreimages) + ".ply";
-            TaubinSmoothingGeneral(lambda, mu, smoothIterations, iso_verts.get(), mc2.nverts(), iso_ind_ptr,
-                mc2.ntrigs() * 3, field_nn.get(), data->voxels, col4, false, 0, 0, saveObj,
-                fullName);
+
+            smoothAndExportMC(mc2, 0.33f, -0.34f, 80, field_nn.get(), col4, 0, saveObj, fullName, &p_list);
             mc2.reset_mesh();
-            // Append to big list
-            heliknoton_list.emplace_back(p_list);
+
+            heliknoton_list.emplace_back(std::move(p_list));
         }
     }
 
@@ -6724,981 +4914,292 @@ std::tuple <std::vector<MeshLib::PNCVertex<float>>, std::vector<MeshLib::Triangl
 
 }
 
-
 void Sandbox::generateIsosurface() {
-    Dataset* data = (Dataset*)(_solver->GetDataPtr());
+    Dataset* data = static_cast<Dataset*>(_solver->GetDataPtr());
+    std::array<float, 3> cellf = {
+        static_cast<float>(data->cell_dims[0]),
+        static_cast<float>(data->cell_dims[1]),
+        static_cast<float>(data->cell_dims[2])
+    };
+    std::array<LC::scalar, 3> cell = {
+        data->cell_dims[0] / (data->voxels[0] - 1),
+        data->cell_dims[1] / (data->voxels[1] - 1),
+        data->cell_dims[2] / (data->voxels[2] - 1)
+    };
 
-    std::array<LC::scalar, 3> cell =
-    { data->cell_dims[0] / (data->voxels[0] - 1), data->cell_dims[1] / (data->voxels[1] - 1), data->cell_dims[2] / (data->voxels[2] - 1) };
-    Eigen::Vector3f N;
-
-    // ==========================
-    unsigned int numDirectors = data->voxels[0] * data->voxels[1] * data->voxels[2];
     std::array<int, 3> vNew;
-    for (int d = 0; d < 3; d++)
+    for (int d = 0; d < 3; ++d) {
         vNew[d] = _widget.shrink_interval_end[d] - _widget.shrink_interval_begin[d] + 1;
+        _widget.preimage_translate[d] = 0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
+    }
 
+    VKH::GridMetrics base_grid(data->voxels, cellf, 1);
+    VKH::GridMetrics sub_grid(vNew, cellf, 1);
 
-
-    unsigned int slc = vNew[0] * vNew[1];
-    unsigned int size = slc * vNew[2];
-    std::unique_ptr<float[]> field_nn(new float[3 * size]);
+    auto field_nn = std::make_unique<float[]>(3 * sub_grid.vol);
     FOFDSolver::Tensor4 nn(data->directors.get(), data->voxels[0], data->voxels[1], data->voxels[2], 3);
     Eigen::TensorMap<Eigen::Tensor<float, 4>> nn_new(field_nn.get(), vNew[0], vNew[1], vNew[2], 3);
-    
-    for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; i++)
-        for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; j++)
-            for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; k++) {
 
-
+    for (int k = _widget.shrink_interval_begin[2] - 1; k < _widget.shrink_interval_end[2]; ++k) {
+        int kp = k - _widget.shrink_interval_begin[2] + 1;
+        for (int j = _widget.shrink_interval_begin[1] - 1; j < _widget.shrink_interval_end[1]; ++j) {
+            int jp = j - _widget.shrink_interval_begin[1] + 1;
+            for (int i = _widget.shrink_interval_begin[0] - 1; i < _widget.shrink_interval_end[0]; ++i) {
                 int ip = i - _widget.shrink_interval_begin[0] + 1;
-                int jp = j - _widget.shrink_interval_begin[1] + 1;
-                int kp = k - _widget.shrink_interval_begin[2] + 1;
-
-                for (int d = 0; d < 3; d++)
+                for (int d = 0; d < 3; ++d) {
                     nn_new(ip, jp, kp, d) = nn(i, j, k, d);
-
+                }
             }
+        }
+    }
 
-    std::unique_ptr<float[]> field(new float[size]);
-
-
-    for (int d = 0; d < 3; d++)
-        _widget.preimage_translate[d] = 0.5f * (_widget.shrink_interval_end[d] - data->voxels[d] + _widget.shrink_interval_begin[d] - 1.0f) * cell[d];
-
-    
-    // ======================================================
-    // Reset the manipulator
     _preimageManipulator = std::make_unique<LC::Drawable::Object3D>();
     _preimageManipulator->setParent(_manipulator.get());
 
+    auto registerSurfaceDrawable = [&](auto& target_obj, LC::Surface::Vertex* verts, size_t nVert, uint* indices, size_t nInd, bool& cull_flag) {
+        target_obj.surface.Init(verts, nVert, indices, nInd, _widget.preimage_translate);
+        target_obj.mesh = target_obj.surface.Mesh();
+        new LC::Drawable::TransparentNormalDrawable{
+            *_preimageManipulator, _phongShader, *(target_obj.mesh),
+            target_obj.draw, cull_flag, _transparentNormalDrawables
+        };
+    };
 
-    LC::ExtendedMC::MarchingCubes mc;
+    auto field = std::make_unique<float[]>(sub_grid.vol);
+    LC::Math::MeshProcessor meshProc(vNew[0], vNew[1], vNew[2]);
 
-    mc.clean_all();
-    mc.set_resolution(vNew[0], vNew[1], vNew[2]);
-    mc.init_all();
-
+    float dx = static_cast<float>(cell[0]);
+    float dy = static_cast<float>(cell[1]);
+    float dz = static_cast<float>(cell[2]);
+    meshProc.SetSpacing(dx, dy, dz);
+    meshProc.SetOrigin(
+        -0.5f * (vNew[0] - 1) * dx,
+        -0.5f * (vNew[1] - 1) * dy,
+        -0.5f * (vNew[2] - 1) * dz
+    );
 
     for (S2Fiber& pimage : _nematicPreimages) {
-        // Compute the field (diffmag)
-        float theta = pimage.theta / 180.f * M_PI;
-        float phi = pimage.phi / 180.f * M_PI;
+        float theta = pimage.theta / 180.f * static_cast<float>(M_PI);
+        float phi = pimage.phi / 180.f * static_cast<float>(M_PI);
+        Eigen::Vector3f N(std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta));
 
-        N = { sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta) };
+        auto col = LC::Imaging::Colors::RungeSphere(theta, phi);
+        std::array<float, 4> color = { col[0], col[1], col[2], pimage.alpha };
 
-        for (unsigned int i = 0; i < size; i++) {
+        LC::Math::MeshProcessor::ExtractedMesh extracted;
 
-            if (pimage.pontryagin) {
-                field[i] = pow(field_nn[i + 2 * size] - N.z(), 2);
-            }
-            else
-                field[i] = (field_nn[i] - N[0]) * (field_nn[i] - N[0]) +
-                (field_nn[i + size] - N[1]) * (field_nn[i + size] - N[1]) +
-                (field_nn[i + 2 * size] - N[2]) * (field_nn[i + 2 * size] - N[2]);
-
+        // Primary Method: Orthonormal basis (b1, b2) intersection for vector preimages
+        if (!pimage.pontryagin) {
+            std::array<float, 3> n0 = { N.x(), N.y(), N.z() };
+            // Scale tube radius to the physical voxel spacing and isoLevel
+            float tubeRadius = std::sqrt(pimage.isoLevel) * dx;
+            extracted = meshProc.ComputeBasisPreimageTube(field_nn.get(), n0, tubeRadius, 12, 0.0f);
         }
 
-        // Count the number of points within the preimage
-        unsigned int numPointsFound = 0;
-        for (unsigned int i = 0; i < size; i++) if (field[i] < pimage.isoLevel) ++numPointsFound;
+        bool fallback_extraction = false;
 
-        // If points found is greater than half of volume, then invert domain
-
-        bool flip_domain = numPointsFound > size / 2;
-        
-        // Do the opposite depending on chosen domain inversion
-        if (pimage.domain_inversion)
-            flip_domain = !flip_domain;
-
-        if (flip_domain) {
-            LC_INFO("S2Fiber points found [{0}/{1}] exceeds half of volume: Inverting domain", numPointsFound, size);
-            for (unsigned int i = 0; i < size; i++) {
-                if (field[i] > pimage.isoLevel) field[i] = 0.0f;
-                else field[i] = 10.0f;
-            }
-        }
-
-
-        std::array<float, 4> color;
-        {
-            auto col = LC::Imaging::Colors::RungeSphere(theta, phi);
-            for (int d = 0; d < 3; d++)
-                color[d] = col[d];
-
-            color[3] = pimage.alpha;
-        }
-
-        // set data
-
-        mc.set_ext_data(field.get());
-        mc.run( pimage.isoLevel );
-        
-
-        // Rescale positions
-        {
-            float dx = data->cell_dims[0] / (vNew[0] - 1);
-            float dy = data->cell_dims[1] / (vNew[1] - 1);
-            float dz = data->cell_dims[2] / (vNew[2] - 1);
-            float xmin = -0.5 * data->cell_dims[0];
-            float ymin = -0.5 * data->cell_dims[1];
-            float zmin = -0.5 * data->cell_dims[2];
-
-            for (uint i = 0; i < mc.nverts(); ++i) {
-                LC::ExtendedMC::Vertex& v = mc.vertices()[i];
-                v.x = dx * v.x + xmin;
-                v.y = dy * v.y + ymin;
-                v.z = dz * v.z + zmin;
-
-                // Normalize normals
-                float nrm = v.nx * v.nx + v.ny * v.ny + v.nz * v.nz;
-                if (nrm != 0)
-                {
-                    nrm = 1.0 / sqrt(nrm);
-                    v.nx *= nrm;
-                    v.ny *= nrm;
-                    v.nz *= nrm;
+        // Fallback Method: VTK Marching Cubes Isosurface (for Pontryagin or if basis intersection is empty)
+        if (extracted.empty()) {
+            for (uint i = 0; i < sub_grid.vol; ++i) {
+                float d_z = field_nn[i + 2 * sub_grid.vol] - N.z();
+                if (pimage.pontryagin) {
+                    field[i] = d_z * d_z;
+                }
+                else {
+                    float d_x = field_nn[i] - N.x();
+                    float d_y = field_nn[i + sub_grid.vol] - N.y();
+                    field[i] = d_x * d_x + d_y * d_y + d_z * d_z;
                 }
             }
+
+            VKH::applyDomainInversion(field.get(), sub_grid.vol, pimage.isoLevel, pimage.domain_inversion);
+            extracted = meshProc.ComputeIsosurface(field.get(), pimage.isoLevel);
+            fallback_extraction = true;
         }
 
-        if (mc.nverts() && mc.ntrigs()) {
-
-            unsigned int nVert = mc.nverts();
-            unsigned int nInd = mc.ntrigs() * 3;
-            LC::Math::IsoVertex* verts = new LC::Math::IsoVertex[nVert];
-            unsigned int* indices = new unsigned int[nInd];
-
-            LC::ExtendedMC::Vertex* temp_verts = mc.vertices();
-            int* ind_temp = (int*)mc.triangles();
-
-            // Feed data to indices,verts
-
-            for (int i = 0; i < nInd; i++)
-                indices[i] = ind_temp[i];
-
-            for (int i = 0; i < nVert; i++) {
-                verts[i].position[0] = temp_verts[i].x;
-                verts[i].position[1] = temp_verts[i].y;
-                verts[i].position[2] = temp_verts[i].z;
-                verts[i].normal[0] = temp_verts[i].nx;
-                verts[i].normal[1] = temp_verts[i].ny;
-                verts[i].normal[2] = temp_verts[i].nz;
-               
-            }
-
-            mc.reset_mesh();
-
-            // Subdivide the mesh
-            LC::Algorithm::Mesh<float> mesh;
+        if (!extracted.empty()) {
             std::vector<MeshLib::PNCVertex<float>> vertices;
             std::vector<MeshLib::Triangle> triangles;
 
-            mesh.read_pnc_mesh((MeshLib::PNCVertex<float>*)verts, nVert, (MeshLib::Triangle*)indices, nInd / 3);
-            LC::Algorithm::loop_subdivision(&mesh, pimage.subdivisions);
-            // Export mesh data to vertices and indices (Don't compute normals yet)
-            mesh.write_obj(vertices, triangles, false);
+            if (fallback_extraction) {
+                uint nVert = static_cast<uint>(extracted.numVertices());
+                uint nInd = static_cast<uint>(extracted.indices.size());
+                auto smoothing_result = TaubinSmoothing(
+                    extracted.vertices.data(), nVert, extracted.indices.data(), nInd, field_nn.get(),
+                    vNew, color, pimage.normal_inversion, pimage.pontryagin, pimage.subdivisions
+                );
+                vertices = std::move(std::get<0>(smoothing_result));
+                triangles = std::move(std::get<1>(smoothing_result));
+                LC_INFO("Successfully generated fallback surface (verts = {0}, triangles = {1})", vertices.size(), triangles.size());
+            }
+            else {
+                size_t nVert = extracted.numVertices();
+                size_t nTrig = extracted.numTriangles();
+                vertices.resize(nVert);
+                triangles.resize(nTrig);
 
-            auto smoothing_result = TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(), vNew, color, pimage.normal_inversion, pimage.pontryagin, pimage.subdivisions);
+                float normSign = pimage.normal_inversion ? -1.0f : 1.0f;
 
-            vertices = std::get<0>(smoothing_result);
-            triangles = std::get<1>(smoothing_result);
+                for (size_t i = 0; i < nVert; ++i) {
+                    const auto& src = extracted.vertices[i];
+                    auto& dst = vertices[i];
 
-            //SmoothIsosurface((LC::Math::IsoVertex*)&vertices[0], (unsigned int *)&triangles[0], vertices.size(), triangles.size() * 3, _widget.smoothingIterations, _widget.smoothingValue, _widget.smoothingType);
+                    dst.position[0] = src.position[0];
+                    dst.position[1] = src.position[1];
+                    dst.position[2] = src.position[2];
 
-            LC_INFO("Successfully generated surface (verts = {0}, triangles = {1})", vertices.size(), triangles.size());
+                    dst.normal[0] = normSign * src.normal[0];
+                    dst.normal[1] = normSign * src.normal[1];
+                    dst.normal[2] = normSign * src.normal[2];
 
-            // Fill magnum class with generated surface data
-            pimage.surface.Init((LC::Surface::Vertex*)&vertices[0], vertices.size(), &triangles[0][0], triangles.size() * 3, _widget.preimage_translate);
+                    dst.color[0] = color[0];
+                    dst.color[1] = color[1];
+                    dst.color[2] = color[2];
+                    dst.color[3] = color[3];
+                }
 
-            // Delete temp data
-            delete[] verts;
-            delete[] indices;
+                for (size_t t = 0; t < nTrig; ++t) {
+                    triangles[t][0] = extracted.indices[3 * t + 0];
+                    if (pimage.normal_inversion) {
+                        triangles[t][1] = extracted.indices[3 * t + 2];
+                        triangles[t][2] = extracted.indices[3 * t + 1];
+                    }
+                    else {
+                        triangles[t][1] = extracted.indices[3 * t + 1];
+                        triangles[t][2] = extracted.indices[3 * t + 2];
+                    }
+                }
 
-            pimage.mesh = pimage.surface.Mesh();
+                LC_INFO("Successfully generated basis tube surface (verts = {0}, triangles = {1})", vertices.size(), triangles.size());
+            }
 
-            // Add mesh to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *pimage.mesh, pimage.draw, pimage.cullFaces, _transparentNormalDrawables };
-
+            registerSurfaceDrawable(
+                pimage, reinterpret_cast<LC::Surface::Vertex*>(vertices.data()),
+                vertices.size(), &triangles[0][0], triangles.size() * 3, pimage.cullFaces
+            );
         }
     }
 
-    mc.clean_temps();
-
-    // Make Vortex Knot isosurface
-    std::array<float, 4> color1 = { 1., 1., 0., 1. }, color2 = { 1., 1., 1., 1. };
-    std::unique_ptr<float[]> chi_field, shell;
+    std::unique_ptr<float[]> chi_field;
     std::unique_ptr<short[]> valid_field;
-    LC::Math::Isosurface<float*, float> gen;
-    LC::Math::Isosurface<short*, short> gen2;
-
-
-    unsigned int ill_defined_chi = 0;
-    std::array<float,3> cellf = {(float)data->cell_dims[0],(float)data->cell_dims[1],(float)data->cell_dims[2]};
-
     if (_widget.chiColorScheme != 2 && _vortexShell) {
-        ill_defined_chi = LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _widget.isoLevel);
+        LC::Math::ChiralityField(field_nn.get(), chi_field, vNew, cellf, valid_field, true, _widget.isoLevel);
     }
 
     if (_widget.generateKnots) {
-        // Clean up all knots excluding components
-        if (!_processedVortexKnot.empty()) {
-            VortexKnot* knot;
-            for (auto it = _processedVortexKnot.begin(); it != _processedVortexKnot.end(); it++) {
-                knot = &(*it);
-                knot->draw = false;
-            }
+        for (auto& knot : _processedVortexKnot) knot.draw = false;
+        _processedVortexKnot.clear();
 
-            while (!_processedVortexKnot.empty()) {
-                std::list<VortexKnot>::iterator iter;
-                for (auto it = _processedVortexKnot.begin(); it != _processedVortexKnot.end(); it++)
-                    iter = it;
-                _processedVortexKnot.erase(iter);
-            }
-        }
-
-        // Clean processed knot manipulator
         _processedVortexManipulator = std::make_unique<LC::Drawable::Object3D>();
         _processedVortexManipulator->setParent(_manipulator.get());
 
-        // Define the rbf
-        LC::Math::poly_spline<LC::scalar> rbf;
-        LC::Math::Metric<LC::scalar> metric;
-        metric.SetBCS(LC::Math::PBC({ false, false, false }));
-        metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[1]);
-        auto vox = data->voxels;
-        std::size_t slice = vox[0] * vox[1];
-        std::size_t vol = slice * vox[2];
-
-
-        if (_vortex_line.numNodes && _vortex_line.components.size() > 0) {
-
-            // Translate each component into sets of points
-            LC::scalar dx = data->cell_dims[0] / (vox[0] - 1);
-            LC::scalar dy = data->cell_dims[1] / (vox[1] - 1);
-            LC::scalar dz = data->cell_dims[2] / (vox[2] - 1);
-
-            LC::scalar dr = sqrt(dx * dx + dy * dy + dz * dz);
-            // Separation distance of two points
-            LC::scalar min_point_dist = 2. * _widget.knot_interaction_handle.point_density * dr;
-
+        if (_vortex_line.numNodes && !_vortex_line.components.empty()) {
+            LC::scalar dr = std::sqrt(cell[0] * cell[0] + cell[1] * cell[1] + cell[2] * cell[2]);
+            LC::scalar min_point_dist = 2.0 * _widget.knot_interaction_handle.point_density * dr;
 
             std::vector<Eigen::Vector3d> distinct_points;
-                
+            VKH::buildProcessedKnotGraph(_vortex_line.vertices, min_point_dist, cellf, distinct_points);
 
-            for (const auto& vertex : _vortex_line.vertices) {
+            if (!distinct_points.empty()) {
+                _processedVortexKnot.emplace_back();
+                VortexKnot& knot = _processedVortexKnot.back();
 
-                Eigen::Vector3d potential_pos(vertex.position[0], vertex.position[1], vertex.position[2]);
-
-                // Check if position is too close to existing points
-                bool valid_pt = true;
-                for (const auto& pt : distinct_points) {
-                    LC::scalar dist = (potential_pos - pt).norm();
-                    if (dist < min_point_dist) {
-                        valid_pt = false;
-                        break;
-                    }
+                if (!_vortexKnot.empty()) {
+                    knot.knotColor = _vortexKnot.front().knotColor;
                 }
 
-                // Add to the distinct points
-                if (valid_pt) {
-                    distinct_points.emplace_back(potential_pos);
-                }
+                std::function<Vector3(void*, std::size_t)> access = [](void* points, std::size_t i) {
+                    const auto* pt = static_cast<const Eigen::Vector3d*>(points) + i;
+                    return Vector3(pt->x(), pt->y(), pt->z());
+                    };
+
+                knot.points.polyRadius = 0.5 * min_point_dist;
+                knot.points.Init(&distinct_points[0].x(), access, distinct_points.size());
             }
-
-            // See how many distinct points
-            LC_INFO("{0} distinct points detected", distinct_points.size());
-
-            // Compute nearest 3 neighbors using knn
-            // Convert distinct points into proper data format for knn
-            std::unique_ptr<LC::scalar[]> positions(new LC::scalar[distinct_points.size() * 3]);
-            std::unique_ptr<std::size_t[]> query_domain(new std::size_t[distinct_points.size()]);
-            for (int i = 0; i < distinct_points.size(); i++) {
-                // Entire query domain for the knot
-                query_domain[i] = i;
-                for (int d = 0; d < 3; d++)
-                    positions[i + d * distinct_points.size()] = (distinct_points[i])(d);
-            }
-
-            int knn = 4;
-            LC::Math::Metric<LC::scalar> metric;
-            LC::Math::StencilWeights<LC::scalar> derivative = LC::Math::StencilWeightFirstDerivatives<LC::scalar>{};
-            metric.Bcs = { false, false, false };
-            metric.SetBox(data->cell_dims[0], data->cell_dims[1], data->cell_dims[2]);
-            std::unique_ptr<LC::Math::rbf<LC::scalar>> RBF = std::unique_ptr<LC::Math::poly_spline<LC::scalar>>(new LC::Math::poly_spline<LC::scalar>);
-            std::unique_ptr<std::size_t[]> neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[distinct_points.size() * knn]);
-
-            // Find nearest neighbors
-            LC::Algorithm::knn_c(positions.get(), distinct_points.size(),
-                query_domain.get(), distinct_points.size(),
-                metric, knn, (LC::scalar*)0, neighbors.get());
-
-            // If a point is isolated, that is d(p,q) > 2*separation for all q != p, throw the point out
-            // Do this for all isolated points and recompute knn
-            
-            std::vector<uint> discard_list;
-
-            for (auto i = 0; i < distinct_points.size(); i++) {
-                int mapoffset = distinct_points.size();
-                std::size_t n1 = neighbors[mapoffset + i];
-
-                auto pt = distinct_points[i];
-                auto ptn = distinct_points[n1];
-
-                LC::scalar dist = (pt - ptn).norm();
-
-                if (dist > 2. * min_point_dist) {
-                    discard_list.emplace_back(i);
-                }
-            }
-
-            LC_INFO("Discarding {0} points", discard_list.size());
-            std::vector<Eigen::Vector3d> parsed_points;
-
-
-            
-            for (int i = 0; i < distinct_points.size(); i++) {
-                bool remove_pt = false;
-                for (auto id : discard_list)
-                    if (id == i)
-                        remove_pt = true;
-
-                if (!remove_pt)
-                    parsed_points.emplace_back(distinct_points[i]);
-            }
-            
-            if (discard_list.size() > 0) {
-                // Refill position data
-                for (int i = 0; i < parsed_points.size(); i++) {
-                    for (int d = 0; d < 3; d++)
-                        positions[i + d * parsed_points.size()] = (parsed_points[i])(d);
-                }
-
-                // Recompute neighbors (No need to alter array sizes, there will just be surplus allocated space at the end)
-                LC::Algorithm::knn_c(positions.get(), parsed_points.size(),
-                    query_domain.get(), parsed_points.size(),
-                    metric, knn, (LC::scalar*)0, neighbors.get());
-            }
-
-            // Create a graph with the remaining vertices
-            // Add an edge between first neighbor
-            Graph graph(parsed_points.size());
-            int mapoffset = parsed_points.size();
-
-            for (int i = 0; i < parsed_points.size(); i++) {
-                
-                // Compute the dist
-                std::size_t nb1 = neighbors[1 * mapoffset + i];
-                std::size_t nb2 = neighbors[2 * mapoffset + i];
-                std::size_t nb3 = neighbors[3 * mapoffset + i];
-
-                Eigen::Vector3d pt = parsed_points[i];
-                Eigen::Vector3d pt_nb1 = parsed_points[nb1];
-                Eigen::Vector3d pt_nb2 = parsed_points[nb2];
-                Eigen::Vector3d pt_nb3 = parsed_points[nb3];
-
-                Eigen::Vector3d t1 = pt - pt_nb1;
-                t1.normalize();
-
-                Eigen::Vector3d t2 = pt - pt_nb2;
-                t2.normalize();
-
-                Eigen::Vector3d t3 = pt - pt_nb3;
-                LC::scalar diff = t3.norm();
-                t3.normalize();
-
-                LC::scalar d13 = pow(t1.dot(t3),2);
-                LC::scalar d23 = pow(t2.dot(t3),2);
-
-
-                graph.addEdge(i, nb1);
-                graph.addEdge(i, nb2);
-
-                if (diff < 2. * min_point_dist && d13 < 0.5 && d23 < 0.5) {
-                    graph.addEdge(i, nb3);
-                }
-            }
-                
-            std::list<uint>* adjacencyList = graph.adjacencyList();
-
-            // Export edges and vertices (in lclab2, draw cylinders between each edge connection found)
-            
-            // Initialize list of visited vertices to zero
-            std::map<uint, bool> visited;
-            for (int i = 0; i < parsed_points.size(); i++)
-                visited.insert({ i,false });
-
-            // Plot the points
-            // Vortex knot is valid at this point so generate
-            _processedVortexKnot.push_back(VortexKnot{});
-
-            // Export points
-            VortexKnot* knot;
-
-            for (auto it = _processedVortexKnot.begin(); it != _processedVortexKnot.end(); it++) {
-                knot = &(*it);
-            }
-
-            std::function<Vector3(void*, std::size_t)> access = [](void* points, std::size_t i) {
-                Vector3 result;
-                result[0] = ((Eigen::Vector3d*)points + i)->x();
-                result[1] = ((Eigen::Vector3d*)points + i)->y();
-                result[2] = ((Eigen::Vector3d*)points + i)->z();
-                return result;
-            };
-
-            {
-                std::list<VortexKnot>::iterator iter = _vortexKnot.begin();
-                knot->knotColor = iter->knotColor;
-            }
-
-            knot->points.polyRadius = 0.5 * min_point_dist;
-            knot->points.Init(&distinct_points[0].x(), access, distinct_points.size());
-
-            // Identify components
-            auto components = graph.connectedComponents(3);
-
-            std::vector<std::array<Eigen::Vector3d, 2>> edges;
-            std::vector<int> nedges_per_component(components.size());
-            for (int i = 0; i < components.size(); i++) {
-                nedges_per_component[i] = 0;
-                for (const auto& ci : components[i]) {
-                    for (auto j : adjacencyList[ci]) {
-                        if (!visited[j]) {
-                            edges.push_back({ parsed_points[ci],parsed_points[j] });
-                            ++nedges_per_component[i];
-                        }
-                    }
-                    visited[ci] = true;
-                }
-            }
-
-            // Export parsed points
-            //std::ofstream ofile("D:/dev/lclab2/data/knot/test/points.bin", std::ios::out | std::ios::binary);
-
-            //if (ofile.is_open()) {
-            
-            //    int numComponents = components.size();
-            //    ofile.write((char*)&numComponents, sizeof(int));
-                // Each component consists of the number of edges, followed by the edgelist
-            //    int offset = 0;
-            //    for (int i = 0; i < numComponents; i++) {
-            //        ofile.write((char*)&nedges_per_component[i], sizeof(int));
-            //        ofile.write((char*)&edges[offset], sizeof(Eigen::Vector3d) * 2 * nedges_per_component[i]);
-                    // Increment the offset
-            //        offset += nedges_per_component[i];
-            //    }
-            //    ofile.close();
-            //}
-
-
         }
-        
         _widget.generateKnots = false;
-
     }
 
+    LC::Math::Isosurface<float*, float> gen;
+
     if (_vortexShell) {
+        auto shell = std::make_unique<float[]>(sub_grid.vol);
+        VKH::computeHelicalShellField(sub_grid, field_nn.get(), _vortexShell->queryValue, _vortexShell->isoLevel, shell.get());
 
-        color2[3] = _vortexShell->alpha;
-        unsigned int vol = vNew[0] * vNew[1] * vNew[2];
-        shell = std::unique_ptr<float[]>(new float[vol]);
-        Eigen::Matrix3d handedness0, handedness;
-        for (int a = 0; a < 3; a++) {
-            for (int b = 0; b < 3; b++) {
-                handedness0(a, b) = 0.0;
-            }
-        }
-
-        // Normalized handedness to -1
-        handedness0(2, 2) = -1.0;
-
-        for (int i = 0; i < vNew[0]; i++) {
-            for (int j = 0; j < vNew[1]; j++) {
-                for (int k = 0; k < vNew[2]; k++) {
-                    // Diffmag for helical axis
-                    unsigned int idx = i + vNew[0] * j + vNew[0] * vNew[1] * k;
-                    
-                    if ((k <= vNew[2] - 3 && k >= 2) && (j <= vNew[1] - 3 && j >= 2) && (i <= vNew[0] - 3 && i >= 2))
-                        handedness = 0.5 / M_PI * LC::Math::HandednessTensor(i, j, k, field_nn.get(), vNew, cellf);
-                    else
-                        handedness(2, 2) = -1.;
-                   
-                    // Compute cost
-                    shell[idx] = 0.0f;
-                    double R2 = 0.;
-                    for (int a = 0; a < 3; a++) {
-                        for (int b = 0; b < 3; b++) {
-                            // R_abR_ab (proportional to "energy" in chi field)
-                           R2 += 0.5f * pow(handedness(a, b) - handedness0(a, b), 2);
-                        }
-                    }
-
-                    shell[idx] = abs(R2 - _vortexShell->queryValue);
-
-                    //shell[idx] = pow(chi_field[idx + 2 * size] - 1.0f, 2);
-                }
-            }
-        }
-
-        // Count the number of points within the preimage
-        unsigned int helicalPointsFound = 0;
-
-        for (unsigned int i = 0; i < vol; i++) if (shell[i] < _vortexShell->isoLevel) ++helicalPointsFound;
-
-        // If points found is greater than half of volume, then invert domain
-        if (helicalPointsFound > vol / 2) {
-            LC_INFO("S2Fiber points found [{0}/{1}] exceeds half of volume: Inverting domain", helicalPointsFound, vol);
-            for (unsigned int i = 0; i < vol; i++) {
-                if (shell[i] > _vortexShell->isoLevel) shell[i] = 0.0f;
-                else shell[i] = 10.0f;
-            }
-        }
-
-
+        std::array<float, 4> color2 = { 1.f, 1.f, 1.f, _vortexShell->alpha };
         gen.GenerateSurface(shell.get(), _vortexShell->isoLevel, vNew, cell, color2);
 
         if (gen.isSurfaceValid()) {
+            uint nVert = gen.NumSurfaceVertices();
+            uint nInd = gen.NumSurfaceIndices();
+            std::unique_ptr<LC::Math::IsoVertex[]> verts(gen.ReleaseSurfaceVertices());
+            std::unique_ptr<uint[]> indices(gen.ReleaseSurfaceIndices());
 
-            unsigned int nVert = gen.NumSurfaceVertices();
-            unsigned int nInd = gen.NumSurfaceIndices();
-            unsigned int nTriangles = nInd / 3;
+            auto smoothing_result = TaubinSmoothing(
+                verts.get(), nVert, indices.get(), nInd, field_nn.get(),
+                vNew, { 1.f, 1.f, 1.f, 1.f }, false, false, 0
+            );
+            auto& vertices = std::get<0>(smoothing_result);
+            auto& triangles = std::get<1>(smoothing_result);
 
-            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
-            unsigned int* indices = gen.ReleaseSurfaceIndices();
-
-            //SmoothIsosurface(verts, indices, nVert, nInd, 1, 200.f, 2);
-            auto smoothing_result = TaubinSmoothing(verts, nVert, indices, nInd, field_nn.get(),
-                vNew, {1.f,1.f,1.f,1.f}, false, false, 0);
-
-            auto vertices = std::get<0>(smoothing_result);
-            auto triangles = std::get<1>(smoothing_result);
-
-            // Go through vertices and color according to vortex shell tilt
-            // Note needs to include preimage_translate since embedded volumes can be chosen!
-
-            // Reduced quaternion space SU2/Q8
-            Eigen::Matrix3d I3, A1, A2, A3;
-            I3 = Eigen::Matrix3d::Identity();
-            A1 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(1., -1., -1.);
-            A2 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., 1., -1.);
-            A3 = Eigen::DiagonalMatrix<LC::scalar, 3, 3>(-1., -1., 1.);
-
-            // Find the min and max chi_x
-            float chi_x_min = 1.;
-            float chi_x_max = -1.;
-            if (_widget.chiColorScheme != 2) {
-                for (int i = 0; i < nVert; i++) {
-                    int xx = (vertices[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
-                    int yy = (vertices[i].position[1] / data->cell_dims[1] + 0.5) * (vNew[1] - 1);
-                    int zz = (vertices[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
-                    unsigned int idx = xx + yy * vNew[0] + zz * slc;
-                    float chi_x = chi_field[idx];
-                    chi_x_min = chi_x_min > chi_x ? chi_x : chi_x_min;
-                    chi_x_max = chi_x_max < chi_x ? chi_x : chi_x_max;
-                }
-            }
-
-            float dx = data->cell_dims[0] / (vNew[0] - 1);
-            float dy = data->cell_dims[1] / (vNew[1] - 1);
-            float dz = data->cell_dims[2] / (vNew[2] - 1);
-
-            for (int i = 0; i < nVert; i++) {
-                // extract indices from position
-                int xx = (vertices[i].position[0] / data->cell_dims[0] + 0.5) * (vNew[0] - 1);
-                int yy = (vertices[i].position[1] / data->cell_dims[1] + 0.5) * (vNew[1] - 1);
-                int zz = (vertices[i].position[2] / data->cell_dims[2] + 0.5) * (vNew[2] - 1);
-
-
-                // Get chi
-                Color3 tilt_color;
-
-                // Chosen color scheme
-                // 0 == tilt (theta)
-                // 1 == tilt (chi_x)
-                // 2 == quaternion coloring
-                if (_widget.chiColorScheme != 2) {
-
-                    // (xx,yy,zz) is the bottom vertex of the voxel containing this (vx,vy,vz) position
-                    // Use the 8 corners to linearly interpolate what chi_x, chi_y, and chi_z is at the center
-                    
-                    // Center the vertex into cube of [0,1]^3
-                    float xd = (vertices[i].position[0] - xx * dx) / dx;
-                    float yd = (vertices[i].position[1] - yy * dy) / dy;
-                    float zd = (vertices[i].position[2] - zz * dz) / dz;
-
-
-                    // Data mapping
-                    // 0 -> (0,0,0)
-                    // 1 -> (1,0,0)
-                    // 2 -> (0,1,0)
-                    // 3 -> (1,1,0)
-                    // 4 -> (0,0,1)
-                    // 5 -> (1,0,1)
-                    // 6 -> (0,1,1)
-                    // 7 -> (1,1,1)
-
-                    std::array<float, 8> c_ijk_x;
-                    std::array<float, 8> c_ijk_y;
-                    std::array<float, 8> c_ijk_z;
-
-                    std::array<float, 4> c_jk_x;
-                    std::array<float, 4> c_jk_y;
-                    std::array<float, 4> c_jk_z;
-
-                    std::array<float, 2> c_k_x;
-                    std::array<float, 2> c_k_y;
-                    std::array<float, 2> c_k_z;
-
-                    for (int id_z = 0; id_z < 1; id_z++)
-                        for (int id_y = 0; id_y < 1; id_y++)
-                            for (int id_x = 0; id_x < 1; id_x++)
-                            {
-                                int id = id_x + 2 * id_y + 4 * id_z;
-                                unsigned int idx = (xx + id_x) + (yy + id_y) * vNew[0] + (zz + id_z) * slc;
-
-                                if (idx >= vol) {
-                                    c_ijk_x[id] = 0.f;
-                                    c_ijk_y[id] = 0.f;
-                                    c_ijk_z[id] = 0.f;
-                                }
-                                else {
-                                    c_ijk_x[id] = chi_field[idx];
-                                    c_ijk_y[id] = chi_field[idx + size];
-                                    c_ijk_z[id] = chi_field[idx + 2 * size];
-                                }
-                            }
-
-
-                    // Begin interpolation
-                    for (int id_z = 0; id_z < 1; id_z++)
-                        for (int id_y = 0; id_y < 1; id_y++)
-                        {
-                            c_jk_x[id_y + 2 * id_z] = c_ijk_x[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_x[1 + 2 * id_y + 4 * id_z] * xd;
-                            c_jk_y[id_y + 2 * id_z] = c_ijk_y[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_y[1 + 2 * id_y + 4 * id_z] * xd;
-                            c_jk_z[id_y + 2 * id_z] = c_ijk_z[2 * id_y + 4 * id_z] * (1.f - xd) + c_ijk_z[1 + 2 * id_y + 4 * id_z] * xd;
-                        }
-
-                    for (int id_z = 0; id_z < 1; id_z++) {
-                        c_k_x[id_z] = c_jk_x[2 * id_z] * (1.f - yd) + c_jk_x[1 + 2 * id_z] * yd;
-                        c_k_y[id_z] = c_jk_y[2 * id_z] * (1.f - yd) + c_jk_y[1 + 2 * id_z] * yd;
-                        c_k_z[id_z] = c_jk_z[2 * id_z] * (1.f - yd) + c_jk_z[1 + 2 * id_z] * yd;
-                    }
-
-
-                    float chi_x = c_k_x[0] * (1.f - zd) + c_k_x[1] * zd;
-                    float chi_y = c_k_y[0] * (1.f - zd) + c_k_y[1] * zd;
-                    float chi_z = c_k_z[0] * (1.f - zd) + c_k_z[1] * zd;
-
-                    // Normalize
-                    LC::Math::Normalize(chi_x, chi_y, chi_z);
-
-                    // Flip chi -> -chi if chi_z does not align with far-field (chosen to be +zhat)
-                    if (chi_z < 0) {
-                        chi_x = -chi_x;
-                        chi_y = -chi_y;
-                        chi_z = -chi_z;
-                    }
-
-
-                    // Get angle in xy plane
-                    if (_widget.chiColorScheme == 0)
-                    {
-                        float theta = acos(chi_z);
-                        float phi = 2 * atan2(chi_y, chi_x);
-                        if (phi < 0.0f) phi = phi + 2 * M_PI;
-
-                        tilt_color = LC::Imaging::Colors::RungeSphere(M_PI/2., phi);
-                        //tilt_color = pow(cos(angle2), 2) * purple + pow(sin(angle2),2) * tilt_color;
-                    }
-                    else if (_widget.chiColorScheme == 1)
-                    {
-                        Color3 neutral = Color3(.29f, 0.f, 0.51f); // Indigo
-                        Color3 cyan = Color3::cyan();
-                        Color3 yellow = Color3::yellow();
-
-                        // Map chi_x into range [0,1]
-                        float zbar;
-                        if (chi_x_max != chi_x_min)
-                            zbar = (chi_x - chi_x_min) / (chi_x_max - chi_x_min);
-                        else
-                            zbar = 1.0;
-
-                        Color3 result;
-
-                        // Map negative values to yellow: zbar in [0, 0.5]
-                        if (chi_x < 0.) result = (1. - zbar / .5) * yellow + zbar / .5 * neutral;
-                        // Map positive values to cyan: zbar in [0.5, 1]
-                        else result = (1. - (zbar - 0.5) / .5) * neutral + (zbar - 0.5) / .5 * cyan;
-
-                        tilt_color = result;
-                    }
-                }
-                else {
-                    unsigned int idx = xx + yy * data->voxels[0] + zz * data->voxels[0] * data->voxels[1];
-                    tilt_color = Color3::blue();
-                    Eigen::Quaterniond q{ 0.,0.,0.,1. };
-                    if (_quaternion_field)
-                        q = _quaternion_field[idx];
-
-                    // Color mapping
-                    // 0 -> negative qx : green
-                    // 1 -> positive qx : pink
-                    // 2 -> negative qy : cyan
-                    // 3 -> positive qy : yellow
-                    // 4 -> negative qz : dark blue
-                    // 5 -> positive qz : red
-                    int col_sel = q.x() > 0. ? 1 : 0;
-                    float qmax = abs(q.x());
-
-                    if (qmax < abs(q.y()))
-                    {
-                        qmax = abs(q.y());
-                        col_sel = q.y() > 0. ? 3 : 2;
-                    }
-                    
-                    if (qmax < abs(q.z())) {
-                        qmax = abs(q.z());
-                        col_sel = q.z() > 0. ? 5 : 4;
-                    }
-
-                    switch (col_sel) {
-                        case 0:
-                            tilt_color = Color3::green();
-                            break;
-                        case 1:
-                            tilt_color = Color3(1.f, .41f, .71f); // pink
-                            break;
-                        case 2:
-                            tilt_color = Color3::cyan();
-                            break;
-                        case 3:
-                            tilt_color = Color3::yellow();
-                            break;
-                        case 4:
-                            tilt_color = Color3::blue();
-                            break;
-                        case 5:
-                            tilt_color = Color3::red();
-                            break;
-                        default:
-                            LC_WARN("Quaternion color cases failed");
-                    }
-
-                }
-
-                // Apply the color
-                for (int d = 0; d < 3; d++) {
-
-                    vertices[i].color[d] = tilt_color[d];
-
-                    if (_vortexShell->invertNormals)
-                        vertices[i].normal[d] *= -1;
-                }
-
-            }
+            VKH::colorVortexShellVertices(
+                vertices, sub_grid, base_grid, chi_field.get(),
+                _quaternion_field.get(), _widget.chiColorScheme, _vortexShell->invertNormals
+            );
 
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
-
-            // Fill magnum class with generated surface data
-            _vortexShell->surface.Init((LC::Surface::Vertex*)&vertices[0], vertices.size(), &triangles[0][0], triangles.size() * 3, _widget.preimage_translate);
-
-            // Delete data
-            delete[] verts;
-            delete[] indices;
-
-            _vortexShell->mesh = _vortexShell->surface.Mesh();
-
-            // Add mesh to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader, *(_vortexShell->mesh), _vortexShell->draw, _vortexShell->noCull, _transparentNormalDrawables };
+            registerSurfaceDrawable(
+                *_vortexShell, reinterpret_cast<LC::Surface::Vertex*>(vertices.data()),
+                vertices.size(), &triangles[0][0], triangles.size() * 3, _vortexShell->noCull
+            );
         }
     }
 
-    if (_baryonIsosurface && _baryon_density) {
-        std::array<int, 3> voxBaryon = data->voxels;
+    auto buildQuaternionColoredSurface = [&](auto& target_iso, float* iso_field) {
+        VKH::applyDomainInversion(iso_field, base_grid.vol, target_iso->isoLevel, false);
 
-        unsigned int baryVol = voxBaryon[0] * voxBaryon[1] * voxBaryon[2];
-        
-        color2[3] = _baryonIsosurface->alpha;
-        std::unique_ptr<float[]> iso = std::unique_ptr<float[]>(new float[baryVol]);
-
-        for (int i = 0; i < baryVol; i++) {
-            // Diffmag for helical axis
-            iso[i] = abs(_baryon_density[i] - _baryonIsosurface->query);
-        }
-
-
-        // Count the number of points within the preimage
-        unsigned int domainPoints = 0;
-        for (unsigned int i = 0; i < baryVol; i++) if (iso[i] < _baryonIsosurface->isoLevel) ++domainPoints;
-
-        // If points found is greater than half of volume, then invert domain
-        if (domainPoints > baryVol / 2) {
-            LC_INFO("S2Fiber points found [{0}/{1}] exceeds half of volume: Inverting domain", domainPoints, baryVol);
-            for (unsigned int i = 0; i < baryVol; i++) {
-                if (iso[i] > _baryonIsosurface->isoLevel) iso[i] = 0.0f;
-                else iso[i] = 10.0f;
-            }
-        }
-
-        gen.GenerateSurface(iso.get(), _baryonIsosurface->isoLevel, voxBaryon, cell, color2);
+        std::array<float, 4> color2 = { 1.f, 1.f, 1.f, target_iso->alpha };
+        gen.GenerateSurface(iso_field, target_iso->isoLevel, data->voxels, cell, color2);
 
         if (gen.isSurfaceValid()) {
+            uint nVert = gen.NumSurfaceVertices();
+            uint nInd = gen.NumSurfaceIndices();
+            std::unique_ptr<LC::Math::IsoVertex[]> verts(gen.ReleaseSurfaceVertices());
+            std::unique_ptr<uint[]> indices(gen.ReleaseSurfaceIndices());
 
-            unsigned int nVert = gen.NumSurfaceVertices();
-            unsigned int nInd = gen.NumSurfaceIndices();
-
-            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
-            unsigned int* indices = gen.ReleaseSurfaceIndices();
-
-            // Go through vertices and color according to max magnitude pion componenet
-            // Note needs to include preimage_translate since embedded volumes can be chosen!
-
-            for (int i = 0; i < nVert; i++) {
-                // extract indices from position
-                int xx = (verts[i].position[0] / data->cell_dims[0] + 0.5) * (voxBaryon[0] - 1);
-                int yy = (verts[i].position[1] / data->cell_dims[1] + 0.5) * (voxBaryon[1] - 1);
-                int zz = (verts[i].position[2] / data->cell_dims[2] + 0.5) * (voxBaryon[2] - 1);
-
-                // Get chi
-                unsigned int idx = xx + yy * voxBaryon[0] + zz * voxBaryon[0] * voxBaryon[1];
-
-                //std::cout << xx << " " << yy << " " << zz << std::endl;
-                auto q = _quaternion_field[idx];
-
-
-                LC::scalar max_comp = abs(q.x());
-                Color3 tilt_color = Color3::blue();
-
-                if (max_comp < abs(q.y())) {
-                    tilt_color = Color3::red();
-                    max_comp = abs(q.y());
-                }
-                if (max_comp < abs(q.z())) {
-                    tilt_color = Color3::green();
-                }
-
-                // Apply the color
-                for (int d = 0; d < 3; d++)
-                    verts[i].color[d] = tilt_color[d];
-
-            }
+            VKH::colorVerticesByMaxPion(verts.get(), nVert, base_grid, _quaternion_field.get());
 
             LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
-
-            // Fill magnum class with generated surface data
-            _baryonIsosurface->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
-
-            // Delete data
-            delete[] verts;
-            delete[] indices;
-
-            _baryonIsosurface->mesh = _baryonIsosurface->surface.Mesh();
-
-            // Add mesh to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader,
-                *(_baryonIsosurface->mesh), _baryonIsosurface->draw,
-                _baryonIsosurface->noCull, _transparentNormalDrawables };
+            registerSurfaceDrawable(
+                *target_iso, reinterpret_cast<LC::Surface::Vertex*>(verts.get()),
+                nVert, indices.get(), nInd, target_iso->noCull
+            );
         }
+        };
+
+    if (_baryonIsosurface && _baryon_density) {
+        auto iso = std::make_unique<float[]>(base_grid.vol);
+        for (uint i = 0; i < base_grid.vol; ++i) {
+            iso[i] = std::abs(_baryon_density[i] - _baryonIsosurface->query);
+        }
+        buildQuaternionColoredSurface(_baryonIsosurface, iso.get());
     }
 
     if (_quaternion_field && _pionPreimage) {
-        std::array<int, 3> voxBaryon = data->voxels;
-        unsigned int baryVol = voxBaryon[0] * voxBaryon[1] * voxBaryon[2];
+        auto iso = std::make_unique<float[]>(base_grid.vol);
+        double px = std::abs(_pionPreimage->pi1);
+        double py = std::abs(_pionPreimage->pi2);
+        double pz = std::abs(_pionPreimage->pi3);
 
-        color2[3] = _pionPreimage->alpha;
-        std::unique_ptr<float[]> iso = std::unique_ptr<float[]>(new float[baryVol]);
-
-        Eigen::Quaterniond pi(0., _pionPreimage->pi1, _pionPreimage->pi2, _pionPreimage->pi3);
-
-        for (int i = 0; i < baryVol; i++) {
-            Eigen::Quaterniond q = _quaternion_field[i];
-
-            // Get sin(theta/2)
-            double pix = abs(q.x());
-            double piy = abs(q.y());
-            double piz = abs(q.z());
-   
-            iso[i] = q.w() * q.w() + pow(pix - abs(pi.x()), 2)
-                + pow(piy - abs(pi.y()), 2)
-                + pow(piz - abs(pi.z()), 2);
+        for (uint i = 0; i < base_grid.vol; ++i) {
+            const Eigen::Quaterniond& q = _quaternion_field[i];
+            double dx = std::abs(q.x()) - px;
+            double dy = std::abs(q.y()) - py;
+            double dz = std::abs(q.z()) - pz;
+            iso[i] = static_cast<float>(q.w() * q.w() + dx * dx + dy * dy + dz * dz);
         }
-
-
-        // Count the number of points within the preimage
-        unsigned int domainPoints = 0;
-        for (unsigned int i = 0; i < baryVol; i++) if (iso[i] < _pionPreimage->isoLevel) ++domainPoints;
-
-        // If points found is greater than half of volume, then invert domain
-        if (domainPoints > baryVol / 2) {
-            LC_INFO("S2Fiber points found [{0}/{1}] exceeds half of volume: Inverting domain", domainPoints, baryVol);
-            for (unsigned int i = 0; i < baryVol; i++) {
-                if (iso[i] > _pionPreimage->isoLevel) iso[i] = 0.0f;
-                else iso[i] = 10.0f;
-            }
-        }
-
-        gen.GenerateSurface(iso.get(), _pionPreimage->isoLevel, voxBaryon, cell, color2);
-
-        if (gen.isSurfaceValid()) {
-
-            unsigned int nVert = gen.NumSurfaceVertices();
-            unsigned int nInd = gen.NumSurfaceIndices();
-
-            LC::Math::IsoVertex* verts = gen.ReleaseSurfaceVertices();
-            unsigned int* indices = gen.ReleaseSurfaceIndices();
-
-            // Go through vertices and color according to max magnitude pion componenet
-            // Note needs to include preimage_translate since embedded volumes can be chosen!
-
-            for (int i = 0; i < nVert; i++) {
-                // extract indices from position
-                int xx = (verts[i].position[0] / data->cell_dims[0] + 0.5) * (voxBaryon[0] - 1);
-                int yy = (verts[i].position[1] / data->cell_dims[1] + 0.5) * (voxBaryon[1] - 1);
-                int zz = (verts[i].position[2] / data->cell_dims[2] + 0.5) * (voxBaryon[2] - 1);
-
-                // Get chi
-                unsigned int idx = xx + yy * voxBaryon[0] + zz * voxBaryon[0] * voxBaryon[1];
-
-                //std::cout << xx << " " << yy << " " << zz << std::endl;
-                auto q = _quaternion_field[idx];
-
-
-                LC::scalar max_comp = abs(q.x());
-                Color3 tilt_color = Color3::blue();
-
-                if (max_comp < abs(q.y())) {
-                    tilt_color = Color3::red();
-                    max_comp = abs(q.y());
-                }
-                if (max_comp < abs(q.z())) {
-                    tilt_color = Color3::green();
-                }
-
-                // Apply the color
-                for (int d = 0; d < 3; d++)
-                    verts[i].color[d] = tilt_color[d];
-
-            }
-
-            LC_INFO("Successfully generated surface (verts = {0}, indices = {1})", nVert, nInd);
-
-            // Fill magnum class with generated surface data
-            _pionPreimage->surface.Init((LC::Surface::Vertex*)verts, nVert, indices, nInd, _widget.preimage_translate);
-
-            // Delete data
-            delete[] verts;
-            delete[] indices;
-
-            _pionPreimage->mesh = _pionPreimage->surface.Mesh();
-
-            // Add mesh to the scene
-            new LC::Drawable::TransparentNormalDrawable{ *_preimageManipulator, _phongShader,
-                *(_pionPreimage->mesh), _pionPreimage->draw,
-                _pionPreimage->noCull, _transparentNormalDrawables };
-        }
+        buildQuaternionColoredSurface(_pionPreimage, iso.get());
     }
-
 }
 
 /*
@@ -7839,329 +5340,240 @@ void Sandbox::handleLehmannWindow() {
     Export the vortex knots produced as a set of vertices and links (only works on well-defined knots--no multiconnected vertices)
     to be read in KnotPlot.
 */
-std::tuple<std::vector<Eigen::Vector3d>,std::vector<int>> exportVortexKnot(const std::vector<MeshLib::PNCVertex<float>>& vertices, const std::vector<MeshLib::Triangle>& triangles, LC::scalar min_point_dist, const std::string &fname, bool append) {
-
+std::tuple<std::vector<Eigen::Vector3d>, std::vector<int>> exportVortexKnot(
+    const std::vector<MeshLib::PNCVertex<float>>& vertices,
+    const std::vector<MeshLib::Triangle>& triangles,
+    LC::scalar min_point_dist,
+    const std::string& fname,
+    bool append)
+{
     std::vector<Eigen::Vector3d> points;
     std::vector<int> npoints_per_component;
     std::map<uint, Face> unvisited_map;
-    // Split triangles in components
-    uint nTriangles = triangles.size();
 
-    // Note that verts currently refers to verts and not global indices
-    // Therefore, convert indices data to global index space through vertex positions
-    for (int tri = 0; tri < nTriangles; tri++) {
-        uint i1 = triangles[tri][0];
-        uint i2 = triangles[tri][1];
-        uint i3 = triangles[tri][2];
-
-        // Store in map
-        unvisited_map.insert({ tri, Face(i1, i2, i3) });
+    const uint nTriangles = static_cast<uint>(triangles.size());
+    for (uint tri = 0; tri < nTriangles; ++tri) {
+        unvisited_map.insert({ tri, Face(triangles[tri][0], triangles[tri][1], triangles[tri][2]) });
     }
 
-    // Find components through the vertices
     auto vortex_components = find_all_components_graph(unvisited_map, vertices.size(), 50);
-
     LC_INFO("Vortex components detected - {0}", vortex_components.size());
 
-    if (vortex_components.empty())
+    if (vortex_components.empty()) {
         return {};
+    }
 
-    std::ofstream ofile(fname.c_str(), std::ios::out | std::ios::binary);
-
-    // Convert each component into a set of points
     std::vector<std::vector<Eigen::Vector3d>> distinct_component_points;
+    const LC::scalar minDistSq = min_point_dist * min_point_dist;
 
-    for (int c = 0; c < vortex_components.size(); c++) {
+    for (std::size_t c = 0; c < vortex_components.size(); ++c) {
         std::vector<Eigen::Vector3d> pointset;
         for (auto id : vortex_components[c]) {
-            auto vertex = vertices[id];
-            Eigen::Vector3d potential_pos(vertex.position[0], vertex.position[1], vertex.position[2]);
-            // Check if position is too close to existing points
+            const auto& v = vertices[id].position;
+            Eigen::Vector3d candidate(v[0], v[1], v[2]);
+
             bool valid_pt = true;
             for (const auto& pt : pointset) {
-                LC::scalar dist = (potential_pos - pt).norm();
-                if (dist < min_point_dist) {
+                if ((candidate - pt).squaredNorm() < minDistSq) {
                     valid_pt = false;
                     break;
                 }
             }
 
-            // Add to the distinct points
             if (valid_pt) {
-                pointset.emplace_back(potential_pos);
+                pointset.emplace_back(candidate);
             }
         }
 
-        LC_INFO("Component {1}: {0} distinct points detected", pointset.size(),c);
-        
+        LC_INFO("Component {1}: {0} distinct points detected", pointset.size(), c);
         if (pointset.size() < 5) {
             LC_WARN("Not enough points detected, discarding component");
             continue;
         }
-        distinct_component_points.push_back(pointset);
+        distinct_component_points.push_back(std::move(pointset));
     }
 
-    // k nearest neighbors
-    int knn = 5;
+    constexpr int knn = 5;
     LC::Math::Metric<LC::scalar> metric;
     metric.Bcs = { false, false, false };
-    std::unique_ptr<LC::Math::rbf<LC::scalar>> RBF = std::unique_ptr<LC::Math::poly_spline<LC::scalar>>(new LC::Math::poly_spline<LC::scalar>);
 
-    // For each component...
+    const LC::scalar maxEdgeDist = 2.0 * min_point_dist;
+    const LC::scalar cosStraightThreshold = -0.35; // ~110 deg to 180 deg continuation
+
     for (auto& distinct_points : distinct_component_points) {
-        // See how many distinct points
-        // Compute nearest 2 neighbors using knn
-        // Convert distinct points into proper data format for knn
-        std::unique_ptr<LC::scalar[]> positions(new LC::scalar[distinct_points.size() * 3]);
-        std::unique_ptr<std::size_t[]> query_domain(new std::size_t[distinct_points.size()]);
-        for (int i = 0; i < distinct_points.size(); i++) {
-            // Entire query domain for the knot
+        const std::size_t nDistinct = distinct_points.size();
+        auto positions = std::make_unique<LC::scalar[]>(nDistinct * 3);
+        auto query_domain = std::make_unique<std::size_t[]>(nDistinct);
+        auto neighbors = std::make_unique<std::size_t[]>(nDistinct * knn);
+
+        for (std::size_t i = 0; i < nDistinct; ++i) {
             query_domain[i] = i;
-            for (int d = 0; d < 3; d++)
-                positions[i + d * distinct_points.size()] = (distinct_points[i])(d);
-        }
-
-        std::unique_ptr<std::size_t[]> neighbors = std::unique_ptr<std::size_t[]>(new std::size_t[distinct_points.size() * knn]);
-
-        // Find nearest neighbors
-        LC::Algorithm::knn_c(positions.get(), distinct_points.size(),
-            query_domain.get(), distinct_points.size(),
-            metric, knn, (LC::scalar*)0, neighbors.get());
-
-        // If a point is isolated, that is d(p,q) > 2*separation for all q != p, throw the point out
-        // Do this for all isolated points and recompute knn
-
-        std::vector<uint> discard_list;
-
-        for (auto i = 0; i < distinct_points.size(); i++) {
-            int mapoffset = distinct_points.size();
-            std::size_t n1 = neighbors[mapoffset + i];
-
-            auto pt = distinct_points[i];
-            auto ptn = distinct_points[n1];
-
-            LC::scalar dist = (pt - ptn).norm();
-
-            if (dist > 2. * min_point_dist) {
-                discard_list.emplace_back(i);
+            for (int d = 0; d < 3; ++d) {
+                positions[i + d * nDistinct] = distinct_points[i](d);
             }
         }
 
-        if (discard_list.size())
-            LC_INFO("Discarding {0} points", discard_list.size());
+        LC::Algorithm::knn_c(
+            positions.get(), nDistinct,
+            query_domain.get(), nDistinct,
+            metric, knn, static_cast<LC::scalar*>(nullptr), neighbors.get()
+        );
 
         std::vector<Eigen::Vector3d> parsed_points;
+        parsed_points.reserve(nDistinct);
 
-
-
-        for (int i = 0; i < distinct_points.size(); i++) {
-            bool remove_pt = false;
-            for (auto id : discard_list)
-                if (id == i)
-                    remove_pt = true;
-
-            if (!remove_pt)
+        for (std::size_t i = 0; i < nDistinct; ++i) {
+            const std::size_t n1 = neighbors[nDistinct + i];
+            const LC::scalar dist = (distinct_points[i] - distinct_points[n1]).norm();
+            if (dist <= maxEdgeDist) {
                 parsed_points.emplace_back(distinct_points[i]);
-        }
-
-        if (discard_list.size() > 0) {
-            // Refill position data
-            for (int i = 0; i < parsed_points.size(); i++) {
-                for (int d = 0; d < 3; d++)
-                    positions[i + d * parsed_points.size()] = (parsed_points[i])(d);
             }
-
-            // Recompute neighbors (No need to alter array sizes, there will just be surplus allocated space at the end)
-            LC::Algorithm::knn_c(positions.get(), parsed_points.size(),
-                query_domain.get(), parsed_points.size(),
-                metric, knn, (LC::scalar*)0, neighbors.get());
         }
 
-        // Create a graph with the remaining vertices
-        // Add an edge between first neighbor
+        const std::size_t nParsed = parsed_points.size();
+        if (nParsed < static_cast<std::size_t>(knn)) {
+            continue;
+        }
 
-        Graph graph(parsed_points.size());
-        int mapoffset = parsed_points.size();
-
-        for (int i = 0; i < parsed_points.size(); i++) {
-
-            std::vector<std::pair<uint,Eigen::Vector3d>> tangents;
-
-            for (int k = 1; k < 3; k++) {
-                std::size_t nb_k = neighbors[k * mapoffset + i];
-
-                Eigen::Vector3d pt = parsed_points[i];
-                Eigen::Vector3d pt_nbk = parsed_points[nb_k];
-
-                Eigen::Vector3d tk = pt - pt_nbk;
-                LC::scalar diff = tk.norm();
-                tk.normalize();
-
-                if (diff < 2. * min_point_dist) {
-                    tangents.push_back({ nb_k, tk });
+        if (nParsed != nDistinct) {
+            LC_INFO("Discarding {0} isolated points", nDistinct - nParsed);
+            for (std::size_t i = 0; i < nParsed; ++i) {
+                query_domain[i] = i;
+                for (int d = 0; d < 3; ++d) {
+                    positions[i + d * nParsed] = parsed_points[i](d);
                 }
             }
 
-            // if there are only two tangents, insert both
-            if (tangents.size() == 2) {
-                graph.addEdge(i, tangents[0].first);
-                graph.addEdge(i, tangents[1].first);
-            }
-            else if (tangents.size() > 2) {
-                // Determine which connections are the best
+            LC::Algorithm::knn_c(
+                positions.get(), nParsed,
+                query_domain.get(), nParsed,
+                metric, knn, static_cast<LC::scalar*>(nullptr), neighbors.get()
+            );
+        }
 
-                // Triple intersection point
-                if (tangents.size() == 3) {
-                    // Cannot determine yet so add all of the points
-                    graph.addEdge(i, tangents[0].first);
-                    graph.addEdge(i, tangents[1].first);
-                    graph.addEdge(i, tangents[2].first);
+        Graph graph(static_cast<int>(nParsed));
+
+        struct TangentCandidate {
+            uint idx;
+            Eigen::Vector3d dir;
+            LC::scalar dist;
+        };
+
+        for (std::size_t i = 0; i < nParsed; ++i) {
+            std::vector<TangentCandidate> tangents;
+            tangents.reserve(knn - 1);
+
+            for (int k = 1; k < knn; ++k) {
+                const std::size_t nb_k = neighbors[k * nParsed + i];
+                if (nb_k >= nParsed || nb_k == i) continue;
+
+                Eigen::Vector3d diffVec = parsed_points[nb_k] - parsed_points[i];
+                const LC::scalar dist = diffVec.norm();
+
+                if (dist > 0.0 && dist < maxEdgeDist) {
+                    tangents.push_back({ static_cast<uint>(nb_k), diffVec / dist, dist });
+                }
+            }
+
+            if (tangents.empty()) {
+                continue;
+            }
+            else if (tangents.size() == 1) {
+                graph.addEdge(static_cast<uint>(i), tangents[0].idx);
+            }
+            else if (tangents.size() == 2) {
+                graph.addEdge(static_cast<uint>(i), tangents[0].idx);
+                graph.addEdge(static_cast<uint>(i), tangents[1].idx);
+            }
+            else {
+                // Find the pair of neighbors (a, b) that forms the straightest line through i
+                // Outward unit vectors from i on the same curve satisfy dir_a . dir_b ~ -1
+                int bestA = 0;
+                int bestB = 1;
+                LC::scalar minDot = (std::numeric_limits<LC::scalar>::max)();
+
+                for (int a = 0; a < static_cast<int>(tangents.size()); ++a) {
+                    for (int b = a + 1; b < static_cast<int>(tangents.size()); ++b) {
+                        // Weight slightly by distance so closer anti-parallel points win ties
+                        const LC::scalar dotVal = tangents[a].dir.dot(tangents[b].dir);
+                        if (dotVal < minDot) {
+                            minDot = dotVal;
+                            bestA = a;
+                            bestB = b;
+                        }
+                    }
                 }
 
-                // Two knots intersecting each other
+                graph.addEdge(static_cast<uint>(i), tangents[bestA].idx);
+                graph.addEdge(static_cast<uint>(i), tangents[bestB].idx);
+
                 if (tangents.size() == 4) {
-                    // Choose the two connections with the dot product of largest magnitude
-                    // There are 4 choose 2 connections -> 6 total possibilities
-                    std::array<LC::scalar, 6> prods;
-
-                    /*
-                    * Index: connection
-                     0: 0--1
-                     1: 1--2
-                     2: 2--3
-                     3: 1--3
-                     4: 0--2
-                     5: 0--3
-                    */
-                    prods[0] = abs(tangents[0].second.dot(tangents[1].second));
-                    prods[1] = abs(tangents[1].second.dot(tangents[2].second));
-                    prods[2] = abs(tangents[2].second.dot(tangents[3].second));
-                    prods[3] = abs(tangents[1].second.dot(tangents[3].second));
-                    prods[4] = abs(tangents[0].second.dot(tangents[2].second));
-                    prods[5] = abs(tangents[0].second.dot(tangents[3].second));
-
-                    int max_id = 0;
-
-                    for (int d = 1; d < 6; d++) {
-                        if (prods[d] > prods[max_id])
-                            max_id = d;
+                    std::array<int, 2> rem;
+                    int rIdx = 0;
+                    for (int c = 0; c < 4; ++c) {
+                        if (c != bestA && c != bestB) {
+                            rem[rIdx++] = c;
+                        }
                     }
 
-                    int c1, c2, c3, c4;
-
-                    if (max_id == 0) {
-                        c1 = 0;
-                        c2 = 1;
-                        c3 = 2;
-                        c4 = 3;
+                    const LC::scalar secondDot = tangents[rem[0]].dir.dot(tangents[rem[1]].dir);
+                    if (secondDot < cosStraightThreshold) {
+                        // Bridge the second intersecting strand directly across so the two knots don't merge
+                        graph.addEdge(tangents[rem[0]].idx, tangents[rem[1]].idx);
                     }
-                    else if (max_id == 1) {
-                        c1 = 1;
-                        c2 = 2;
-                        c3 = 3;
-                        c4 = 0;
-                    }
-                    else if (max_id == 2) {
-                        c1 = 2;
-                        c2 = 3;
-                        c3 = 1;
-                        c4 = 0;
-                    }
-                    else if (max_id == 3) {
-                        c1 = 1;
-                        c2 = 3;
-                        c3 = 2;
-                        c4 = 0;
-                    }
-                    else if (max_id == 4) {
-                        c1 = 0;
-                        c2 = 2;
-                        c3 = 1;
-                        c4 = 3;
-                    }
-                    else if (max_id == 5) {
-                        c1 = 0;
-                        c2 = 3;
-                        c3 = 2;
-                        c4 = 1;
-                    }
-                    graph.addEdge(tangents[c1].first, tangents[c2].first);
-                    graph.addEdge(tangents[c3].first, tangents[c4].first);
                 }
-
             }
-
         }
 
-        std::list<uint>* adjacencyList = graph.adjacencyList();
-
-        // Export edges and vertices (in lclab2, draw cylinders between each edge connection found)
-
-        // Initialize list of visited vertices to zero
-        std::map<uint, bool> visited;
-        for (int i = 0; i < parsed_points.size(); i++)
-            visited.insert({ i, false });
-
-        // Automatically sort indices
         auto components = graph.connectedComponents(3);
-
-        for (int i = 0; i < components.size(); i++) {
-            npoints_per_component.push_back(0);
-            int end = npoints_per_component.size() - 1;
-            npoints_per_component[end] = 0;
-            for (const auto& ci : components[i]) {
-
+        for (const auto& comp : components) {
+            if (comp.empty()) continue;
+            npoints_per_component.push_back(static_cast<int>(comp.size()));
+            for (const auto& ci : comp) {
                 points.emplace_back(parsed_points[ci]);
-                ++npoints_per_component[end];
             }
         }
-    
     }
 
-    if (points.size()) {
-        int numComponents = npoints_per_component.size();
-        if (ofile.is_open()) {
+    if (!points.empty()) {
+        std::ofstream ofile(fname, std::ios::out | std::ios::binary);
+        const int numComponents = static_cast<int>(npoints_per_component.size());
 
-            ofile.write((char*)&numComponents, sizeof(int));
-            // Each component consists of the number of edges, followed by the edgelist
+        if (ofile.is_open()) {
+            ofile.write(reinterpret_cast<const char*>(&numComponents), sizeof(int));
             int offset = 0;
-            for (int i = 0; i < numComponents; i++) {
-                ofile.write((char*)&npoints_per_component[i], sizeof(int));
-                ofile.write((char*)&points[offset], sizeof(Eigen::Vector3d) * npoints_per_component[i]);
-                // Increment the offset
+            for (int i = 0; i < numComponents; ++i) {
+                ofile.write(reinterpret_cast<const char*>(&npoints_per_component[i]), sizeof(int));
+                ofile.write(reinterpret_cast<const char*>(&points[offset]), sizeof(Eigen::Vector3d) * npoints_per_component[i]);
                 offset += npoints_per_component[i];
             }
-            ofile.close();
         }
 
-        // Save secondary format for knotplot as txt format
-        std::string base_fname = fname.substr(0, fname.size() - 4);
+        std::filesystem::path txtPath(fname);
+        txtPath.replace_extension(".txt");
 
-        int status = std::ios::out;
+        std::ios_base::openmode mode = std::ios::out;
+        if (append) mode |= std::ios::app;
 
-        // Append to file
-        if (append)
-            status |= std::ios::app;
-
-        std::ofstream ofile_knotplot;
-        ofile_knotplot.open((base_fname + ".txt").c_str(), status);
-
+        std::ofstream ofile_knotplot(txtPath, mode);
         if (ofile_knotplot.is_open()) {
             int offset = 0;
-            for (const auto& ni : npoints_per_component) {
-                for (int i = 0; i < ni; i++) {
-                    ofile_knotplot << (float)points[offset + i].x() * 20.f << " "
-                        << (float)points[offset + i].y() * 20.f << " "
-                        << (float)points[offset + i].z() * 20.f << std::endl;
+            for (const int ni : npoints_per_component) {
+                for (int i = 0; i < ni; ++i) {
+                    const auto& p = points[offset + i];
+                    ofile_knotplot << static_cast<float>(p.x()) * 20.0f << " "
+                        << static_cast<float>(p.y()) * 20.0f << " "
+                        << static_cast<float>(p.z()) * 20.0f << "\n";
                 }
                 offset += ni;
-                ofile_knotplot << std::endl;
+                ofile_knotplot << "\n";
             }
         }
-
     }
+
     return { points, npoints_per_component };
 }
+
 
 /*
     Call total energy function on the solver data
@@ -8205,8 +5617,6 @@ void Sandbox::computeEnergy() {
 }
 
 // Menu template to make menu creation a breeze with maps
-// Should really be in a separate header file in Sandbox to clear up
-// the main application file...
 template <typename T>
 void Sandbox::dropDownMenu(const char* menuName, T& currentSelectable, std::map<T, std::string>& map) {
 
@@ -8227,6 +5637,5 @@ void Sandbox::dropDownMenu(const char* menuName, T& currentSelectable, std::map<
 }
 
 LC::Application* LC::createApplication(int argc, char** argv) {
-
     return new Sandbox{ Platform::Application::Arguments{argc, argv} };
 }

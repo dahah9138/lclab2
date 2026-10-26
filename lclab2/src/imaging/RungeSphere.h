@@ -49,7 +49,7 @@ namespace LC { namespace Imaging { namespace Colors {
 
         float hue = (1.0f - zbar) * hue1 + zbar * hue2;
 
-        return Magnum::Color3::fromHsv(Deg{ hue }, 1.0f, 1.0f);
+        return Magnum::Color3::fromHsv({ Deg{ hue }, 1.0f, 1.0f });
     }
 
 

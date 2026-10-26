@@ -52,6 +52,7 @@
 #include "src/math/ScalarOrderParameter.h"
 #include "src/math/Graph.h"
 #include "src/math/Normalize.h"
+#include "src/math/MeshProcessor.h"
 
 // Algorithms
 #include "src/algorithm/cpuknn.h"

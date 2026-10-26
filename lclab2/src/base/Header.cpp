@@ -3,62 +3,39 @@
 namespace LC {
 
 	Header::~Header() {
-		for (auto& elem : headerObjects) {
-			if (elem.second && !elem.first.copy) {
-				delete[] elem.second;
-			}
-		}
+		clean();
 	}
 
 	void Header::write(const std::string& file) {
-
 		writeFile = file;
 
-		std::size_t size_t_in_bytes = sizeof(std::size_t);
-		std::size_t size_of_char_in_bytes = sizeof(char);
-
-		std::ofstream ofile(file.c_str(), std::ios::out | std::ios::binary);
-
+		std::ofstream ofile(file, std::ios::out | std::ios::binary);
 		if (!ofile) {
 			LC_CORE_WARN("Failed to open file <{0}>", file.c_str());
 			return;
 		}
 
-		// Write file version
-
-		ofile.write((char*)&version, sizeof(Version));
-
-		// Write number of header objects
-		{
-			std::size_t numObj = headerObjects.size();
-			ofile.write((char*)&numObj, sizeof(std::size_t));
-		}
-
-		// Order header objects based on location specified
 		sortHeaderObjects();
 
-		// Validate header objects
 		if (!ValidateHeaderObjects()) {
-			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", readFile.c_str());
+			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", file.c_str());
+			return;
 		}
 
-		// Write header information
+		ofile.write(reinterpret_cast<const char*>(&version), sizeof(Version));
+
+		std::size_t numObj = headerObjects.size();
+		ofile.write(reinterpret_cast<const char*>(&numObj), sizeof(std::size_t));
 
 		for (const auto& hObj : headerObjects) {
-
 			std::size_t variable_size = hObj.first.variable.size();
 
-			// Write size of variable name
-			ofile.write((char*)&variable_size, size_t_in_bytes);
-
-			// Write variable
-			ofile.write((char*)&hObj.first.variable[0], variable_size * size_of_char_in_bytes);
-
-			// Write byte size of obj
-			ofile.write((char*)&hObj.first.size_in_bytes, size_t_in_bytes);
-			
-			// Write location in body file
-			ofile.write((char*)&hObj.first.location, size_t_in_bytes);
+			ofile.write(reinterpret_cast<const char*>(&variable_size), sizeof(std::size_t));
+			if (variable_size > 0) {
+				ofile.write(hObj.first.variable.data(), variable_size * sizeof(char));
+			}
+			ofile.write(reinterpret_cast<const char*>(&hObj.first.size_in_bytes), sizeof(std::size_t));
+			ofile.write(reinterpret_cast<const char*>(&hObj.first.location), sizeof(std::size_t));
 		}
 
 		ofile.close();
@@ -69,129 +46,96 @@ namespace LC {
 	}
 
 	void Header::read(const std::string& file) {
-
-		std::size_t size_t_in_bytes = sizeof(std::size_t);
-		std::size_t size_of_char_in_bytes = sizeof(char);
-
 		readFile = file;
 
-		std::ifstream ifile(file.c_str(), std::ios::in | std::ios::binary);
-
+		std::ifstream ifile(file, std::ios::in | std::ios::binary);
 		if (!ifile) {
 			LC_CORE_WARN("Failed to open file <{0}>", file.c_str());
 			return;
 		}
 
-		// Read file version
-		ifile.read((char*)&version, sizeof(Version));
+		clean();
 
-		// Read number of header objects
-		{
-			std::size_t numObj;
-			ifile.read((char*)&numObj, size_t_in_bytes);
+		ifile.read(reinterpret_cast<char*>(&version), sizeof(Version));
 
-			headerObjects.resize(numObj);
+		std::size_t numObj = 0;
+		ifile.read(reinterpret_cast<char*>(&numObj), sizeof(std::size_t));
+		if (!ifile.good()) {
+			LC_CORE_WARN("Failed to read header count in file <{0}>", file.c_str());
+			return;
 		}
 
-		// Read header information
+		headerObjects.resize(numObj);
 
-		for (auto & hObj : headerObjects) {
-
-			// Read size of variable name
-			std::size_t variable_size;
-			ifile.read((char*)&variable_size, size_t_in_bytes);
+		for (auto& hObj : headerObjects) {
+			std::size_t variable_size = 0;
+			ifile.read(reinterpret_cast<char*>(&variable_size), sizeof(std::size_t));
+			if (!ifile.good()) break;
 
 			hObj.first.variable.resize(variable_size);
+			if (variable_size > 0) {
+				ifile.read(&hObj.first.variable[0], variable_size * sizeof(char));
+			}
 
-			// Read variable
-			ifile.read((char*)&hObj.first.variable[0], variable_size * size_of_char_in_bytes);
-
-			// Read byte size of obj
-			ifile.read((char*)&hObj.first.size_in_bytes, size_t_in_bytes);
-			
-			// Read location in body file
-			ifile.read((char*)&hObj.first.location, size_t_in_bytes);
+			ifile.read(reinterpret_cast<char*>(&hObj.first.size_in_bytes), sizeof(std::size_t));
+			ifile.read(reinterpret_cast<char*>(&hObj.first.location), sizeof(std::size_t));
+			hObj.second = nullptr;
 		}
-	
 
 		ifile.close();
 
 		if (!ifile.good()) {
 			LC_CORE_WARN("Read error occurred in file <{0}>", file.c_str());
+			return;
 		}
 
-		// Order header objects based on location specified
 		sortHeaderObjects();
 
-		// Validate header objects
 		if (!ValidateHeaderObjects()) {
 			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", readFile.c_str());
+			return;
 		}
 	}
 
 	void Header::readBody() {
-
-		std::size_t size_t_in_bytes = sizeof(std::size_t);
-		std::size_t size_of_char_in_bytes = sizeof(char);
-
-		std::ifstream ifile(readFile.c_str(), std::ios::in | std::ios::binary);
-
+		std::ifstream ifile(readFile, std::ios::in | std::ios::binary);
 		if (!ifile) {
 			LC_CORE_WARN("Failed to open file <{0}>", readFile.c_str());
 			return;
 		}
 
-		// Read file version
-		{
-			enum class Version v;
-			ifile.read((char*)&v, sizeof(Version));
+		ifile.seekg(sizeof(Version), std::ios::beg);
+
+		std::size_t numObj = 0;
+		ifile.read(reinterpret_cast<char*>(&numObj), sizeof(std::size_t));
+
+		if (!ifile.good() || numObj != headerObjects.size()) {
+			LC_CORE_WARN("Abort: Header object count mismatch in file <{0}>", readFile.c_str());
+			return;
 		}
 
-		// Read number of header objects
-		std::size_t numObj;
-		{
-			ifile.read((char*)&numObj, size_t_in_bytes);
+		for (std::size_t i = 0; i < numObj; ++i) {
+			std::size_t variable_size = 0;
+			ifile.read(reinterpret_cast<char*>(&variable_size), sizeof(std::size_t));
+			ifile.seekg(variable_size * sizeof(char) + 2 * sizeof(std::size_t), std::ios::cur);
 		}
 
-		// Read header information
-
-		{
-			char buffer[256];
-
-			for (auto& hObj : headerObjects) {
-
-				// Read size of variable name
-				std::size_t variable_size;
-				ifile.read((char*)&variable_size, size_t_in_bytes);
-
-				// Read variable
-				ifile.read(buffer, variable_size * size_of_char_in_bytes);
-
-				// Read byte size of obj
-				ifile.read(buffer, size_t_in_bytes);
-
-				// Read location in body file
-				ifile.read(buffer, size_t_in_bytes);
-			}
-		}
-
-		// Order header objects based on location specified
 		sortHeaderObjects();
 
-		// Validate header objects
 		if (!ValidateHeaderObjects()) {
 			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", readFile.c_str());
+			return;
 		}
 
-		// Read body information
-		for (int i = 0; i < numObj; i++) {
+		for (std::size_t i = 0; i < numObj; ++i) {
+			if (headerObjects[i].second && !headerObjects[i].first.copy) {
+				delete[] static_cast<char*>(headerObjects[i].second);
+			}
 
-			// Allocate data
 			headerObjects[i].second = new char[headerObjects[i].first.size_in_bytes];
 			headerObjects[i].first.copy = false;
 
-			// Read data
-			ifile.read((char*)headerObjects[i].second, headerObjects[i].first.size_in_bytes);
+			ifile.read(static_cast<char*>(headerObjects[i].second), headerObjects[i].first.size_in_bytes);
 		}
 
 		ifile.close();
@@ -199,41 +143,29 @@ namespace LC {
 		if (!ifile.good()) {
 			LC_CORE_WARN("Read error occurred in file <{0}>", readFile.c_str());
 		}
-
 	}
 
 	void Header::writeBody() {
-
-		std::size_t size_t_in_bytes = sizeof(std::size_t);
-		std::size_t size_of_char_in_bytes = sizeof(char);
-
-		std::ofstream ofile(writeFile.c_str(), std::ios::out | std::ios::binary | std::ios::app);
-
+		std::ofstream ofile(writeFile, std::ios::out | std::ios::binary | std::ios::app);
 		if (!ofile) {
 			LC_CORE_WARN("Failed to open file <{0}>", writeFile.c_str());
 			return;
 		}
 
-
-
-		// Order header objects based on location specified
 		sortHeaderObjects();
 
-		// Validate header objects
 		if (!ValidateHeaderObjects()) {
 			LC_CORE_WARN("Abort: Invalid locations specified in file <{0}>", writeFile.c_str());
+			return;
 		}
 
-		// Write body information
-		for (int i = 0; i < headerObjects.size(); i++) {
-
-			// Write data
+		for (std::size_t i = 0; i < headerObjects.size(); ++i) {
 			if (headerObjects[i].second) {
-				ofile.write((char*)headerObjects[i].second, headerObjects[i].first.size_in_bytes);
+				ofile.write(static_cast<const char*>(headerObjects[i].second), headerObjects[i].first.size_in_bytes);
 			}
 			else {
-				LC_CORE_WARN("Abort: Invalid header object <{1}> when writing body to file <{0}>", writeFile.c_str(), 
-					headerObjects[i].first.variable.c_str());
+				LC_CORE_WARN("Abort: Invalid header object <{1}> when writing body to file <{0}>",
+					writeFile.c_str(), headerObjects[i].first.variable.c_str());
 				return;
 			}
 		}
@@ -243,58 +175,48 @@ namespace LC {
 		if (!ofile.good()) {
 			LC_CORE_WARN("Write error occurred in file <{0}>", writeFile.c_str());
 		}
-
 	}
 
 	void Header::sortHeaderObjects() {
-
 		std::sort(headerObjects.begin(), headerObjects.end(),
-			[](const std::pair<HeaderObject, void*>& a, const std::pair<HeaderObject, void*>& b){
-				return a.first.location < b.first.location; 
+			[](const std::pair<HeaderObject, void*>& a, const std::pair<HeaderObject, void*>& b) {
+				return a.first.location < b.first.location;
 			});
-
 	}
 
 	bool Header::ValidateHeaderObjects() {
-
-		for (int i = 1; i < headerObjects.size(); i++) {
+		for (std::size_t i = 1; i < headerObjects.size(); ++i) {
 			if (headerObjects[i].first.location <= headerObjects[i - 1].first.location) {
 				LC_CORE_WARN("Error: Locations {1} and {0}", headerObjects[i].first.location, headerObjects[i - 1].first.location);
 				return false;
 			}
 		}
-
 		return true;
 	}
 
-	void* Header::passData(std::size_t &index) {
-		// return data at that index and set to null
-		if (headerObjects.size() > index) {
+	void* Header::passData(std::size_t& index) {
+		if (index < headerObjects.size()) {
 			headerObjects[index].first.copy = true;
-			void *tmp = headerObjects[index].second;
-			headerObjects[index++].second = 0;
+			void* tmp = headerObjects[index].second;
+			headerObjects[index++].second = nullptr;
 			return tmp;
 		}
-		else return 0;
+		return nullptr;
 	}
 
-	void* Header::passData(const std::string &id) {
-		// Search for the id
-		for (auto hObj = headerObjects.begin(); hObj != headerObjects.end(); hObj++) {
+	void* Header::passData(const std::string& id) {
+		for (auto hObj = headerObjects.begin(); hObj != headerObjects.end(); ++hObj) {
 			if (hObj->first.variable == id) {
-				//LC_CORE_INFO("Found ID <{0}> (size = {1} bytes)", id.c_str(), hObj->first.size_in_bytes);
 				hObj->first.copy = true;
 				void* tmp = hObj->second;
-				hObj->second = 0;
-				// Remove the entry and return the ptr to the data
+				hObj->second = nullptr;
 				headerObjects.erase(hObj);
 				return tmp;
 			}
 		}
 
 		LC_CORE_WARN("ID [{0}] not found", id.c_str());
-		
-		return 0;
+		return nullptr;
 	}
 
 	Header& Header::setData(void* ptr, std::size_t index) {
@@ -312,17 +234,13 @@ namespace LC {
 	}
 
 	Header& Header::addObject(HeaderObject hobj, void* ptr, std::size_t& loc) {
-
 		hobj.location = loc++;
-
 		headerObjects.emplace_back(HeaderPair(hobj, ptr));
 		return *this;
 	}
 
 	Header& Header::addObject(HeaderObject hobj, void* ptr) {
-
 		hobj.location = headerObjects.size();
-
 		headerObjects.emplace_back(HeaderPair(hobj, ptr));
 		return *this;
 	}
@@ -332,17 +250,14 @@ namespace LC {
 	}
 
 	void Header::clean() {
-		Header tmp{};
-		// Need to go through list and remove any entries that
-		// have non-null ptrs and were not passed to an external ptr
 		for (auto& obj : headerObjects) {
 			if (obj.second && !obj.first.copy) {
 				LC_CORE_INFO("Deleting unused loaded variable [{0}]", obj.first.variable.c_str());
-				delete[] obj.second;
+				delete[] static_cast<char*>(obj.second);
 			}
-			obj.second = 0;
+			obj.second = nullptr;
 		}
-		headerObjects.swap(tmp.headerObjects);
+		headerObjects.clear();
 	}
 
 	void Header::read() {
@@ -352,6 +267,5 @@ namespace LC {
 	void Header::write() {
 		write(writeFile);
 	}
-
 
 }

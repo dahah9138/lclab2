@@ -23,11 +23,24 @@ add_library(lclab2_math Choose.h Choose.cpp
 						ScalarOrderParameter.h
 						Graph.h
 						Normalize.h
-						Fields.h Fields.cpp)
+						Fields.h Fields.cpp
+						MeshProcessor.h MeshProcessor.cpp
+						)
 target_include_directories(lclab2_math PUBLIC
 ${CMAKE_CURRENT_SOURCE_DIR}
 ${CMAKE_SOURCE_DIR}/lclab2/src/base
 ${CMAKE_SOURCE_DIR}/external/eigen
 ${CMAKE_SOURCE_DIR}/external/eigen/unsupported)
-target_link_libraries(lclab2_math PUBLIC lclab2_utility)
+target_link_libraries(lclab2_math
+	PUBLIC
+		lclab2_utility
+	PRIVATE
+		${VTK_LIBRARIES}
+	)
+	
+vtk_module_autoinit(
+  TARGETS lclab2_math
+  MODULES ${VTK_LIBRARIES}
+)
+
 set_property(TARGET lclab2_math PROPERTY POSITION_INDEPENDENT_CODE 1)

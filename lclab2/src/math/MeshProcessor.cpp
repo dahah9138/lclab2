@@ -444,15 +444,6 @@ namespace LC {
                 if (adj[i].size() == 2) traceFrom(i);
             }
 
-            if (chains.size() > 1) {
-                chains.erase(
-                    std::remove_if(chains.begin(), chains.end(), [](const std::vector<Pt3>& c) {
-                        return c.size() < 4;
-                        }),
-                    chains.end()
-                );
-            }
-
             const float maxBridgeDistSq = (4.0f * minStep) * (4.0f * minStep);
             bool merged = true;
             while (merged && chains.size() > 1) {
@@ -503,6 +494,15 @@ namespace LC {
                     chains.erase(chains.begin() + bestJ);
                     merged = true;
                 }
+            }
+
+            if (chains.size() > 1) {
+                chains.erase(
+                    std::remove_if(chains.begin(), chains.end(), [](const std::vector<Pt3>& c) {
+                        return c.size() < 4;
+                        }),
+                    chains.end()
+                );
             }
 
             // Precompute unit circle table for tube cross-section
@@ -594,7 +594,15 @@ namespace LC {
                         curve[next][1] - curve[prev][1],
                         curve[next][2] - curve[prev][2]
                     };
-                    normalize3(tangents[i]);
+                    float tLen = std::sqrt(tangents[i][0] * tangents[i][0] + tangents[i][1] * tangents[i][1] + tangents[i][2] * tangents[i][2]);
+                    if (tLen > 1e-8f) {
+                        tangents[i][0] /= tLen;
+                        tangents[i][1] /= tLen;
+                        tangents[i][2] /= tLen;
+                    }
+                    else {
+                        tangents[i] = (i > 0) ? tangents[i - 1] : Pt3{ 0.0f, 0.0f, 1.0f };
+                    }
                 }
 
                 // Propagate parallel transport (Bishop) frame along curve
@@ -606,9 +614,17 @@ namespace LC {
                     const Pt3& Ti = tangents[i];
                     float proj = dot3(Nprev, Ti);
                     Pt3 Ncurr = { Nprev[0] - proj * Ti[0], Nprev[1] - proj * Ti[1], Nprev[2] - proj * Ti[2] };
-                    normalize3(Ncurr);
-                    normals[i] = Ncurr;
-                    binormals[i] = cross3(Ti, Ncurr);
+                    float nLen = std::sqrt(Ncurr[0] * Ncurr[0] + Ncurr[1] * Ncurr[1] + Ncurr[2] * Ncurr[2]);
+                    if (nLen > 1e-6f) {
+                        Ncurr[0] /= nLen;
+                        Ncurr[1] /= nLen;
+                        Ncurr[2] /= nLen;
+                        normals[i] = Ncurr;
+                        binormals[i] = cross3(Ti, Ncurr);
+                    }
+                    else {
+                        BuildOrthonormalBasis(Ti, normals[i], binormals[i]);
+                    }
                 }
 
                 // For closed loops, untwist holonomy seam angle uniformly across all rings
@@ -862,9 +878,11 @@ namespace LC {
                     float n[3] = { nxVal * invN, nyVal * invN, nzVal * invN };
 
                     float dotRef = n[0] * uRef[0] + n[1] * uRef[1] + n[2] * uRef[2];
+                    float nSign = 1.0f;
                     if (dotRef < 0.0f) {
                         n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2];
                         dotRef = -dotRef;
+                        nSign = -1.0f;
                     }
                     outAlign = dotRef;
 
@@ -889,11 +907,11 @@ namespace LC {
                     };
 
                     const float* g = &gradField[idx * 9];
-                    // Directional derivatives (d_alpha . grad) n_b for alpha in {1, 2}
+                    // Directional derivatives (d_alpha . grad) (nSign * n_b) for alpha in {1, 2}
                     float dn1[3], dn2[3];
                     for (int b = 0; b < 3; ++b) {
-                        dn1[b] = d1[0] * g[0 + b] + d1[1] * g[3 + b] + d1[2] * g[6 + b];
-                        dn2[b] = d2[0] * g[0 + b] + d2[1] * g[3 + b] + d2[2] * g[6 + b];
+                        dn1[b] = nSign * (d1[0] * g[0 + b] + d1[1] * g[3 + b] + d1[2] * g[6 + b]);
+                        dn2[b] = nSign * (d2[0] * g[0 + b] + d2[1] * g[3 + b] + d2[2] * g[6 + b]);
                     }
 
                     float d1_dn1 = d1[0] * dn1[0] + d1[1] * dn1[1] + d1[2] * dn1[2];
@@ -963,22 +981,36 @@ namespace LC {
                             c000 + strideZ + strideY + 1
                         };
 
-                        // Quick cell-level rejection in the frame of corner 0
-                        std::array<float, 3> n0 = { nxPtr[c000], nyPtr[c000], nzPtr[c000] };
-                        float norm0 = std::sqrt(n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2]);
+                        // Build a single cell-level reference frame from the sign-aligned mean director
+                        // so all 6 faces of the cell share consistent (Delta_1, Delta_2) values on shared edges.
+                        float n0x = nxPtr[c000], n0y = nyPtr[c000], n0z = nzPtr[c000];
+                        float norm0 = std::sqrt(n0x * n0x + n0y * n0y + n0z * n0z);
                         if (norm0 < 1e-8f) continue;
-                        std::array<float, 3> uCell = { n0[0] / norm0, n0[1] / norm0, n0[2] / norm0 };
+
+                        float meanX = 0.0f, meanY = 0.0f, meanZ = 0.0f;
+                        for (int c = 0; c < 8; ++c) {
+                            size_t idx = cIdx[c];
+                            float vx = nxPtr[idx], vy = nyPtr[idx], vz = nzPtr[idx];
+                            if (vx * n0x + vy * n0y + vz * n0z < 0.0f) {
+                                vx = -vx; vy = -vy; vz = -vz;
+                            }
+                            meanX += vx; meanY += vy; meanZ += vz;
+                        }
+                        float normMean = std::sqrt(meanX * meanX + meanY * meanY + meanZ * meanZ);
+                        std::array<float, 3> uCell = (normMean > 1e-8f)
+                            ? std::array<float, 3>{ meanX / normMean, meanY / normMean, meanZ / normMean }
+                            : std::array<float, 3>{ n0x / norm0, n0y / norm0, n0z / norm0 };
                         std::array<float, 3> b1Cell, b2Cell;
                         BuildOrthonormalBasis(uCell, b1Cell, b2Cell);
 
+                        float cellD1[8], cellD2[8], cellAl[8];
                         int maskPos1 = 0, maskNeg1 = 0, maskPos2 = 0, maskNeg2 = 0;
                         bool validCell = true;
                         for (int c = 0; c < 8; ++c) {
-                            float d1, d2, al;
-                            evalDeltaAtNode(cIdx[c], uCell, b1Cell, d1, d2, al);
-                            if (al < alignmentThreshold) { validCell = false; break; }
-                            if (d1 >= 0.0f) maskPos1 = 1; else maskNeg1 = 1;
-                            if (d2 >= 0.0f) maskPos2 = 1; else maskNeg2 = 1;
+                            evalDeltaAtNode(cIdx[c], uCell, b1Cell, cellD1[c], cellD2[c], cellAl[c]);
+                            if (cellAl[c] < alignmentThreshold) { validCell = false; break; }
+                            if (cellD1[c] >= 0.0f) maskPos1 = 1; else maskNeg1 = 1;
+                            if (cellD2[c] >= 0.0f) maskPos2 = 1; else maskNeg2 = 1;
                         }
                         if (!validCell || !maskPos1 || !maskNeg1 || !maskPos2 || !maskNeg2) {
                             continue;
@@ -996,61 +1028,78 @@ namespace LC {
                         float hitPts[6][3];
                         int hitCount = 0;
 
+                        auto addHit = [&](const float pt[3]) {
+                            for (int h = 0; h < hitCount; ++h) {
+                                float ddx = pt[0] - hitPts[h][0];
+                                float ddy = pt[1] - hitPts[h][1];
+                                float ddz = pt[2] - hitPts[h][2];
+                                if (ddx * ddx + ddy * ddy + ddz * ddz < 1e-10f) {
+                                    return;
+                                }
+                            }
+                            if (hitCount < 6) {
+                                hitPts[hitCount][0] = pt[0];
+                                hitPts[hitCount][1] = pt[1];
+                                hitPts[hitCount][2] = pt[2];
+                                ++hitCount;
+                            }
+                        };
+
                         for (int f = 0; f < 6; ++f) {
                             int v0 = faceQuads[f][0], v1 = faceQuads[f][1], v2 = faceQuads[f][2], v3 = faceQuads[f][3];
-
-                            // Anchor the face frame to v0 so adjacent cells share identical face values
-                            size_t refIdx = cIdx[v0];
-                            std::array<float, 3> nFace = { nxPtr[refIdx], nyPtr[refIdx], nzPtr[refIdx] };
-                            float normF = std::sqrt(nFace[0] * nFace[0] + nFace[1] * nFace[1] + nFace[2] * nFace[2]);
-                            if (normF < 1e-8f) continue;
-                            std::array<float, 3> uFace = { nFace[0] / normF, nFace[1] / normF, nFace[2] / normF };
-                            std::array<float, 3> b1Face, b2Face;
-                            BuildOrthonormalBasis(uFace, b1Face, b2Face);
-
-                            int fv[4] = { v0, v1, v2, v3 };
-                            float f1[4], f2[4], al[4];
-                            for (int m = 0; m < 4; ++m) {
-                                evalDeltaAtNode(cIdx[fv[m]], uFace, b1Face, f1[m], f2[m], al[m]);
-                            }
-
                             float pt[3];
-                            if (intersectTri(pos[v0], f1[0], f2[0], al[0],
-                                pos[v1], f1[1], f2[1], al[1],
-                                pos[v2], f1[2], f2[2], al[2], pt) ||
-                                intersectTri(pos[v0], f1[0], f2[0], al[0],
-                                    pos[v2], f1[2], f2[2], al[2],
-                                    pos[v3], f1[3], f2[3], al[3], pt)) {
-
-                                bool duplicate = false;
-                                for (int h = 0; h < hitCount; ++h) {
-                                    float ddx = pt[0] - hitPts[h][0];
-                                    float ddy = pt[1] - hitPts[h][1];
-                                    float ddz = pt[2] - hitPts[h][2];
-                                    if (ddx * ddx + ddy * ddy + ddz * ddz < 1e-10f) {
-                                        duplicate = true;
-                                        break;
-                                    }
-                                }
-                                if (!duplicate && hitCount < 6) {
-                                    hitPts[hitCount][0] = pt[0];
-                                    hitPts[hitCount][1] = pt[1];
-                                    hitPts[hitCount][2] = pt[2];
-                                    ++hitCount;
-                                }
+                            if (intersectTri(pos[v0], cellD1[v0], cellD2[v0], cellAl[v0],
+                                pos[v1], cellD1[v1], cellD2[v1], cellAl[v1],
+                                pos[v2], cellD1[v2], cellD2[v2], cellAl[v2], pt)) {
+                                addHit(pt);
+                            }
+                            if (intersectTri(pos[v0], cellD1[v0], cellD2[v0], cellAl[v0],
+                                pos[v2], cellD1[v2], cellD2[v2], cellAl[v2],
+                                pos[v3], cellD1[v3], cellD2[v3], cellAl[v3], pt)) {
+                                addHit(pt);
                             }
                         }
 
-                        if (hitCount >= 2) {
+                        auto emitSegment = [&](int a, int b) {
                             unsigned int baseIdx = static_cast<unsigned int>(result.vertices.size() / 3);
-                            result.vertices.push_back(hitPts[0][0]);
-                            result.vertices.push_back(hitPts[0][1]);
-                            result.vertices.push_back(hitPts[0][2]);
-                            result.vertices.push_back(hitPts[1][0]);
-                            result.vertices.push_back(hitPts[1][1]);
-                            result.vertices.push_back(hitPts[1][2]);
+                            result.vertices.push_back(hitPts[a][0]);
+                            result.vertices.push_back(hitPts[a][1]);
+                            result.vertices.push_back(hitPts[a][2]);
+                            result.vertices.push_back(hitPts[b][0]);
+                            result.vertices.push_back(hitPts[b][1]);
+                            result.vertices.push_back(hitPts[b][2]);
                             result.lineIndices.push_back(baseIdx);
                             result.lineIndices.push_back(baseIdx + 1);
+                        };
+
+                        if (hitCount == 2) {
+                            emitSegment(0, 1);
+                        }
+                        else if (hitCount == 4) {
+                            auto hitDist = [&](int a, int b) {
+                                float ddx = hitPts[a][0] - hitPts[b][0];
+                                float ddy = hitPts[a][1] - hitPts[b][1];
+                                float ddz = hitPts[a][2] - hitPts[b][2];
+                                return std::sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+                            };
+                            float c01_23 = hitDist(0, 1) + hitDist(2, 3);
+                            float c02_13 = hitDist(0, 2) + hitDist(1, 3);
+                            float c03_12 = hitDist(0, 3) + hitDist(1, 2);
+                            if (c01_23 <= c02_13 && c01_23 <= c03_12) {
+                                emitSegment(0, 1);
+                                emitSegment(2, 3);
+                            }
+                            else if (c02_13 <= c03_12) {
+                                emitSegment(0, 2);
+                                emitSegment(1, 3);
+                            }
+                            else {
+                                emitSegment(0, 3);
+                                emitSegment(1, 2);
+                            }
+                        }
+                        else if (hitCount >= 2) {
+                            emitSegment(0, 1);
                         }
                     }
                 }
